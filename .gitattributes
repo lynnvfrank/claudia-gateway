@@ -1,0 +1,9 @@
+# Bash / POSIX shell — LF regardless of host (avoids CRLF in containers / on Unix)
+*.sh text eol=lf
+
+# PEM-style certificates and related text key material — LF is the usual PEM convention
+*.pem text eol=lf
+*.crt text eol=lf
+*.cer text eol=lf
+*.csr text eol=lf
+*.key text eol=lf

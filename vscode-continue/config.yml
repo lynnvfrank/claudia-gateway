@@ -1,0 +1,34 @@
+# Example Continue configuration for Claudia Gateway.
+# Merge into ~/.continue/config.yaml or workspace .continue/config.yaml.
+#
+# Continue v1: use one `models` list entry per dropdown item (not a separate `providers` block
+# for OpenAI-compatible). Share `apiBase` / `apiKey` via a YAML anchor — see below.
+#
+# Each `model` value must match an `id` from GET <gateway>/v1/models (virtual Claudia-*
+# plus LiteLLM model_name aliases from config/litellm_config.yaml).
+
+%YAML 1.1
+---
+name: Claudia
+version: "1.0.0"
+schema: v1
+
+claudia: &claudia
+  provider: openai
+  apiKey: <GATEWAY_TOKEN>
+  apiBase: <CLAUDIA_GATEWAY_URL>
+  roles:
+    - chat
+    - edit
+    - apply
+
+models:
+  - name: Claudia (virtual)
+    <<: *claudia
+    model: <VIRTUAL_MODEL_ID>
+
+  - name: Example upstream (Groq)
+    <<: *claudia
+    model: groq-llama-8b
+
+  # Add one block per model id returned by GET /v1/models …

@@ -1,0 +1,7 @@
+# Copy to `tokens.yaml` and replace tokens. Reload on mtime.
+# Bearer value must match what clients send (Continue apiKey, curl, etc.).
+
+tokens:
+  - label: local-dev
+    token: "claudia-dev-replace-me"
+    tenant_id: "default"

@@ -1,0 +1,129 @@
+# LiteLLM proxy config
+#
+# Docs
+# - Proxy config: https://docs.litellm.ai/docs/proxy/configs
+# - Groq provider: https://docs.litellm.ai/docs/providers/groq
+# - Gemini (Google AI Studio) provider: https://docs.litellm.ai/docs/providers/gemini
+#
+# IMPORTANT
+# - `model_name` is the alias your gateway / clients call.
+# - Aliases here MUST match `routing.fallback_chain` entries in `config/gateway.yaml`.
+# - Provider keys are injected via container environment variables (see `docker-compose.yml`).
+#
+# Free-tier / no-subscription keys
+# - GROQ_API_KEY and GEMINI_API_KEY can be tied to free-tier accounts.
+# - Expect strict rate limits and occasional model availability changes.
+# - Prefer "stable" model IDs for production-ish use; keep preview models optional.
+#
+# How to list *all* currently available models (recommended, because catalogs change):
+# - Groq: `GET https://api.groq.com/openai/v1/models` (Bearer $GROQ_API_KEY)
+#   Docs: https://console.groq.com/docs/models#get-all-available-models
+# - Gemini API: `GET https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY`
+#   Docs: https://ai.google.dev/api/models
+
+model_list:
+  # ---------------------------------------------------------------------------
+  # Groq (OpenAI-compatible endpoint behind LiteLLM)
+  #
+  # LiteLLM routes Groq models by prefixing with `groq/`.
+  # See: https://docs.litellm.ai/docs/providers/groq
+  # Groq model catalog: https://console.groq.com/docs/models
+  # ---------------------------------------------------------------------------
+  - model_name: groq-llama-8b
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: groq-llama-70b
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  # Larger open-weight options hosted on Groq (IDs per LiteLLM provider docs).
+  - model_name: groq-gpt-oss-20b
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: groq-gpt-oss-120b
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+
+  # Vision-capable (preview) example. If Groq deprecates/renames previews, remove/update.
+  - model_name: groq-llama4-scout-vision
+    litellm_params:
+      model: groq/meta-llama/llama-4-scout-17b-16e-instruct
+      api_key: os.environ/GROQ_API_KEY
+
+  # ---------------------------------------------------------------------------
+  # Gemini (Google AI Studio / Gemini API via API key)
+  #
+  # CRITICAL ROUTING NOTE (LiteLLM):
+  # - Use `gemini/<model>` to route to Gemini API with GEMINI_API_KEY.
+  # - Unprefixed `gemini-...` may default to Vertex AI (requires GCP auth + project).
+  # See: https://docs.litellm.ai/docs/providers/gemini
+  #
+  # Deprecations:
+  # - Gemini 2.0 Flash / Flash-Lite are scheduled for shutdown June 1, 2026.
+  #   Changelog: https://ai.google.dev/gemini-api/docs/changelog (Feb 18, 2026 entry)
+  # ---------------------------------------------------------------------------
+  - model_name: gemini-flash
+    litellm_params:
+      # Fast general-purpose model (preview alias; confirm availability via models.list).
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini-flash-lite
+    litellm_params:
+      # High-volume / cost-sensitive option (preview; confirm availability).
+      model: gemini/gemini-3.1-flash-lite-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini-pro
+    litellm_params:
+      # Higher capability / reasoning (preview; confirm availability).
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+  # Embeddings (useful for future RAG work; your gateway v0.1 may not call embeddings yet).
+  - model_name: gemini-embed
+    litellm_params:
+      model: gemini/gemini-embedding-2-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+  # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Local Ollama (run local Ollama server; adjust api_base if needed)
+  # ---------------------------------------------------------------------------
+  - model_name: ollama-qwen3.5-2b
+    litellm_params:
+      model: ollama/qwen3.5:2b
+      api_base: http://host.docker.internal:11434
+
+  - model_name: ollama-qwen3.5-4b
+    litellm_params:
+      model: ollama/qwen3.5:4b
+      api_base: http://host.docker.internal:11434
+
+  - model_name: ollama-qwen3.5-9b
+    litellm_params:
+      model: ollama/qwen3.5:9b
+      api_base: http://host.docker.internal:11434
+
+  - model_name: ollama-nomic-embed-text-v1.5
+    litellm_params:
+      model: ollama/nomic-embed-text:v1.5
+      api_base: http://host.docker.internal:11434
+
+  # ---------------------------------------------------------------------------
+  # Optional OpenAI fallback (only if you set OPENAI_API_KEY in `.env`)
+  # ---------------------------------------------------------------------------
+  # - model_name: openai-mini
+  #   litellm_params:
+  #     model: gpt-4o-mini
+  #     api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  # Drop unsupported OpenAI params for the target provider instead of erroring.
+  drop_params: true

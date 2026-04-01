@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+
+# Common secret file patterns
+**/*secret*
+**/*secrets*
+**/*credentials*
+**/*private_key*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

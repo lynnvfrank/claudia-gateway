@@ -1,0 +1,29 @@
+# Main gateway process configuration (reload on mtime — touch to apply).
+# Paths below are relative to this file’s directory unless absolute.
+
+gateway:
+  semver: "0.1.0"
+  listen_port: 3000
+  listen_host: "0.0.0.0"
+  log_level: "info"
+
+litellm:
+  base_url: "http://litellm:4000"
+  api_key_env: "LITELLM_MASTER_KEY"
+
+health:
+  # Defaults to {litellm.base_url}/health when omitted
+  # litellm_url: "http://litellm:4000/health"
+  timeout_ms: 5000
+  chat_timeout_ms: 300000
+
+paths:
+  tokens: "./tokens.yaml"
+  routing_policy: "./routing-policy.yaml"
+
+routing:
+  fallback_chain:
+    - "groq-llama-8b"
+    - "ollama-qwen3.5-9b"
+    - "ollama-qwen3.5-4b"
+    - "ollama-qwen3.5-2b"
