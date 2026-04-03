@@ -1,0 +1,14 @@
+models:
+- groq-llama-8b
+- groq-llama-70b
+- groq-gpt-oss-20b
+- groq-gpt-oss-120b
+- groq-llama4-scout-vision
+- gemini-flash
+- gemini-flash-lite
+- gemini-pro
+- gemini-embed
+- ollama-qwen3.5-2b
+- ollama-qwen3.5-4b
+- ollama-qwen3.5-9b
+- ollama-nomic-embed-text-v1.5
