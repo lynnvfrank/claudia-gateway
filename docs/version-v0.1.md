@@ -42,54 +42,11 @@ Anything that reduces **drift** between these (generation, validation, or a sing
 
 ---
 
-## Explorations (ideas — not mandatory paths)
+## In Development
 
-### 1. Portable “first run” / setup wizard
+### 1. Moving away from containers (Important)
 
-**Idea:** ship or build a **portable application** (desktop or CLI wizard — TBD) that walks a new operator through:
-
-- **Provider credentials** (or env-file generation) for the backends they use.
-- **Local LLM server** URL (Ollama, vLLM, llama.cpp-compatible, etc.) and how that maps to LiteLLM (or a future proxy).
-- **Gateway token** minting or `tokens.yaml` generation.
-- Optional: **probe** LiteLLM and the gateway **`/health`** before declaring success.
-
-**Why explore it:** today setup is **document-driven** (`cp` examples, edit multiple files, `docker compose up`). A wizard could cut time-to-first-chat and reduce misconfiguration.
-
-**Open questions:** Electron vs Tauri vs pure CLI; where secrets live; whether the wizard **writes** `litellm_config.yaml` / `gateway.yaml` or emits a **bundle**; how upgrades merge user edits.
-
----
-
-### 2. Setup flow: routing structure from **available** models
-
-**Idea:** instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch, the gateway (or a setup job) would:
-
-1. **Collect a model list** — e.g. call upstream **`GET /v1/models`** (LiteLLM today) and/or merge configured static entries.
-2. **Order models by “strength”** at **interpreting prompts and producing configuration** — this is intentionally vague: it could mean parameter size, bench scores, operator tiers, latency class, or a curated map file checked into the repo.
-3. **Choose the top model as a “router coordinator”** — a single model that runs **once** (or on a schedule) to emit **machine-readable** routing config.
-4. Feed that coordinator:
-   - a **prompt** focused on routing rules (e.g. when the client specifies a concrete model in the request, honor it; when using the virtual model with **no** explicit tier, **default toward the most capable** option subject to cost/latency constraints);
-   - the **full list** of available model ids and any metadata (context length, vision, local vs cloud);
-   - a **short specification document** embedded in-repo describing the **router config schema** (could be an extension of today’s YAML or a generated artifact).
-
-**Relationship to current code:** `RoutingPolicy` is **deterministic YAML** + simple predicates — there is **no** LLM-in-the-loop router today. This exploration would be **new behavior**, likely gated behind a setup mode or admin API.
-
-**Risks:** coordinator hallucinates ids; nondeterministic setup; security if the coordinator can be prompted during normal traffic. Mitigations: validate emitted ids against `/v1/models`, dry-run, human review step, separate command.
-
----
-
-### 3. Per-turn router using a **small** model
-
-**Idea:** at **each** chat completion (when using `Claudia-<semver>`), run a **cheap** model first to **classify** or **select** the upstream model (and optionally parameters), then call the chosen backend for the real completion.
-
-**Contrast with §2:** §2 is closer to **bootstrap / config generation**; §3 is **runtime** routing every turn.
-
-**Why explore it:** YAML rules do not see **semantics** (only things like message length today). A small model could use the **last user turn** (and maybe tool/schema hints) to pick “fast vs strong” or “local vs cloud.”
-
-**Costs:** extra **latency** and **cost** per request; need **timeouts** and a **safe default** if the router fails (fall back to first chain entry or last good choice). Streaming UX needs a clear story (router call must finish before streaming the main model).
-
----
-
-### 4. Moving away from containers (research spike)
+Making a fast, portable application is important for the v0.1 release as it dictates the framework we are building on top of going forward.
 
 The **plan** currently **locks** Docker Compose + official LiteLLM image as the default deployment shape. The following are **architecture experiments** that would **change** that story; treat them as **spikes** with explicit trade-off notes if pursued.
 
@@ -109,14 +66,49 @@ The **plan** currently **locks** Docker Compose + official LiteLLM image as the 
 - **Idea:** **embed** Qdrant (if licensing and binary size allow) or use **embedded** alternatives for early RAG prototyping.
 - **Plan alignment:** v0.2 assumes a **Qdrant adapter** so the **vector store** can be swapped; exploring embedded mode fits that **adapter** story if the API surface stays compatible.
 
+### 2. Portable “first run” / setup wizard
+
+**Idea:** ship or build a **portable application** (desktop or CLI wizard — TBD) that walks a new operator through:
+
+- **Provider credentials** (or env-file generation) for the backends they use.
+- **Local LLM server** URL (Ollama, vLLM, llama.cpp-compatible, etc.) and how that maps to LiteLLM (or a future proxy).
+- **Gateway token** minting or `tokens.yaml` generation.
+- Optional: **probe** LiteLLM and the gateway **`/health`** before declaring success.
+
+**Why explore it:** today setup is **document-driven** (`cp` examples, edit multiple files, `docker compose up`). A wizard could cut time-to-first-chat and reduce misconfiguration.
+
+**Open questions:** Electron vs Tauri vs pure CLI; where secrets live; whether the wizard **writes** `litellm_config.yaml` / `gateway.yaml` or emits a **bundle**; how upgrades merge user edits.
+
+
+## Exploration (Ideas we want but can be delayed)
+
+### 1. Setup flow: routing structure from **available** models
+
+**Idea:** instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch, the gateway (or a setup job) would:
+
+1. **Collect a model list** — e.g. call upstream **`GET /v1/models`** (LiteLLM today) and/or merge configured static entries.
+2. **Order models by “strength”** at **interpreting prompts and producing configuration** — this is intentionally vague: it could mean parameter size, bench scores, operator tiers, latency class, or a curated map file checked into the repo.
+3. **Choose the top model as a “router coordinator”** — a single model that runs **once** (or on a schedule) to emit **machine-readable** routing config.
+4. Feed that coordinator:
+   - a **prompt** focused on routing rules (e.g. when the client specifies a concrete model in the request, honor it; when using the virtual model with **no** explicit tier, **default toward the most capable** option subject to cost/latency constraints);
+   - the **full list** of available model ids and any metadata (context length, vision, local vs cloud);
+   - a **short specification document** embedded in-repo describing the **router config schema** (could be an extension of today’s YAML or a generated artifact).
+
+**Relationship to current code:** `RoutingPolicy` is **deterministic YAML** + simple predicates — there is **no** LLM-in-the-loop router today. This exploration would be **new behavior**, likely gated behind a setup mode or admin API.
+
+**Risks:** coordinator hallucinates ids; nondeterministic setup; security if the coordinator can be prompted during normal traffic. Mitigations: validate emitted ids against `/v1/models`, dry-run, human review step, separate command.
+
 ---
 
-## Suggested next steps for exploration (non-binding)
+### 2. Per-turn router using a **small** model
 
-1. **Inventory** duplicated model ids across the three YAML files and add a **CI check** or script that fails if an alias appears in routing but not in `model_list` / fallback chain (cheap win, no new services).
-2. **Prototype** §2 as a **one-shot** CLI: `npx ts-node scripts/generate-routing.ts` that calls `/v1/models` and writes a **draft** `routing-policy.yaml` for human edit.
-3. **Spike** §3 behind a **feature flag** with a **hard cap** on router latency and a **YAML fallback** if the small model errors.
-4. **Document** a **minimal non-Docker** dev path if one does not already satisfy Audrey’s machine (even if Compose remains the default for production).
+**Idea:** at **each** chat completion (when using `Claudia-<semver>`), run a **cheap** model first to **classify** or **select** the upstream model (and optionally parameters), then call the chosen backend for the real completion.
+
+**Contrast with §2:** §2 is closer to **bootstrap / config generation**; §3 is **runtime** routing every turn.
+
+**Why explore it:** YAML rules do not see **semantics** (only things like message length today). A small model could use the **last user turn** (and maybe tool/schema hints) to pick “fast vs strong” or “local vs cloud.”
+
+**Costs:** extra **latency** and **cost** per request; need **timeouts** and a **safe default** if the router fails (fall back to first chain entry or last good choice). Streaming UX needs a clear story (router call must finish before streaming the main model).
 
 ---
 
