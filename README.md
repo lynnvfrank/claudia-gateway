@@ -1,12 +1,12 @@
 # Claudia Gateway
 
-**v0.1** — TypeScript gateway in front of **LiteLLM**: one OpenAI-compatible URL, virtual model **`Claudia-<semver>`**, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and **`GET /health`** (LiteLLM probe only). **Qdrant** is included in Compose for **v0.2** RAG readiness; the gateway does not use it in v0.1.
+**v0.1** — TypeScript gateway in front of **LiteLLM**: one OpenAI-compatible URL, virtual model **`Claudia-<semver>`**, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and **`GET /health`** (LiteLLM probe only). **Qdrant** is included in Compose for **v0.2** RAG readiness; the gateway does not use it in v0.1. A **phased plan** for a **Go** gateway, **BiFrost** upstream, cross-platform packaging, and a GUI is in [`docs/go-bifrost-migration-plan.md`](docs/go-bifrost-migration-plan.md).
 
 ## Version roadmap
 
 | Version | Where to read |
 |---------|----------------|
-| **v0.1** | [Working notes & explorations](docs/version-v0.1.md) — current focus, friction, and optional spikes. |
+| **v0.1** | [Working notes & explorations](docs/version-v0.1.md); [Go + BiFrost migration plan](docs/go-bifrost-migration-plan.md) (phased delivery, discovery → packaging) |
 | **v0.2**, **v0.3**, **v0.4**, **v0.5**, **v0.7**, **v0.8** | [Release roadmap](docs/claudia-gateway.plan.md#release-roadmap) and full spec in [`docs/claudia-gateway.plan.md`](docs/claudia-gateway.plan.md). |
 
 ## Quick start
@@ -23,6 +23,7 @@ curl -sS http://localhost:3000/health
 
 - Operator docs index: [docs/README.md](docs/README.md)
 - **v0.1** (toward release): [docs/version-v0.1.md](docs/version-v0.1.md)
+- **Go rewrite + BiFrost + packaging:** [docs/go-bifrost-migration-plan.md](docs/go-bifrost-migration-plan.md)
 - **Other versions** — scope and requirements: [docs/claudia-gateway.plan.md](docs/claudia-gateway.plan.md) (see [Release roadmap](docs/claudia-gateway.plan.md#release-roadmap))
 - Continue samples: [vscode-continue/README.md](vscode-continue/README.md)
 

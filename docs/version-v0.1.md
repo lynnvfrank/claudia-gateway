@@ -50,21 +50,24 @@ Making a fast, portable application is important for the v0.1 release as it dict
 
 The **plan** currently **locks** Docker Compose + official LiteLLM image as the default deployment shape. The following are **architecture experiments** that would **change** that story; treat them as **spikes** with explicit trade-off notes if pursued.
 
+**Tracked migration work:** a **phased plan** (discovery: BiFrost + today’s TypeScript gateway → Go rewrite with BiFrost managing keys/connections → cross-platform packaging → GUI) lives in [`docs/go-bifrost-migration-plan.md`](go-bifrost-migration-plan.md). Phases are implemented when someone asks for the next phase; completed work is recorded there.
+
 **4a. Removing Docker**
 
 - **Goal:** single binary or `npm start` on the host, fewer moving parts for developers.
-- **Reality check:** LiteLLM today is still a **separate service** in the reference architecture; “no Docker” might mean **operators install LiteLLM themselves** (pip/uv) or **replace** LiteLLM (see 4b).
+- **Reality check:** LiteLLM today is still a **separate service** in the reference architecture; “no Docker” might mean **operators install LiteLLM themselves** (pip/uv) or **replace** LiteLLM (see 4b). The migration plan above targets **native packages** and a **supervised** BiFrost + gateway stack instead.
 
 **4b. Replacing LiteLLM with [BiFrost](https://docs.getbifrost.ai/)** ([`maximhq/bifrost`](https://github.com/maximhq/bifrost) on GitHub) *(or similar)*
 
 - **Hypothesis:** BiFrost (or another gateway) could unify providers with a smaller footprint or different operational model.
-- **Work:** map **feature parity** — model aliases, env-based keys, `/v1/chat/completions`, `/v1/models`, streaming, embeddings path for **v0.2** RAG, virtual keys / Postgres if those matter to your operators.
+- **Work:** map **feature parity** — model aliases, env-based keys, `/v1/chat/completions`, `/v1/models`, streaming, embeddings path for **v0.2** RAG, virtual keys / Postgres if those matter to your operators. **Phase 0** of [`go-bifrost-migration-plan.md`](go-bifrost-migration-plan.md) is the discovery pass (BiFrost installed and exercised behind the existing gateway); later phases port to Go and package both apps.
 - **Code impact:** `src/chat.ts`, `src/litellm.ts`, config loading, health checks, and all docs that say “LiteLLM” would need a **provider abstraction** or a clean fork.
 
-**4c. Qdrant without a Qdrant container**
+**4c. Vector store without a dedicated Qdrant service**
 
-- **Idea:** **embed** Qdrant (if licensing and binary size allow) or use **embedded** alternatives for early RAG prototyping.
-- **Plan alignment:** v0.2 assumes a **Qdrant adapter** so the **vector store** can be swapped; exploring embedded mode fits that **adapter** story if the API surface stays compatible.
+- **Context:** Compose includes **Qdrant** today for **v0.2** RAG readiness; the **v0.1** gateway does not use it. A portable or single-package install may want Qdrant **off by default** until RAG is in use.
+- **Idea:** spike **embedded** Qdrant (where license and artifact size allow), another embedded vector backend, or a small local store for early RAG—so operators are not required to run a separate Qdrant container for every setup.
+- **Plan alignment:** v0.2 in [`docs/claudia-gateway.plan.md`](claudia-gateway.plan.md) assumes a **swappable vector-store adapter**; if that boundary stays stable, embedded and remote Qdrant can remain interchangeable behind the same interface.
 
 ### 2. Portable “first run” / setup wizard
 

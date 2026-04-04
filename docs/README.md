@@ -7,6 +7,7 @@
 | [installation.md](installation.md) | Prerequisites, `.env`, first `docker compose up`, health checks |
 | [docker-commands.md](docker-commands.md) | Common `docker compose` / `docker` commands |
 | [configuration.md](configuration.md) | All gateway config files, env vars, reload semantics |
+| [go-bifrost-migration-plan.md](go-bifrost-migration-plan.md) | Phased plan: Go rewrite, BiFrost, cross-platform packaging, GUI |
 
 Normative product requirements: [claudia-gateway.plan.md](claudia-gateway.plan.md).
 
