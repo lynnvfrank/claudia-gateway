@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -40,12 +41,19 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Claudia Gateway</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
+    body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
     h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem; }
     .ok { color: #0d6832; font-weight: 600; }
+    .err { color: #a40000; font-weight: 600; }
+    .muted { color: #555; }
     code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
     ul { padding-left: 1.2rem; }
     a { color: #0b57d0; }
+    .prov { margin-top: 1rem; }
+    .prov h3 { font-size: 0.95rem; margin: 0 0 0.35rem 0; color: #333; text-transform: none; font-weight: 600; }
+    .prov ul { margin: 0; list-style: disc; }
+    .prov li { font-family: ui-monospace, monospace; font-size: 0.82rem; }
   </style>
 </head>
 <body>
@@ -57,6 +65,81 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
     <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
     <li><a href="/status"><code>GET /status</code></a> — gateway + optional supervisor JSON (GUI / ops)</li>
   </ul>
+  <h2>Models visible to Claudia</h2>
+  <p id="models-status" class="muted">Loading models…</p>
+  <div id="models-root" hidden></div>
+  <script>
+(function () {
+  var statusEl = document.getElementById("models-status");
+  var rootEl = document.getElementById("models-root");
+  function showError(msg) {
+    statusEl.textContent = "Error: " + msg;
+    statusEl.className = "err";
+    rootEl.hidden = true;
+    rootEl.textContent = "";
+  }
+  fetch("/ui/models")
+    .then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (e) {
+          throw new Error("Invalid JSON from server (" + res.status + ")");
+        }
+        return { res: res, data: data };
+      });
+    })
+    .then(function (x) {
+      if (!x.res.ok) {
+        var msg = (x.data && x.data.error && x.data.error.message) || ("HTTP " + x.res.status);
+        showError(msg);
+        return;
+      }
+      var items = (x.data && x.data.data) || [];
+      if (!Array.isArray(items)) {
+        showError("Unexpected response shape");
+        return;
+      }
+      statusEl.textContent = items.length + " model(s) from upstream (virtual model included).";
+      statusEl.className = "muted";
+      var byProv = {};
+      for (var i = 0; i < items.length; i++) {
+        var m = items[i] || {};
+        var id = m.id || "";
+        var prov = "other";
+        var slash = id.indexOf("/");
+        if (slash > 0) prov = id.slice(0, slash);
+        else if (m.owned_by) prov = String(m.owned_by);
+        if (!byProv[prov]) byProv[prov] = [];
+        byProv[prov].push(id);
+      }
+      var names = Object.keys(byProv).sort();
+      rootEl.textContent = "";
+      for (var j = 0; j < names.length; j++) {
+        var p = names[j];
+        var ids = byProv[p].slice().sort();
+        var section = document.createElement("section");
+        section.className = "prov";
+        var h = document.createElement("h3");
+        h.textContent = p;
+        section.appendChild(h);
+        var ul = document.createElement("ul");
+        for (var k = 0; k < ids.length; k++) {
+          var li = document.createElement("li");
+          li.textContent = ids[k];
+          ul.appendChild(li);
+        }
+        section.appendChild(ul);
+        rootEl.appendChild(section);
+      }
+      rootEl.hidden = false;
+    })
+    .catch(function (e) {
+      showError(e.message || String(e));
+    });
+})();
+  </script>
 </body>
 </html>`
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -104,6 +187,16 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
 		handleStatus(w, r, rt, log, overlay)
 	})
 
+	mux.HandleFunc("/ui/models", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		rt.Sync()
+		res, _, _ := rt.Snapshot()
+		writeMergedModelsResponse(w, r.Context(), res, rt.UpstreamAPIKey(), healthTimeout(res), log)
+	})
+
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -136,9 +229,13 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		})
 		return
 	}
-	apiKey := rt.UpstreamAPIKey()
+	writeMergedModelsResponse(w, r.Context(), res, rt.UpstreamAPIKey(), healthTimeout(res), log)
+}
+
+// writeMergedModelsResponse lists upstream GET /v1/models, prepends the virtual Claudia model, and writes OpenAI-style JSON.
+func writeMergedModelsResponse(w http.ResponseWriter, ctx context.Context, res *config.Resolved, apiKey string, timeout time.Duration, log *slog.Logger) {
+	w.Header().Set("Content-Type", "application/json")
 	if apiKey == "" {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
@@ -148,10 +245,8 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		})
 		return
 	}
-	ctx := r.Context()
-	st, body, ok := upstream.FetchOpenAIModels(ctx, res.UpstreamBaseURL, apiKey, healthTimeout(res), log)
+	st, body, ok := upstream.FetchOpenAIModels(ctx, res.UpstreamBaseURL, apiKey, timeout, log)
 	if !ok {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
@@ -164,11 +259,19 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 	}
 	var list map[string]any
 	if err := json.Unmarshal(body, &list); err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"message": "Invalid models response from upstream",
+				"type":    "gateway_upstream",
+			},
+		})
 		return
 	}
 	data, _ := list["data"].([]any)
+	if data == nil {
+		data = []any{}
+	}
 	virtual := map[string]any{
 		"id":       res.VirtualModelID,
 		"object":   "model",
@@ -176,7 +279,6 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		"owned_by": "claudia-gateway",
 	}
 	out := append([]any{virtual}, data...)
-	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": out})
 }
 

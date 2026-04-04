@@ -66,6 +66,10 @@ make claudia-serve-local
 curl -sS http://127.0.0.1:3000/health
 ```
 
+- Claudia Gateway available on port [3000](http://localhost:3000)
+- BiFrost available on port [8080](http://localhost:8080)
+- Qdrant available on port [6333](http://localhost:6333)
+
 ## Common commands and shortcuts
 
 Run `make help` from the repo root to see the [make](Makefile) tasks.
@@ -80,7 +84,7 @@ Run `make help` from the repo root to see the [make](Makefile) tasks.
 | Run Gateway + BiFrost | `make claudia-serve` |
 | Run Gateway + BiFrost + Qdrant | `make claudia-serve-stack` |
 | Build `claudia-gui` | `make claudia-gui-build` |
-| Run GUI (builds if missing) | `make claudia-gui-run` |
+| Run GUI | `make claudia-gui-run` |
 | GoReleaser snapshot → `dist/` | `make release-snapshot` |
 
 **Automated checks:** `./scripts/smoke-go-gateway.sh` (`gofmt`, `go vet`, `go test ./... -race`).
@@ -93,7 +97,7 @@ Module path `github.com/lynn/claudia-gateway`; change `go.mod` if your fork uses
 - **Overview / ports:** [docs/overview.md](docs/overview.md), [docs/network.md](docs/network.md)
 - **Installation:** [docs/installation.md](docs/installation.md)
 - **Configuration:** [docs/configuration.md](docs/configuration.md)
-- **Supervisor (`claudia serve`):** [docs/supervisor.md](docs/supervisor.md)
+- **Supervisor:** [docs/supervisor.md](docs/supervisor.md)
 - **Packaging / releases:** [docs/packaging.md](docs/packaging.md)
 - **GUI:** [docs/gui-testing.md](docs/gui-testing.md)
 - **End-to-end operator path:** [docs/e2e-operator-path.md](docs/e2e-operator-path.md)
