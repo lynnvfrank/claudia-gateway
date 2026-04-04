@@ -47,9 +47,6 @@ claudia-run:
 	go run ./cmd/claudia
 
 claudia-serve:
-	go run ./cmd/claudia serve
-
-claudia-serve-local:
 	go run ./cmd/claudia serve -bifrost-bin ./bin/bifrost-http
 
 claudia-serve-stack:

@@ -59,37 +59,27 @@ Full reference (env vars, reload semantics, field tables): [docs/configuration.m
 
 ## Execution
 
-**Supervised stack** (BiFrost subprocess; optional Qdrant — see [docs/supervisor.md](docs/supervisor.md)):
+Run Claudia Gateway, BiFrost and Qdrant with the [Supervisor](docs/supervisor.md).
 
 ```bash
-export CLAUDIA_UPSTREAM_API_KEY=bifrost-local-dummy   # or match upstream.api_key_env
-make claudia-serve-local    # uses ./bin/bifrost-http from bootstrap-deps
+make claudia-serve-local
 curl -sS http://127.0.0.1:3000/health
 ```
 
-**Gateway only** (BiFrost already listening at `upstream.base_url` in `config/gateway.yaml`, default `http://127.0.0.1:8080`):
-
-```bash
-make claudia-build && ./claudia
-```
-
-**HTTP surface (v0.1):** `/`, `GET /health`, `GET /v1/models`, `POST /v1/chat/completions`, `GET /status` (supervisor mode). Security notes: [SECURITY.md](SECURITY.md).
-
 ## Common commands and shortcuts
 
-Run `make help` from the repo root for the same list.
+Run `make help` from the repo root to see the [make](Makefile) tasks.
 
 | Goal | Command |
 |------|---------|
-| Bootstrap BiFrost + Qdrant into `./bin` (from `deps.lock`) | `make bootstrap-deps` |
-| Build `claudia` | `make claudia-build` |
-| Run gateway only (`go run`, uses config in cwd) | `make claudia-run` |
-| Gateway + BiFrost subprocess | `make claudia-serve` |
-| Serve with local `./bin/bifrost-http` | `make claudia-serve-local` |
-| Qdrant + `bifrost-http` + gateway | `make claudia-serve-stack` |
+| Build and download Bootstrap BiFrost + Qdrant | `make bootstrap-deps` |
 | Build BiFrost from `$HOME/src/bifrost` (or `BIFROST_SRC`) → `bin/bifrost-http` | `make bifrost-from-src` |
 | Download pinned Qdrant binary → `./bin/qdrant` | `make qdrant-from-release` |
-| Build Fyne `claudia-gui` | `make claudia-gui-build` |
+| Build `claudia` | `make claudia-build` |
+| Run Claudia Gateway | `make claudia-run` |
+| Run Gateway + BiFrost | `make claudia-serve` |
+| Run Gateway + BiFrost + Qdrant | `make claudia-serve-stack` |
+| Build `claudia-gui` | `make claudia-gui-build` |
 | Run GUI (builds if missing) | `make claudia-gui-run` |
 | GoReleaser snapshot → `dist/` | `make release-snapshot` |
 
