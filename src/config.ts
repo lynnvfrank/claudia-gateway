@@ -20,8 +20,8 @@ const DEFAULTS: Required<
   listen_port: 3000,
   listen_host: "0.0.0.0",
   log_level: "info",
-  base_url: "http://litellm:4000",
-  api_key_env: "LITELLM_MASTER_KEY",
+  base_url: "http://bifrost:8080",
+  api_key_env: "CLAUDIA_UPSTREAM_API_KEY",
   timeout_ms: 5000,
   chat_timeout_ms: 300_000,
 };

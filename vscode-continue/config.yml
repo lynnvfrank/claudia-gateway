@@ -5,7 +5,7 @@
 # for OpenAI-compatible). Share `apiBase` / `apiKey` via a YAML anchor — see below.
 #
 # Each `model` value must match an `id` from GET <gateway>/v1/models (virtual Claudia-*
-# plus LiteLLM model_name aliases from config/litellm_config.yaml).
+# plus upstream ids: BiFrost provider/model or LiteLLM model_name aliases).
 
 %YAML 1.1
 ---
@@ -27,8 +27,8 @@ models:
     <<: *claudia
     model: <VIRTUAL_MODEL_ID>
 
-  - name: Example upstream (Groq)
+  - name: Example upstream (Groq via BiFrost)
     <<: *claudia
-    model: groq-llama-8b
+    model: groq/llama-3.1-8b-instant
 
   # Add one block per model id returned by GET /v1/models …

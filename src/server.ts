@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import type { RuntimeState } from "./runtime.js";
 import { redactAuthHeader, type Logger } from "./logger.js";
-import { probeLitellmHealth, fetchLitellmModels } from "./litellm.js";
+import { probeLitellmHealth, fetchUpstreamOpenAIModels } from "./litellm.js";
 import {
   proxyChatCompletion,
   chatWithVirtualModelFallback,
@@ -68,7 +68,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
   <p>Version <code>${escapeHtml(semver)}</code> · Virtual model <code>${escapeHtml(virtualModelId)}</code></p>
   <p>OpenAI-compatible API under <code>/v1/</code> (e.g. chat and models). Use a gateway token for authenticated routes.</p>
   <ul>
-    <li><a href="/health"><code>GET /health</code></a> — JSON readiness (LiteLLM probe)</li>
+    <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
   </ul>
 </body>
 </html>`;
@@ -116,7 +116,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
     if (!apiKey) {
       return reply.code(503).send({
         error: {
-          message: `Missing ${state.resolved.litellmApiKeyEnv} for upstream LiteLLM`,
+          message: `Missing ${state.resolved.litellmApiKeyEnv} for upstream proxy`,
           type: "gateway_config",
         },
       });
@@ -124,7 +124,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
 
     const { litellmBaseUrl, healthTimeoutMs, virtualModelId } =
       state.resolved;
-    const upstream = await fetchLitellmModels(
+    const upstream = await fetchUpstreamOpenAIModels(
       litellmBaseUrl,
       apiKey,
       healthTimeoutMs,
@@ -133,7 +133,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
     if (!upstream.ok || !upstream.json) {
       return reply.code(502).send({
         error: {
-          message: "Failed to list models from LiteLLM",
+          message: "Failed to list models from upstream",
           type: "gateway_upstream",
           status: upstream.status,
         },
@@ -167,7 +167,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
     if (!apiKey) {
       return reply.code(503).send({
         error: {
-          message: `Missing ${state.resolved.litellmApiKeyEnv} for upstream LiteLLM`,
+          message: `Missing ${state.resolved.litellmApiKeyEnv} for upstream proxy`,
           type: "gateway_config",
         },
       });
@@ -207,7 +207,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
         return reply.code(503).send({
           error: {
             message:
-              "Could not resolve an initial LiteLLM model for the virtual Claudia model (check routing policy and fallback chain).",
+              "Could not resolve an initial upstream model for the virtual Claudia model (check routing policy and fallback chain).",
             type: "gateway_config",
           },
         });

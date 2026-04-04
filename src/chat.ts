@@ -80,11 +80,20 @@ export async function proxyChatCompletion(params: {
     }
 
     if (!res.ok && stream) {
-      return {
-        kind: "error",
-        status: res.status,
-        message: "upstream error on streaming request",
-      };
+      let errBody: unknown;
+      try {
+        errBody = await res.json();
+      } catch {
+        const text = await res.text();
+        errBody = {
+          error: { message: text || "upstream error on streaming request", type: "gateway_upstream" },
+        };
+      }
+      log.debug(
+        { status: res.status, upstreamModel, stream, errBody },
+        "upstream rejected streaming chat completion",
+      );
+      return { kind: "json", status: res.status, body: errBody };
     }
 
     if (stream && res.body) {
@@ -155,7 +164,7 @@ export async function chatWithVirtualModelFallback(params: {
     reply.code(503).send({
       error: {
         message:
-          "No LiteLLM models configured (routing.fallback_chain empty and no initial model).",
+          "No upstream models configured (routing.fallback_chain empty and no initial model).",
         type: "gateway_config",
       },
     });

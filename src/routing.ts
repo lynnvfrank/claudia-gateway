@@ -45,7 +45,7 @@ export class RoutingPolicy {
     }
   }
 
-  /** First LiteLLM model id to try for this turn (must appear in fallback chain). */
+  /** First upstream model id to try for this turn (must appear in fallback chain). */
   pickInitialModel(
     body: ChatCompletionBody,
     fallbackChain: string[],

@@ -2,21 +2,31 @@
 #
 # Services:
 #   - claudia: TypeScript gateway — IDE-facing OpenAI-compatible API, token auth,
-#     virtual model Claudia-<semver>, routing policy + LiteLLM fallback chain.
-#   - litellm: Official LiteLLM proxy — provider keys, upstream models; the gateway
-#     calls it over Compose DNS at http://litellm:4000.
+#     virtual model Claudia-<semver>, routing policy + upstream fallback chain
+#     (default upstream: BiFrost at http://bifrost:8080 per config/gateway.yaml).
+#   - litellm: Official LiteLLM proxy — optional; provider keys and model aliases when
+#     not using BiFrost as upstream.
+#   - bifrost: Maxim BiFrost AI gateway — OpenAI-style API on port 8080; optional
+#     upstream for discovery (see docs/go-bifrost-migration-plan.md). From other
+#     services: http://bifrost:8080. File-based bootstrap: `config/bifrost.config.json`
+#     is mounted as `/app/data/config.json` (no config_store — providers load from
+#     this file at startup; see https://docs.getbifrost.ai/quickstart/gateway/setting-up).
+#     Set GROQ_API_KEY and GEMINI_API_KEY in `.env` (same names as LiteLLM). Runtime
+#     state (e.g. logs DB) still uses the `bifrost_data` volume under `/app/data`.
 #   - qdrant: Vector DB — included for v0.2 RAG readiness; v0.1 gateway does not
 #     probe or call Qdrant yet.
 #
-# Bootstrap: copy `env.example` to `.env`, set LITELLM_MASTER_KEY, Postgres vars,
-# LITELLM_UI_*, at least one provider key; ensure `config/tokens.yaml` exists
-# (see `config/tokens.example.yaml`), then: `docker compose up -d --build`.
+# Bootstrap: copy `env.example` to `.env`, set CLAUDIA_UPSTREAM_API_KEY (BiFrost
+# placeholder or LiteLLM master key if you point gateway at LiteLLM), LITELLM_MASTER_KEY
+# + Postgres + LITELLM_UI_* if you use LiteLLM; GROQ_API_KEY / GEMINI_API_KEY for BiFrost;
+# ensure `config/tokens.yaml` exists (see `config/tokens.example.yaml`), then:
+# `docker compose up -d --build`.
 #
 # LiteLLM Admin UI (`/ui`) needs PostgreSQL: set DATABASE_URL via POSTGRES_* in `.env`.
 # Without a DB, UI login often fails with “Invalid credentials” despite UI_USERNAME/UI_PASSWORD.
 #
 # Default URLs: gateway http://localhost:3000, LiteLLM http://localhost:4000,
-# Qdrant http://localhost:6333.
+# BiFrost http://localhost:8080, Qdrant http://localhost:6333.
 
 services:
   claudia:
@@ -30,9 +40,9 @@ services:
     environment:
       # Overrides gateway.yaml `gateway.log_level` when set (pino).
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Same name as `litellm.api_key_env` in gateway.yaml — sent upstream to LiteLLM.
-      # Must match `.env` — see env.example (Compose substitutes empty string if unset).
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # Same name as `litellm.api_key_env` in gateway.yaml — Bearer for upstream OpenAI-compatible proxy.
+      # BiFrost: any non-empty placeholder unless governance virtual keys are enabled.
+      CLAUDIA_UPSTREAM_API_KEY: ${CLAUDIA_UPSTREAM_API_KEY:-bifrost-local-dummy}
       # Optional explicit path inside the container (default /app/config/gateway.yaml via cwd).
       CLAUDIA_GATEWAY_CONFIG: /app/config/gateway.yaml
     volumes:
@@ -45,7 +55,7 @@ services:
     networks:
       - claudianet
     depends_on:
-      litellm:
+      bifrost:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -130,6 +140,38 @@ services:
       # Allow time for DB migrations on first boot.
       start_period: 90s
 
+  bifrost:
+    image: maximhq/bifrost:latest
+    container_name: bifrost
+    ports:
+      - "8080:8080"
+    environment:
+      # Required so the process accepts traffic from outside the container (default is localhost).
+      APP_HOST: "0.0.0.0"
+      APP_PORT: "8080"
+      LOG_LEVEL: ${BIFROST_LOG_LEVEL:-info}
+      # Referenced from config/bifrost.config.json via env.GROQ_API_KEY / env.GEMINI_API_KEY.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - bifrost_data:/app/data
+      # Omit keys[].models (or use []) for “all models”; do not use ["*"] — BiFrost matches that literal string, not a wildcard.
+      - ./config/bifrost.config.json:/app/data/config.json:ro
+    networks:
+      - claudianet
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: qdrant
@@ -152,3 +194,5 @@ volumes:
   qdrant_data:
   # LiteLLM Proxy — Postgres data (UI users, virtual keys, spend).
   litellm_pg_data:
+  # BiFrost — SQLite config DB, logs, UI state (see https://docs.getbifrost.ai/).
+  bifrost_data:

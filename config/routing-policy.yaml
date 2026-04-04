@@ -5,8 +5,8 @@
 # When does this file apply?
 #   Only when the client calls POST /v1/chat/completions with
 #   "model": "Claudia-<semver>" (see gateway.semver in config/gateway.yaml).
-#   Direct requests with a LiteLLM alias (e.g. groq-llama-8b) skip this file
-#   and go straight to LiteLLM with that model id.
+#   Direct requests with a concrete upstream model id (e.g. groq/llama-3.1-8b-instant)
+#   skip this file and are proxied as-is to the configured OpenAI-compatible upstream.
 #
 # How is it loaded?
 #   Path: config/gateway.yaml → paths.routing_policy (default ./routing-policy.yaml).
@@ -15,22 +15,22 @@
 # What is a "turn"?
 #   A turn is one chat completion request: a single POST /v1/chat/completions to
 #   the gateway (e.g. one Continue send). For that request the gateway reads the
-#   messages in the body, runs these rules once, picks an initial LiteLLM model,
+#   messages in the body, runs these rules once, picks an initial upstream model id,
 #   and may walk the fallback chain during the same request if upstream errors are
 #   retryable. In chat UIs, each user message usually triggers one such request, so
 #   one conversational turn often lines up with one policy "turn" — but the file
 #   means per HTTP request, not a line in YAML.
 #
 # What does it choose?
-#   The *first* LiteLLM model_name to try for this turn. If LiteLLM returns a
+#   The *first* upstream model id to try for this turn. If the upstream returns a
 #   retryable error (429, 500, 502, 503, 504), the gateway walks
 #   routing.fallback_chain in config/gateway.yaml starting at the index of that
 #   model — so your initial model should appear in the chain (see below).
 #
-# Prerequisite — ids must exist in LiteLLM:
-#   Every string you use here must match a model_name in config/litellm_config.yaml
-#   (that is what /v1/models exposes as an id). Typos or missing models produce
-#   upstream errors.
+# Prerequisite — ids must exist on the upstream:
+#   With BiFrost, use unified ids such as groq/<model> or gemini/<model> (see
+#   config/bifrost.config.json and provider docs). With LiteLLM, match model_name
+#   entries in config/litellm_config.yaml. Typos or missing models produce upstream errors.
 #
 # Prerequisite — align with fallback_chain:
 #   Put the same ids in routing.fallback_chain (config/gateway.yaml) in the order
@@ -42,13 +42,13 @@
 # ambiguous_default_model (optional string)
 # -----------------------------------------------------------------------------
 # Used when: no rule in `rules` matches the current request (see rule matching).
-# Set this to a stable, general-purpose LiteLLM alias you always want as the
+# Set this to a stable, general-purpose upstream model id you always want as the
 # safety net before falling back to the first entry of routing.fallback_chain.
 # Leave empty "" only if you rely entirely on rules + fallback_chain[0].
 #
 # Example: prefer a hosted API you trust when rules do not apply.
 
-ambiguous_default_model: "ollama-qwen3.5-2b"
+ambiguous_default_model: "gemini/gemini-3.1-flash-lite-preview"
 
 # -----------------------------------------------------------------------------
 # rules (list, evaluated top to bottom)
@@ -71,7 +71,7 @@ rules:
     when:
       min_message_chars: 8000
     models:
-      - "groq-llama-70b"
+      - "groq/llama-3.3-70b-versatile"
 
   # --- Rule: default catch-all ---
   # when: {} means no extra conditions — if previous rules did not match, this one
@@ -79,5 +79,5 @@ rules:
   - name: default
     when: {}
     models:
-      # Fast default for typical short/medium chats; must match litellm model_name.
-      - "groq-llama-8b"
+      # Fast default for typical short/medium chats (BiFrost unified id).
+      - "groq/llama-3.1-8b-instant"

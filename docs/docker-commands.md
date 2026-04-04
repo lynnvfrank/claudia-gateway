@@ -20,8 +20,9 @@ docker compose down -v
 ```bash
 docker compose ps
 docker compose logs -f claudia
+docker compose logs -f bifrost
 docker compose logs -f litellm
-docker compose logs -f --tail=200 claudia litellm
+docker compose logs -f --tail=200 claudia bifrost litellm
 ```
 
 ## Shell inside containers
@@ -42,7 +43,12 @@ docker compose up -d claudia
 
 ```bash
 curl -sS http://localhost:3000/health
+curl -sS http://localhost:8080/health
 curl -sS http://localhost:4000/health
+
+# BiFrost full catalog (concrete provider/model names — gateway merges this into GET http://localhost:3000/v1/models when upstream is BiFrost)
+curl -sS "http://localhost:8080/api/models?unfiltered=true&limit=500" | python3 -m json.tool
+# Or: ./scripts/list-bifrost-models.sh | python3 -m json.tool
 ```
 
 ## Volumes

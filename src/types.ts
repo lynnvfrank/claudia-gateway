@@ -7,7 +7,7 @@ export type GatewayYaml = {
   };
   litellm?: {
     base_url?: string;
-    /** Env var name holding the LiteLLM proxy key (sent upstream as Bearer). */
+    /** Env var name holding the upstream Bearer token (LiteLLM master key, BiFrost placeholder, etc.). */
     api_key_env?: string;
   };
   health?: {

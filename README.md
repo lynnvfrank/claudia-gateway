@@ -1,6 +1,6 @@
 # Claudia Gateway
 
-**v0.1** — TypeScript gateway in front of **LiteLLM**: one OpenAI-compatible URL, virtual model **`Claudia-<semver>`**, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and **`GET /health`** (LiteLLM probe only). **Qdrant** is included in Compose for **v0.2** RAG readiness; the gateway does not use it in v0.1. A **phased plan** for a **Go** gateway, **BiFrost** upstream, cross-platform packaging, and a GUI is in [`docs/go-bifrost-migration-plan.md`](docs/go-bifrost-migration-plan.md).
+**v0.1** — TypeScript gateway in front of an OpenAI-compatible upstream (**BiFrost** by default in Compose; **LiteLLM** optional): virtual model **`Claudia-<semver>`**, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and **`GET /health`** (upstream probe). **Qdrant** is included in Compose for **v0.2** RAG readiness; the gateway does not use it in v0.1. A **phased plan** for a **Go** gateway, **BiFrost** upstream, cross-platform packaging, and a GUI is in [`docs/go-bifrost-migration-plan.md`](docs/go-bifrost-migration-plan.md).
 
 ## Version roadmap
 
@@ -13,7 +13,7 @@
 
 ```bash
 cp env.example .env
-# Edit .env: LITELLM_MASTER_KEY and provider keys
+# Edit .env: CLAUDIA_UPSTREAM_API_KEY (BiFrost placeholder ok), provider keys for BiFrost/LiteLLM
 cp config/tokens.example.yaml config/tokens.yaml   # required; edit token / tenant_id
 docker compose up -d --build
 curl -sS http://localhost:3000/health
@@ -34,7 +34,7 @@ npm install
 npm run dev
 ```
 
-Set `config/gateway.yaml` `litellm.base_url` to your running LiteLLM and export **`LITELLM_MASTER_KEY`**.
+Set `config/gateway.yaml` `litellm.base_url` (e.g. **BiFrost** `http://localhost:8080` on the host) and export **`CLAUDIA_UPSTREAM_API_KEY`** (or **`LITELLM_MASTER_KEY`** if `api_key_env` still points there).
 
 ## License
 

@@ -8,12 +8,13 @@ gateway:
   log_level: "info"
 
 litellm:
-  base_url: "http://litellm:4000"
-  api_key_env: "LITELLM_MASTER_KEY"
+  # OpenAI-compatible upstream root (BiFrost in the default Compose stack).
+  base_url: "http://bifrost:8080"
+  # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled; use any non-empty placeholder (see .env / docker-compose).
+  api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
 
 health:
   # Defaults to {litellm.base_url}/health when omitted
-  # litellm_url: "http://litellm:4000/health"
   timeout_ms: 5000
   chat_timeout_ms: 300000
 
@@ -22,8 +23,9 @@ paths:
   routing_policy: "./routing-policy.yaml"
 
 routing:
+  # BiFrost unified model ids (provider/model). Align with config/bifrost.config.json providers.
   fallback_chain:
-    - "groq-llama-8b"
-    - "ollama-qwen3.5-9b"
-    - "ollama-qwen3.5-4b"
-    - "ollama-qwen3.5-2b"
+    - "groq/llama-3.1-8b-instant"
+    - "gemini/gemini-3-flash-preview"
+    - "groq/llama-3.3-70b-versatile"
+    - "gemini/gemini-3.1-flash-lite-preview"
