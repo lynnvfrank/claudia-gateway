@@ -36,7 +36,7 @@ Go drives **`go build`** / **`make claudia-build`** here and inside BiFrost’s 
 - **macOS:** **`xcode-select --install`** ([Xcode Command Line Tools](https://developer.apple.com/xcode/resources/)) includes **`git`**, or **`brew install git`**. Verify: **`git --version`**.
 - **Windows:** [git-scm.com/download/win](https://git-scm.com/download/win) or **`winget install Git.Git`**. Open a **new** terminal; verify: **`git --version`**.
 
-### GNU Make
+### Make
 
 Use **GNU Make**, not MSVC **`nmake`**. Verify: **`make --version`** (look for *GNU Make*).
 

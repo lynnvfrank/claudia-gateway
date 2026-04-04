@@ -6,16 +6,16 @@
 
 **Prerequisites**
 
-- **Go** 1.22 or later ([install](https://go.dev/doc/install))
-- **Node.js** 20 or later ([install](https://nodejs.org/))
-- **GNU Make**
+- **Go** 1.22 or later ([Go section](docs/installation.md#go))
+- **Node.js** 20 or later ([Node.js section](docs/installation.md#nodejs-20-or-later))
+- **GNU Make** ([Make section](docs/installation.md#make))
 - **BiFrost** at git ref `58076d50df0d48d47ad917da3f604cf787ec7708` (`maximhq/bifrost`, pinned in repo-root `deps.lock`)
 - **Qdrant** at `v1.14.1` (pinned in repo-root `deps.lock`)
 
 **Install BiFrost and Qdrant**
 
 1. Clone the repository and `cd` into it.
-2. **Once:** fetch BiFrost at the pinned ref, build `bifrost-http`, and download the pinned Qdrant binary:
+2. Fetch BiFrost and download the pinned Qdrant binary:
 
    ```bash
    make bootstrap-deps   # → .deps/bifrost, ./bin/bifrost-http, ./bin/qdrant
@@ -27,11 +27,11 @@ Further explanation in [docs/installation.md](docs/installation.md).
 
 | Purpose | File | Role |
 | ------- | ---- | ---- |
-| Process environment | `.env` | Optional local env file: upstream Bearer (`CLAUDIA_UPSTREAM_API_KEY`), provider keys referenced by BiFrost (`GROQ_API_KEY`, `GEMINI_API_KEY`, …), optional `LOG_LEVEL`. Not committed. |
-| Gateway client auth | `config/tokens.yaml` | Bearer tokens and `tenant_id` for clients calling the gateway (`Authorization: Bearer …`). Not committed. |
-| Gateway listen + upstream | `config/gateway.yaml` | Listen address, upstream `base_url`, `routing.fallback_chain`, paths to token/policy files, health timeouts. |
-| BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment via `env.VAR` names you set in `.env` or the shell. |
-| Virtual model mapping | `config/routing-policy.yaml` | Rules that define the virtual `Claudia-<semver>` model and how requests map upstream. |
+| Process environment | `.env`<br/>(copied from [env.example](env.example)) | Optional local environment variable file to set Claudia<->BiFrost key and API keys. Not committed. |
+| Gateway client auth | `config/tokens.yaml`<br/>(copied from [config/tokens.example.yaml](config/tokens.example.yaml)) | Tokens for you and other users to use to authenticate with Claudia Gateway. Not committed. |
+| Gateway listen + upstream | `config/gateway.yaml` | Claudia Gateway's primary configuration file to connect the Client<->Claudia<->BiFrost  |
+| BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment variables set in in `.env` or the shell. |
+| Virtual model mapping | `config/routing-policy.yaml` | Rules that define how the virtual `Claudia-<semver>` model routes prompts/turns to underlying models |
 
 **Set up files**
 
