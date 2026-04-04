@@ -1,10 +1,10 @@
-# Shortcuts from repo root (same directory as docker-compose.yml).
+# Shortcuts from repo root.
 BIFROST_SRC ?= $(HOME)/src/bifrost
 
-.PHONY: help claudia-build claudia-gui-help claudia-gui-build claudia-gui-run claudia-run claudia-serve claudia-serve-local claudia-serve-stack release-snapshot bifrost-node-check bifrost-from-src qdrant-from-release bifrost bifrost-d bifrost-down
+.PHONY: help claudia-build claudia-gui-help claudia-gui-build claudia-gui-run claudia-run claudia-serve claudia-serve-local claudia-serve-stack release-snapshot bifrost-node-check bifrost-from-src qdrant-from-release
 
 help:
-	@echo "Claudia (Go) — same config as TypeScript: config/gateway.yaml, tokens.yaml, routing-policy.yaml"
+	@echo "Claudia (Go) — config/gateway.yaml, tokens.yaml, routing-policy.yaml"
 	@echo "  make claudia-build       go build -o claudia ./cmd/claudia"
 	@echo "  make claudia-gui-help    print apt install line for Fyne on Debian/Ubuntu"
 	@echo "  make claudia-gui-build   Fyne GUI → ./claudia-gui (CGO + OS deps; see docs/gui-testing.md)"
@@ -16,10 +16,6 @@ help:
 	@echo "  make claudia-serve-stack  serve + ./bin/qdrant + ./bin/bifrost-http (run qdrant-from-release / bifrost-from-src first)"
 	@echo "  make qdrant-from-release  download pinned Qdrant binary → ./bin/qdrant (Linux/macOS; see scripts/)"
 	@echo "  make release-snapshot   GoReleaser snapshot → dist/ (needs goreleaser on PATH; see docs/packaging.md)"
-	@echo "BiFrost (Docker)"
-	@echo "  make bifrost             docker compose up bifrost (foreground, logs)"
-	@echo "  make bifrost-d           docker compose up -d bifrost (background)"
-	@echo "  make bifrost-down        docker compose stop bifrost"
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
@@ -80,12 +76,3 @@ bifrost-from-src: bifrost-node-check
 	cp -f "$(BIFROST_SRC)/tmp/bifrost-http" bin/bifrost-http
 	chmod +x bin/bifrost-http
 	@echo "Installed $$(pwd)/bin/bifrost-http"
-
-bifrost:
-	docker compose up bifrost
-
-bifrost-d:
-	docker compose up -d bifrost
-
-bifrost-down:
-	docker compose stop bifrost

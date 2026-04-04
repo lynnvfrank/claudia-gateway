@@ -1,6 +1,6 @@
 # Packaging and releases (Phase 4)
 
-The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (pinned in **`scripts/qdrant-pinned-version.txt`**, fetched by **`scripts/fetch-qdrant-for-dist.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); obtain it via Docker, upstream releases, or **`make bifrost-from-src`** — see [supervisor.md](supervisor.md).
+The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (pinned in **`scripts/qdrant-pinned-version.txt`**, fetched by **`scripts/fetch-qdrant-for-dist.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); obtain it from upstream releases or **`make bifrost-from-src`** — see [supervisor.md](supervisor.md).
 
 ## Artifact layout
 
@@ -17,8 +17,8 @@ Architectures: **linux/darwin** **amd64** and **arm64**; **windows amd64** only 
 ## Prerequisites on the target machine
 
 - **Config:** copy or mount **`config/gateway.yaml`**, **`config/tokens.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`** paths as in YAML). See [configuration.md](configuration.md).
-- **Environment:** **`CLAUDIA_UPSTREAM_API_KEY`** and provider keys (**`GROQ_API_KEY`**, etc.) as for Compose — or use a **`.env`** file in the **working directory** (the binary loads it at startup).
-- **Upstream:** BiFrost or LiteLLM reachable at **`litellm.base_url`**.
+- **Environment:** **`CLAUDIA_UPSTREAM_API_KEY`** and provider keys (**`GROQ_API_KEY`**, etc.) — or a **`.env`** file in the **working directory** (the binary loads it at startup).
+- **Upstream:** BiFrost (or another OpenAI-compatible proxy) reachable at **`litellm.base_url`**.
 
 ## Install (quick)
 
@@ -42,7 +42,7 @@ Extract the **`.zip`**, run **`claudia.exe`** from PowerShell or cmd. SmartScree
 2. Tag: **`git tag v0.x.y`** and **`git push origin v0.x.y`** (prerelease: **`v0.1.0-rc.1`**, etc.).
 3. **GitHub Actions** workflow **Release** runs GoReleaser and uploads assets (requires default **`GITHUB_TOKEN`** with **contents: write**).
 
-Release notes may reference [SECURITY.md](../SECURITY.md) and [operator-migration-to-go.md](operator-migration-to-go.md).
+Release notes may reference [SECURITY.md](../SECURITY.md).
 
 Local snapshot (no upload):
 

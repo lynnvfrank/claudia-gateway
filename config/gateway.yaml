@@ -8,9 +8,9 @@ gateway:
   log_level: "info"
 
 litellm:
-  # OpenAI-compatible upstream root (BiFrost in the default Compose stack).
-  base_url: "http://bifrost:8080"
-  # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled; use any non-empty placeholder (see .env / docker-compose).
+  # OpenAI-compatible upstream root (BiFrost on loopback for local `claudia` / `claudia serve`).
+  base_url: "http://127.0.0.1:8080"
+  # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled; use any non-empty placeholder (see env.example / .env).
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
 
 health:

@@ -29,8 +29,7 @@
 #
 # Prerequisite — ids must exist on the upstream:
 #   With BiFrost, use unified ids such as groq/<model> or gemini/<model> (see
-#   config/bifrost.config.json and provider docs). With LiteLLM, match model_name
-#   entries in config/litellm_config.yaml. Typos or missing models produce upstream errors.
+#   config/bifrost.config.json and provider docs). Typos or missing models produce upstream errors.
 #
 # Prerequisite — align with fallback_chain:
 #   Put the same ids in routing.fallback_chain (config/gateway.yaml) in the order

@@ -85,8 +85,7 @@ func fetchFormatted(client *http.Client, statusURL string) string {
 	if res.StatusCode == http.StatusNotFound {
 		return fmt.Sprintf("HTTP 404 — nothing at GET /status.\n\n"+
 			"Rebuild and restart the gateway:\n"+
-			"  Go:    go build -o claudia ./cmd/claudia\n"+
-			"  Node:  npm run build && docker compose build claudia   (or pull latest image)\n\nURL: %s", statusURL)
+			"  go build -o claudia ./cmd/claudia\n\nURL: %s", statusURL)
 	}
 	bodyTrim := strings.TrimSpace(string(body))
 	if !json.Valid(body) {

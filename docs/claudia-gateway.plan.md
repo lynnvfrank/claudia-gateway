@@ -1,5 +1,7 @@
 # Claudia Gateway (LiteLLM-backed)
 
+> **Implementation note (2026-04):** The **in-tree** gateway is **Go** in front of **BiFrost**, run locally (**`claudia`** / **`claudia serve`**). This document still describes the original **LiteLLM** + **TypeScript** + **Compose** product shape for roadmap requirements; see [README.md](../README.md) for what the repository ships today.
+
 **Claudia Gateway** is the primary name for the thin orchestrator clients call. It exposes a **single OpenAI-compatible** entrypoint (e.g. for Continue) and hides manual model switching. Clients **authenticate** with a **gateway-issued API token**; that token defines the **tenant** and (**from v0.2**) **authorizes RAG** so retrieval and ingested memory are **only** available for data belonging to that tenant (see **#13**). **LiteLLM** handles multi-provider plumbing; the **gateway** implements Claudia-specific routing and policy (**v0.1**), **RAG indexing and query-time retrieval** (**v0.2**), and (from **v0.4**) **ensembles** and escalation. **TLS, gateway hardening, and broader security architecture** are **v0.7** (see **Release roadmap** and **#54–56**). The reference implementation is **TypeScript** (see **Implementation decisions**).
 
 ## Architecture

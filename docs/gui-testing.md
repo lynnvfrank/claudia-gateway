@@ -2,7 +2,7 @@
 
 The **Claudia** desktop shell lives in the nested module **`gui/`** ([Fyne](https://fyne.io/) v2). It **always** shows the Phase 5 footer string **`mew mew, Love Claudia`** (verbatim). The main area **polls** the Go gateway **`GET /status`** (see `internal/server/status.go`) so you can see **supervisor layout** when **`claudia serve`** is running, or **gateway-only** info when **`claudia`** is running without subprocesses.
 
-**Connection model:** the GUI does **not** embed the supervisor. Run the gateway (**Go** **`claudia`** / **`claudia serve`**, or **Node** **`npm run dev`** / Docker **`claudia`** after rebuild); the GUI is an **HTTP client** to **`GET /status`**. Go and TypeScript return the **same JSON shape**; TypeScript always reports **`supervisor.active: false`**.
+**Connection model:** the GUI does **not** embed the supervisor. Run the gateway (**Go** **`claudia`** / **`claudia serve`**); the GUI is an **HTTP client** to **`GET /status`**.
 
 Automated UI/E2E in CI is **not** wired (no display server in the default pipeline). This checklist is for **manual** verification after **`make claudia-gui-build`** or **`cd gui && go build -o claudia-gui .`** on your machine.
 

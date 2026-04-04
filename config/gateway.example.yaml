@@ -7,8 +7,8 @@ gateway:
   log_level: "info"
 
 litellm:
-  # BiFrost (default stack): http://bifrost:8080 — LiteLLM: http://litellm:4000
-  base_url: "http://bifrost:8080"
+  # OpenAI-compatible upstream (BiFrost on the host).
+  base_url: "http://127.0.0.1:8080"
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
 
 health:

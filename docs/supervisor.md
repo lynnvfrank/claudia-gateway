@@ -7,11 +7,11 @@ Phase 3 of [go-bifrost-migration-plan.md](go-bifrost-migration-plan.md): one com
 | Piece | Role |
 |-------|------|
 | **Parent** | Go `claudia serve` — HTTP gateway (`config/gateway.yaml`, tokens, routing). |
-| **Child (optional)** | **Qdrant** native binary — **`QDRANT__STORAGE__STORAGE_PATH`**, **`QDRANT__SERVICE__HOST`**, **`QDRANT__SERVICE__HTTP_PORT`**, **`QDRANT__SERVICE__GRPC_PORT`** (defaults align with Compose **6333** / **6334**). Readiness: **`GET /readyz`**. Omit by leaving **`-qdrant-bin`** empty. |
-| **Child** | BiFrost HTTP binary (`bifrost-http`) — started with **`-app-dir`**, **`-host`**, **`-port`**, **`-log-level`**, **`-log-style`** (same as the Docker entrypoint). **`APP_HOST`** / **`APP_PORT`** are also set for compatibility. Working directory = **data dir**. |
-| **Config copy** | Your `bifrost.config.json` is copied to **`<bifrost-data-dir>/config.json`** on each start (same idea as mounting `config/bifrost.config.json` in Docker). |
+| **Child (optional)** | **Qdrant** native binary — **`QDRANT__STORAGE__STORAGE_PATH`**, **`QDRANT__SERVICE__HOST`**, **`QDRANT__SERVICE__HTTP_PORT`**, **`QDRANT__SERVICE__GRPC_PORT`** (defaults **6333** / **6334**). Readiness: **`GET /readyz`**. Omit by leaving **`-qdrant-bin`** empty. |
+| **Child** | BiFrost HTTP binary (`bifrost-http`) — started with **`-app-dir`**, **`-host`**, **`-port`**, **`-log-level`**, **`-log-style`**. **`APP_HOST`** / **`APP_PORT`** are also set for compatibility. Working directory = **data dir**. |
+| **Config copy** | Your `bifrost.config.json` is copied to **`<bifrost-data-dir>/config.json`** on each start. |
 
-Claudia’s upstream URL is **overridden** to **`http://<upstream-host>:<bifrost-port>`** (default **`http://127.0.0.1:8080`**) so `gateway.yaml` may still say `http://bifrost:8080` for Compose while local supervise uses loopback.
+Claudia’s upstream URL is **overridden** to **`http://<upstream-host>:<bifrost-port>`** (default **`http://127.0.0.1:8080`**) so the running gateway always targets the supervised BiFrost instance.
 
 The gateway exposes **`GET /status`** (JSON, no auth — same sensitivity as **`/health`**) with **`supervisor.active: true`**, BiFrost/Qdrant listen hints, and upstream probe results. The Fyne **`claudia-gui`** polls this endpoint; see [gui-testing.md](gui-testing.md).
 
@@ -40,11 +40,11 @@ The kernel resolves a **relative** **`-bifrost-bin`** path against the **process
 
 That error usually means **`npm`** is too old (e.g. **npm 6** with **Node 10**). On Ubuntu, **snap**’s **`node`** package is often **v10**; BiFrost’s UI expects a current **Node** (see BiFrost **`ui/package.json`** / Next 15). Fix by installing **Node 20+** (nvm, fnm, [nodejs.org](https://nodejs.org/), or your distro’s **`nodejs`** package) and ensuring **`which node`** points at it **before** snap’s **`/snap/bin/node`**. Then run **`make bifrost-from-src`** again.
 
-Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the **environment** of the `claudia serve` process and inherited by the BiFrost child (same as Docker `environment:`). Qdrant inherits the same environment (optional **`QDRANT__*`** overrides).
+Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the **environment** of the `claudia serve` process and inherited by the BiFrost child. Qdrant inherits the same environment (optional **`QDRANT__*`** overrides).
 
 ## Qdrant binary
 
-The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG** and local parity with Compose.
+The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG** and a full local stack.
 
 - **Pinned version:** **`scripts/qdrant-pinned-version.txt`** (used by fetch scripts and GoReleaser).
 - **Local install:** **`make qdrant-from-release`** → **`./bin/qdrant`** (Linux/macOS via **`scripts/fetch-qdrant-local.sh`**). On Windows, download the matching **`.zip`** from [Qdrant releases](https://github.com/qdrant/qdrant/releases) and pass **`-qdrant-bin`** to that **`qdrant.exe`**.
@@ -86,14 +86,13 @@ Common flags:
 
 Gateway flags **`‑config`** and **`‑listen`** apply as in gateway-only mode. See **`claudia serve -h`**.
 
-## Make / npm
+## Make targets
 
 - **`make claudia-serve`** → `go run ./cmd/claudia serve`
 - **`make bifrost-from-src`** → build BiFrost in **`BIFROST_SRC`** and install **`./bin/bifrost-http`**
 - **`make claudia-serve-local`** → serve with **`-bifrost-bin ./bin/bifrost-http`**
 - **`make qdrant-from-release`** → **`./bin/qdrant`**
 - **`make claudia-serve-stack`** → Qdrant + **`./bin/bifrost-http`**
-- **`npm run go:serve`**, **`npm run go:serve:local`**, **`npm run bifrost:from-src`**, **`npm run qdrant:from-release`**, **`npm run go:serve:stack`**
 
 ## Manual checklist (Linux)
 

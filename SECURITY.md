@@ -24,10 +24,6 @@ Operators should still treat logs as sensitive (tenant IDs, model names, URLs) a
 - Environment is inherited from the parent process (`MergeEnv`); avoid passing untrusted env into the supervisor process.
 - BiFrost **config** is copied into the data directory; keep **`bifrost.config.json`** permissions tight on disk.
 
-## TypeScript gateway (`src/`)
-
-The **Node** implementation used by **Docker Compose** `claudia` service is **legacy** for that image only (see [README](README.md)). Prefer the **Go** binary for new deployments; see [docs/operator-migration-to-go.md](docs/operator-migration-to-go.md).
-
 ## Reporting
 
 If you find a security issue in this repository, contact the maintainer privately (add contact method when the project is public).

@@ -1,5 +1,9 @@
 # Claudia Gateway — Go rewrite, BiFrost, packaging, and GUI
 
+**Repository status (2026-04):** The **TypeScript** gateway (**`src/`**), **Docker Compose** stack, and **`config/litellm_config.yaml`** have been removed. Operators run **Go** **`claudia`** / **`claudia serve`** locally with **BiFrost**. The phases below remain a **historical** record of the migration.
+
+---
+
 This document is a **phased migration plan**. Each phase has a **deliverable**, **verification (tests)**, and **TODO** items. Work proceeds **one phase at a time**: the **user asks the agent to implement the next phase**. When an agent finishes a phase, it **updates this file** (checkboxes, completion notes, and links to PRs/commits as appropriate).
 
 **Product goals (end state)**
@@ -35,6 +39,7 @@ After completing work for a phase:
 | 2026-04-04 | Phase 4 | GoReleaser v2: `.goreleaser.yaml`, `claudia -version` / `--version` (ldflags), archives linux/darwin amd64+arm64 + windows amd64, `checksums.txt`. CI: `package` job snapshot + smoke; `release.yml` on `v*` tags. `docs/packaging.md`, `make release-snapshot`. BiFrost not bundled; signing deferred. | [packaging.md](packaging.md), `.goreleaser.yaml` |
 | 2026-04-04 | Phase 5 | Fyne v2 desktop app in nested module **`gui/`** showing **`mew mew, Love Claudia`**; `make claudia-gui-build` → `./claudia-gui`. CI **`gui`** job: linux-amd64 compile with CGO + X11 deps. Manual checklist **`docs/gui-testing.md`**. GUI **not** in GoReleaser zip (CGO/cross-compile); documented in packaging. Supervisor launch from GUI deferred. | [gui-testing.md](gui-testing.md), `gui/` |
 | 2026-04-04 | Phase 6 | **`SECURITY.md`**: tokens, log redaction, bind surface, supervisor. **`docs/operator-migration-to-go.md`**, **`docs/e2e-operator-path.md`**, **`scripts/e2e-first-chat-curl.sh`**. README + plan: **TypeScript sunset** (Go primary; `src/` legacy for Compose image). **`src/README.md`**. Config fuzz: **`internal/config/fuzz_test.go`** (`FuzzLoadGatewayYAML`). Audit: HTTP logs use **`redactAuth`**; config/tokens reload paths do not log secrets. **RC tag:** maintainers cut with `git tag v0.1.0-rc.1` (or semver) per [packaging.md](packaging.md); not automated here. | [SECURITY.md](../SECURITY.md), [operator-migration-to-go.md](operator-migration-to-go.md) |
+| 2026-04-04 | Follow-up | Removed **TypeScript** **`src/`**, **Dockerfile** / **`docker-compose.yml`**, and **LiteLLM** **`config/litellm_config.yaml`**. Repo is **Go-only**, local **BiFrost**. | [README.md](../README.md), [operator-migration-to-go.md](operator-migration-to-go.md) |
 
 ---
 
@@ -217,7 +222,7 @@ After completing work for a phase:
 **TODO (Phase 6)**
 
 - [x] Audit secrets in logs and config reload paths (documented in **SECURITY.md**; code review: **`redactAuth`**, token store logs count-only).
-- [x] Finalize docs and archive TS server if applicable (**`src/README.md`** legacy notice; Compose **`Dockerfile`** unchanged — follow-up).
+- [x] Finalize docs and archive TS server — **done:** **`src/`**, Compose, and LiteLLM config removed; Go-only tree.
 - [x] Document **v0.x** release candidate tagging for maintainers ([packaging.md](packaging.md)); actual tag is manual.
 
 **Status:** ☐ Not started · ☐ In progress · ☑ **Complete**

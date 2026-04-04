@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// BifrostConfig is the child process layout (matches docker-compose bifrost service env/volumes in spirit).
+// BifrostConfig is the child process layout for supervised bifrost-http.
 type BifrostConfig struct {
 	// Bin is the BiFrost HTTP executable name or path (e.g. bifrost-http, or ./bin/bifrost-http; default "bifrost" on PATH).
 	Bin string

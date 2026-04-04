@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// QdrantConfig controls a native Qdrant process (same ports/storage idea as docker-compose qdrant service).
+// QdrantConfig controls a native Qdrant process (default ports 6333/6334).
 type QdrantConfig struct {
 	// Bin is the Qdrant executable (PATH or path, e.g. ./bin/qdrant).
 	Bin string
