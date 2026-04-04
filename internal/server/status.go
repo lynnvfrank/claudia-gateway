@@ -42,20 +42,20 @@ func handleStatus(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 	if overlay != nil && overlay.Supervisor != nil {
 		s := overlay.Supervisor
 		sup = map[string]any{
-			"active":             true,
-			"bifrost_listen":     s.BifrostListen,
-			"qdrant_supervised":  s.QdrantSupervised,
-			"qdrant_http":        s.QdrantHTTP,
+			"active":            true,
+			"bifrost_listen":    s.BifrostListen,
+			"qdrant_supervised": s.QdrantSupervised,
+			"qdrant_http":       s.QdrantHTTP,
 		}
 	}
 
 	body := map[string]any{
 		"supervisor": sup,
 		"gateway": map[string]any{
-			"listen":             listen,
-			"virtual_model":      res.VirtualModelID,
-			"semver":             res.Semver,
-			"upstream_base_url":  res.LitellmBaseURL,
+			"listen":            listen,
+			"virtual_model":     res.VirtualModelID,
+			"semver":            res.Semver,
+			"upstream_base_url": res.LitellmBaseURL,
 		},
 		"upstream": map[string]any{
 			"health_url": res.HealthLitellmURL,
