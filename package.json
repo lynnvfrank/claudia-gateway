@@ -10,7 +10,18 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "go:build": "go build -o claudia ./cmd/claudia",
+    "gui:build": "make claudia-gui-build",
+    "go:run": "go run ./cmd/claudia",
+    "go:serve": "go run ./cmd/claudia serve",
+    "go:serve:local": "go run ./cmd/claudia serve -bifrost-bin ./bin/bifrost-http",
+    "go:serve:stack": "go run ./cmd/claudia serve -qdrant-bin ./bin/qdrant -bifrost-bin ./bin/bifrost-http",
+    "qdrant:from-release": "bash scripts/fetch-qdrant-local.sh",
+    "bifrost:from-src": "make bifrost-from-src",
+    "bifrost": "docker compose up bifrost",
+    "bifrost:d": "docker compose up -d bifrost",
+    "bifrost:down": "docker compose stop bifrost"
   },
   "dependencies": {
     "fastify": "^5.2.1",

@@ -4,3 +4,11 @@ dist/
 *.log
 .DS_Store
 config/tokens.yaml
+/claudia
+/claudia-gui
+/bin/bifrost-http
+/data/bifrost/
+/data/qdrant/
+/packaging/qdrant-bundles/
+/bin/qdrant
+/bin/qdrant.exe

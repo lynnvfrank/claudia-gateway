@@ -1,7 +1,8 @@
 # Claudia Gateway stack (v0.1)
 #
 # Services:
-#   - claudia: TypeScript gateway — IDE-facing OpenAI-compatible API, token auth,
+#   - claudia: TypeScript gateway (legacy image; Go binary is primary — see README, src/README.md)
+#     — IDE-facing OpenAI-compatible API, token auth,
 #     virtual model Claudia-<semver>, routing policy + upstream fallback chain
 #     (default upstream: BiFrost at http://bifrost:8080 per config/gateway.yaml).
 #   - litellm: Official LiteLLM proxy — optional; provider keys and model aliases when

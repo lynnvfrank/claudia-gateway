@@ -69,6 +69,7 @@ export async function buildServer(state: RuntimeState, log: Logger) {
   <p>OpenAI-compatible API under <code>/v1/</code> (e.g. chat and models). Use a gateway token for authenticated routes.</p>
   <ul>
     <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
+    <li><a href="/status"><code>GET /status</code></a> — gateway JSON for Fyne GUI (same shape as Go)</li>
   </ul>
 </body>
 </html>`;
@@ -100,6 +101,51 @@ export async function buildServer(state: RuntimeState, log: Logger) {
       });
     }
     return reply.send({ status: "ok", checks });
+  });
+
+  /** Same JSON shape as Go GET /status (Fyne claudia-gui). Supervisor is always inactive here. */
+  app.get("/status", async (_request, reply) => {
+    state.syncGatewayConfig();
+    const {
+      listenHost,
+      listenPort,
+      virtualModelId,
+      semver,
+      litellmBaseUrl,
+      healthLitellmUrl,
+      healthTimeoutMs,
+    } = state.resolved;
+    const litellmKey = state.litellmApiKey();
+    const litellm = await probeLitellmHealth(
+      healthLitellmUrl,
+      healthTimeoutMs,
+      log,
+      litellmKey,
+    );
+    const body = {
+      supervisor: {
+        active: false,
+        bifrost_listen: "",
+        qdrant_supervised: false,
+        qdrant_http: "",
+      },
+      gateway: {
+        listen: `${listenHost}:${listenPort}`,
+        virtual_model: virtualModelId,
+        semver,
+        upstream_base_url: litellmBaseUrl,
+      },
+      upstream: {
+        health_url: healthLitellmUrl,
+        ok: litellm.ok,
+        status: litellm.status,
+        detail: litellm.detail ?? "",
+      },
+    };
+    if (!litellm.ok) {
+      return reply.code(503).type("application/json").send(body);
+    }
+    return reply.type("application/json").send(body);
   });
 
   app.get("/v1/models", async (request, reply) => {

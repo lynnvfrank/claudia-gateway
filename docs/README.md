@@ -8,6 +8,12 @@
 | [docker-commands.md](docker-commands.md) | Common `docker compose` / `docker` commands |
 | [configuration.md](configuration.md) | All gateway config files, env vars, reload semantics |
 | [go-bifrost-migration-plan.md](go-bifrost-migration-plan.md) | Phased plan: Go rewrite, BiFrost, cross-platform packaging, GUI |
+| [supervisor.md](supervisor.md) | `claudia serve`: BiFrost subprocess + Go gateway (Phase 3) |
+| [packaging.md](packaging.md) | GoReleaser releases, artifacts, **`claudia -version`** (Phase 4) |
+| [gui-testing.md](gui-testing.md) | Fyne **`claudia-gui`**, manual checklist, build deps (Phase 5) |
+| [operator-migration-to-go.md](operator-migration-to-go.md) | Moving from Docker/TypeScript to the Go binary (Phase 6) |
+| [e2e-operator-path.md](e2e-operator-path.md) | Documented path: install → first **`curl`** chat |
+| [../SECURITY.md](../SECURITY.md) | Tokens, logging redaction, local attack surface (Phase 6) |
 
 Normative product requirements: [claudia-gateway.plan.md](claudia-gateway.plan.md).
 

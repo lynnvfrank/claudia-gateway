@@ -2,13 +2,27 @@
 
 The gateway reads **YAML files** and **environment variables**. **`gateway.yaml`**, **`tokens.yaml`**, and **`routing-policy.yaml`** are reloaded when their file **modification time** changes (checked on incoming traffic).
 
+### Go gateway binary
+
+The **`claudia`** program built with **`go build -o claudia ./cmd/claudia`** reads the **same** `config/gateway.yaml`, `tokens.yaml`, and `routing-policy.yaml` semantics as the TypeScript server:
+
+- **Config path:** **`CLAUDIA_GATEWAY_CONFIG`**, or **`-config /path/to/gateway.yaml`**, or default **`./config/gateway.yaml`** (relative to the process working directory).
+- **Listen address:** from **`gateway.listen_host`** and **`gateway.listen_port`**, unless overridden with **`-listen`** (e.g. **`:3001`** or **`host:port`**).
+- **Log level:** **`gateway.log_level`** unless **`LOG_LEVEL`** is set (**`debug`**, **`info`**, **`warn`**, **`error`**); Go uses **`log/slog`** text logs on stdout.
+- **Upstream:** **`litellm.base_url`**, **`litellm.api_key_env`**, **`health.*`**, **`routing.fallback_chain`**, **`paths.*`** — same table below.
+- **`.env`:** At startup, **`claudia`** loads an optional **`.env`** in the **process working directory** (via **`github.com/joho/godotenv`**). Use the same keys as Docker Compose **`env.example`**; missing file is normal in production where the platform injects environment variables.
+
+Behavior matches the Node gateway for **`GET /health`** (JSON field **`checks.litellm`**), **`GET /v1/models`** (virtual model first; BiFrost catalog then **`/v1/models`**), **`POST /v1/chat/completions`** (gateway Bearer token, virtual **`Claudia-<semver>`**, routing policy, 429/5xx fallback chain). The default **Docker Compose `claudia` image** is still TypeScript until a future phase switches it.
+
+To run **BiFrost as a local process** supervised by the same binary, use **`claudia serve`** — see [supervisor.md](supervisor.md).
+
 ## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | **`CLAUDIA_UPSTREAM_API_KEY`** | Yes (default Compose) | Bearer token the gateway sends to its OpenAI-compatible upstream (`litellm.base_url`). Name is configurable via `litellm.api_key_env` in `gateway.yaml` (default **`CLAUDIA_UPSTREAM_API_KEY`**). For **BiFrost** without governance virtual keys, any non-empty placeholder works. For **LiteLLM**, use the same value as **`LITELLM_MASTER_KEY`**. |
 | **`LITELLM_MASTER_KEY`** | Yes for LiteLLM service | LiteLLM proxy admin/API key; **not** read by the gateway unless `litellm.api_key_env` points at this name. |
-| **`LOG_LEVEL`** | No | Pino level: `debug`, `info`, `warn`, `error`. Overrides typical default when set. |
+| **`LOG_LEVEL`** | No | Log level for **TypeScript** (Pino) and **Go** (`log/slog`): `debug`, `info`, `warn`, `error`. Overrides `gateway.log_level` when set. |
 | **`CLAUDIA_GATEWAY_CONFIG`** | No | Absolute path to `gateway.yaml` inside the container. Default: `/app/config/gateway.yaml` in Docker; on the host, default is `./config/gateway.yaml` relative to `process.cwd()`. |
 
 Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, **`OPENAI_API_KEY`**, etc.) are **not** read by the gateway; **BiFrost** (`config/bifrost.config.json`) or **LiteLLM** (`config/litellm_config.yaml`) consume them.

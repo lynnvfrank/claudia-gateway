@@ -1,0 +1,28 @@
+package config
+
+import "strings"
+
+// CloneResolved returns a deep-enough copy for safe mutation (fallback chain slice).
+func CloneResolved(r *Resolved) *Resolved {
+	if r == nil {
+		return nil
+	}
+	n := *r
+	if r.FallbackChain != nil {
+		n.FallbackChain = append([]string(nil), r.FallbackChain...)
+	}
+	return &n
+}
+
+// PatchResolvedUpstream sets litellm base and default {base}/health (supervised local BiFrost).
+func PatchResolvedUpstream(r *Resolved, baseURL string) {
+	if r == nil {
+		return
+	}
+	base := strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return
+	}
+	r.LitellmBaseURL = base
+	r.HealthLitellmURL = base + "/health"
+}
