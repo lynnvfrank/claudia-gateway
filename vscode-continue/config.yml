@@ -13,22 +13,14 @@ name: Claudia
 version: "1.0.0"
 schema: v1
 
-claudia: &claudia
-  provider: openai
-  apiKey: <GATEWAY_TOKEN>
-  apiBase: <CLAUDIA_GATEWAY_URL>
-  roles:
-    - chat
-    - edit
-    - apply
-
 models:
-  - name: Claudia (virtual)
+  - name: Cℓαudια
     <<: *claudia
-    model: <VIRTUAL_MODEL_ID>
-
-  - name: Example upstream (Groq via BiFrost)
-    <<: *claudia
-    model: groq/llama-3.1-8b-instant
-
-  # Add one block per model id returned by GET /v1/models …
+    model: Claudia-0.1.0
+    provider: openai
+    apiKey: <GATEWAY_TOKEN>
+    apiBase: <CLAUDIA_GATEWAY_URL>
+    roles:
+      - chat
+      - edit
+      - apply
