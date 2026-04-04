@@ -20,7 +20,7 @@ type Runtime struct {
 	resolved         *config.Resolved
 	tokens           *tokens.Store
 	routing          *routing.Policy
-	upstreamOverride string // non-empty: after each yaml load, patch litellm base + health (Phase 3 supervise)
+	upstreamOverride string // non-empty: after each yaml load, patch upstream base + health (supervised BiFrost)
 }
 
 func NewRuntime(gatewayPath string, log *slog.Logger) (*Runtime, error) {
@@ -28,7 +28,7 @@ func NewRuntime(gatewayPath string, log *slog.Logger) (*Runtime, error) {
 }
 
 // NewRuntimeWithUpstreamOverride loads gateway.yaml; if upstreamOverride is set (e.g. http://127.0.0.1:8080),
-// it replaces litellm.base_url and health probe URL on every reload (supervised BiFrost).
+// it replaces upstream.base_url and health probe URL on every reload (supervised BiFrost).
 func NewRuntimeWithUpstreamOverride(gatewayPath string, log *slog.Logger, upstreamOverride string) (*Runtime, error) {
 	res, err := config.LoadGatewayYAML(gatewayPath, log)
 	if err != nil {
@@ -109,5 +109,5 @@ func (rt *Runtime) UpstreamAPIKey() string {
 	if r == nil {
 		return ""
 	}
-	return os.Getenv(r.LitellmAPIKeyEnv)
+	return os.Getenv(r.UpstreamAPIKeyEnv)
 }

@@ -162,7 +162,7 @@ func writeGateway(t *testing.T, path, upstream string, chain []string) {
 		chainYAML += "    - \"" + m + "\"\n"
 	}
 	raw := "gateway:\n  semver: \"0.1.0\"\n  listen_port: 0\n  listen_host: \"127.0.0.1\"\n" +
-		"litellm:\n  base_url: \"" + upstream + "\"\n  api_key_env: \"CLAUDIA_UPSTREAM_API_KEY\"\n" +
+		"upstream:\n  base_url: \"" + upstream + "\"\n  api_key_env: \"CLAUDIA_UPSTREAM_API_KEY\"\n" +
 		"health:\n  timeout_ms: 2000\n  chat_timeout_ms: 60000\n" +
 		"paths:\n  tokens: \"./tokens.yaml\"\n  routing_policy: \"./routing-policy.yaml\"\n" +
 		"routing:\n  fallback_chain:\n" + chainYAML

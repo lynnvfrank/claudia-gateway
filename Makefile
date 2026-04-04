@@ -1,10 +1,11 @@
 # Shortcuts from repo root.
 BIFROST_SRC ?= $(HOME)/src/bifrost
 
-.PHONY: help claudia-build claudia-gui-help claudia-gui-build claudia-gui-run claudia-run claudia-serve claudia-serve-local claudia-serve-stack release-snapshot bifrost-node-check bifrost-from-src qdrant-from-release
+.PHONY: help bootstrap-deps claudia-build claudia-gui-help claudia-gui-build claudia-gui-run claudia-run claudia-serve claudia-serve-local claudia-serve-stack release-snapshot bifrost-node-check bifrost-from-src qdrant-from-release
 
 help:
 	@echo "Claudia (Go) — config/gateway.yaml, tokens.yaml, routing-policy.yaml"
+	@echo "  make bootstrap-deps     clone BiFrost + build bifrost-http + Qdrant (pins in deps.lock)"
 	@echo "  make claudia-build       go build -o claudia ./cmd/claudia"
 	@echo "  make claudia-gui-help    print apt install line for Fyne on Debian/Ubuntu"
 	@echo "  make claudia-gui-build   Fyne GUI → ./claudia-gui (CGO + OS deps; see docs/gui-testing.md)"
@@ -14,8 +15,11 @@ help:
 	@echo "  make bifrost-from-src    build BiFrost from BIFROST_SRC (Node 20+ on PATH; not snap node 10) → ./bin/bifrost-http"
 	@echo "  make claudia-serve-local claudia-serve with -bifrost-bin ./bin/bifrost-http"
 	@echo "  make claudia-serve-stack  serve + ./bin/qdrant + ./bin/bifrost-http (run qdrant-from-release / bifrost-from-src first)"
-	@echo "  make qdrant-from-release  download pinned Qdrant binary → ./bin/qdrant (Linux/macOS; see scripts/)"
+	@echo "  make qdrant-from-release  download pinned Qdrant binary → ./bin/qdrant (Linux/macOS; versions in deps.lock)"
 	@echo "  make release-snapshot   GoReleaser snapshot → dist/ (needs goreleaser on PATH; see docs/packaging.md)"
+
+bootstrap-deps:
+	bash scripts/bootstrap-deps.sh
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
@@ -72,7 +76,8 @@ bifrost-node-check:
 bifrost-from-src: bifrost-node-check
 	@test -d "$(BIFROST_SRC)" || { echo "bifrost-from-src: set BIFROST_SRC or clone BiFrost to $(BIFROST_SRC)" >&2; exit 1; }
 	mkdir -p bin
-	$(MAKE) -C "$(BIFROST_SRC)" build
+	$(MAKE) -C "$(BIFROST_SRC)" setup-workspace
+	$(MAKE) -C "$(BIFROST_SRC)" build LOCAL=1
 	cp -f "$(BIFROST_SRC)/tmp/bifrost-http" bin/bifrost-http
 	chmod +x bin/bifrost-http
 	@echo "Installed $$(pwd)/bin/bifrost-http"

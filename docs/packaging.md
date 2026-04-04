@@ -1,6 +1,6 @@
 # Packaging and releases (Phase 4)
 
-The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (pinned in **`scripts/qdrant-pinned-version.txt`**, fetched by **`scripts/fetch-qdrant-for-dist.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); obtain it from upstream releases or **`make bifrost-from-src`** — see [supervisor.md](supervisor.md).
+The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (**`QDRANT_RELEASE`** in repo-root **`deps.lock`**, fetched by **`scripts/fetch-qdrant-for-dist.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); operators use **`make bootstrap-deps`** or **`make bifrost-from-src`** — see [supervisor.md](supervisor.md).
 
 ## Artifact layout
 
@@ -18,7 +18,7 @@ Architectures: **linux/darwin** **amd64** and **arm64**; **windows amd64** only 
 
 - **Config:** copy or mount **`config/gateway.yaml`**, **`config/tokens.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`** paths as in YAML). See [configuration.md](configuration.md).
 - **Environment:** **`CLAUDIA_UPSTREAM_API_KEY`** and provider keys (**`GROQ_API_KEY`**, etc.) — or a **`.env`** file in the **working directory** (the binary loads it at startup).
-- **Upstream:** BiFrost (or another OpenAI-compatible proxy) reachable at **`litellm.base_url`**.
+- **Upstream:** BiFrost (or another OpenAI-compatible proxy) reachable at **`upstream.base_url`**.
 
 ## Install (quick)
 
@@ -65,7 +65,7 @@ Plain **`go build`** without **`-ldflags`** reports **`dev`**, **`none`**, **`un
 
 ## Qdrant licensing
 
-Qdrant is **Apache-2.0**. The archive **redistributes** the official prebuilt binary from [github.com/qdrant/qdrant](https://github.com/qdrant/qdrant/releases). Bump **`scripts/qdrant-pinned-version.txt`** when you want a newer Qdrant in releases.
+Qdrant is **Apache-2.0**. The archive **redistributes** the official prebuilt binary from [github.com/qdrant/qdrant](https://github.com/qdrant/qdrant/releases). Bump **`QDRANT_RELEASE`** in **`deps.lock`** when you want a newer Qdrant in releases.
 
 ## BiFrost version pinning
 

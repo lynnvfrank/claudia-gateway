@@ -5,7 +5,7 @@ This document summarizes **operator-relevant** security properties of the **Go**
 ## Secrets and logging
 
 - **Gateway tokens** (`Authorization: Bearer …` from clients) are **not** written to logs in full. HTTP access logs record a **redacted** form (`Bearer abcd…` for long tokens, `Bearer ***` for short values). See `internal/server/server.go` (`redactAuth`, `loggingMiddleware`).
-- **Upstream API keys** (environment variable named by `litellm.api_key_env`, usually `CLAUDIA_UPSTREAM_API_KEY`) are **not** logged when set. Debug logs may include **upstream base URL** and paths (no key material).
+- **Upstream API keys** (environment variable named by `upstream.api_key_env`, usually `CLAUDIA_UPSTREAM_API_KEY`) are **not** logged when set. Debug logs may include **upstream base URL** and paths (no key material).
 - **`tokens.yaml`** reload logs include **path** and **token count**, not individual token strings (`internal/tokens/tokens.go`).
 - **Chat request logs** include `clientModel`, `stream`, and `tenant` (from the validated gateway token), not message bodies.
 

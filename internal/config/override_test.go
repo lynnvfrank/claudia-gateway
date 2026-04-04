@@ -4,11 +4,11 @@ import "testing"
 
 func TestPatchResolvedUpstream(t *testing.T) {
 	r := &Resolved{
-		LitellmBaseURL:   "http://bifrost:8080",
-		HealthLitellmURL: "http://bifrost:8080/health",
+		UpstreamBaseURL:   "http://bifrost:8080",
+		HealthUpstreamURL: "http://bifrost:8080/health",
 	}
 	PatchResolvedUpstream(r, "http://127.0.0.1:9090")
-	if r.LitellmBaseURL != "http://127.0.0.1:9090" || r.HealthLitellmURL != "http://127.0.0.1:9090/health" {
+	if r.UpstreamBaseURL != "http://127.0.0.1:9090" || r.HealthUpstreamURL != "http://127.0.0.1:9090/health" {
 		t.Fatalf("%+v", r)
 	}
 }

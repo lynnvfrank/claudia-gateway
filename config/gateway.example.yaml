@@ -6,7 +6,7 @@ gateway:
   listen_host: "0.0.0.0"
   log_level: "info"
 
-litellm:
+upstream:
   # OpenAI-compatible upstream (BiFrost on the host).
   base_url: "http://127.0.0.1:8080"
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"

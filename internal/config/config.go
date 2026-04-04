@@ -17,15 +17,20 @@ type Resolved struct {
 	ListenPort        int
 	ListenHost        string
 	LogLevel          string
-	LitellmBaseURL    string
-	LitellmAPIKeyEnv  string
-	HealthLitellmURL  string
+	UpstreamBaseURL   string
+	UpstreamAPIKeyEnv string
+	HealthUpstreamURL string
 	HealthTimeoutMs   int
 	ChatTimeoutMs     int
 	TokensPath        string
 	RoutingPolicyPath string
 	FallbackChain     []string
 	GatewayYAMLPath   string
+}
+
+type upstreamBlock struct {
+	BaseURL   string `yaml:"base_url"`
+	APIKeyEnv string `yaml:"api_key_env"`
 }
 
 type gatewayDoc struct {
@@ -35,14 +40,13 @@ type gatewayDoc struct {
 		ListenHost string `yaml:"listen_host"`
 		LogLevel   string `yaml:"log_level"`
 	} `yaml:"gateway"`
-	Litellm struct {
-		BaseURL   string `yaml:"base_url"`
-		APIKeyEnv string `yaml:"api_key_env"`
-	} `yaml:"litellm"`
-	Health struct {
-		LitellmURL string `yaml:"litellm_url"`
-		TimeoutMs  int    `yaml:"timeout_ms"`
-		ChatMs     int    `yaml:"chat_timeout_ms"`
+	Upstream upstreamBlock `yaml:"upstream"`
+	Litellm  upstreamBlock `yaml:"litellm"` // deprecated: prefer upstream (historical LiteLLM-shaped config)
+	Health   struct {
+		UpstreamURL string `yaml:"upstream_url"`
+		LitellmURL  string `yaml:"litellm_url"` // deprecated: prefer health.upstream_url
+		TimeoutMs   int    `yaml:"timeout_ms"`
+		ChatMs      int    `yaml:"chat_timeout_ms"`
 	} `yaml:"health"`
 	Paths struct {
 		Tokens        string `yaml:"tokens"`
@@ -79,18 +83,29 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 	if semver == "" {
 		semver = defaultSemver
 	}
-	litellmBase := strings.TrimSuffix(doc.Litellm.BaseURL, "/")
-	if litellmBase == "" {
-		litellmBase = strings.TrimSuffix(defaultBaseURL, "/")
+
+	upBase := strings.TrimSuffix(doc.Upstream.BaseURL, "/")
+	if upBase == "" {
+		upBase = strings.TrimSuffix(doc.Litellm.BaseURL, "/")
 	}
-	apiKeyEnv := doc.Litellm.APIKeyEnv
+	if upBase == "" {
+		upBase = strings.TrimSuffix(defaultBaseURL, "/")
+	}
+
+	apiKeyEnv := doc.Upstream.APIKeyEnv
+	if apiKeyEnv == "" {
+		apiKeyEnv = doc.Litellm.APIKeyEnv
+	}
 	if apiKeyEnv == "" {
 		apiKeyEnv = defaultAPIKeyEnv
 	}
 
-	healthURL := strings.TrimSpace(doc.Health.LitellmURL)
+	healthURL := strings.TrimSpace(doc.Health.UpstreamURL)
 	if healthURL == "" {
-		healthURL = litellmBase + "/health"
+		healthURL = strings.TrimSpace(doc.Health.LitellmURL)
+	}
+	if healthURL == "" {
+		healthURL = upBase + "/health"
 	}
 
 	baseDir := filepath.Dir(filePath)
@@ -152,9 +167,9 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		ListenPort:        listenPort,
 		ListenHost:        listenHost,
 		LogLevel:          logLevel,
-		LitellmBaseURL:    litellmBase,
-		LitellmAPIKeyEnv:  apiKeyEnv,
-		HealthLitellmURL:  healthURL,
+		UpstreamBaseURL:   upBase,
+		UpstreamAPIKeyEnv: apiKeyEnv,
+		HealthUpstreamURL: healthURL,
 		HealthTimeoutMs:   ht,
 		ChatTimeoutMs:     ct,
 		TokensPath:        tokensPath,

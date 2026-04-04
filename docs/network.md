@@ -15,7 +15,7 @@
 | **bifrost-http** | **8080** | AI gateway (default upstream) |
 | **qdrant** | **6333** (HTTP), **6334** (gRPC) | Vectors (optional, v0.2+) |
 
-**`claudia serve`** binds BiFrost and Qdrant on loopback by default; **`config/gateway.yaml`** **`litellm.base_url`** should point at that upstream (e.g. **`http://127.0.0.1:8080`**). **`claudia serve`** overrides the upstream URL to match the supervised BiFrost listen address.
+**`claudia serve`** binds BiFrost and Qdrant on loopback by default; **`config/gateway.yaml`** **`upstream.base_url`** should point at that upstream (e.g. **`http://127.0.0.1:8080`**). **`claudia serve`** overrides the upstream URL to match the supervised BiFrost listen address.
 
 **On the host**, use **`http://127.0.0.1:3000`** for Continue’s **`apiBase`** (plus **`/v1`** as required by your client).
 

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Install Qdrant binary for the current machine into ./bin/qdrant (or bin/qdrant.exe on Windows).
+# Version: QDRANT_RELEASE in repo-root deps.lock.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VER="$(tr -d '[:space:]' <"$ROOT/scripts/qdrant-pinned-version.txt")"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=deps-lock.sh
+source "$REPO_ROOT/scripts/deps-lock.sh"
+VER="$(deps_lock_get QDRANT_RELEASE)"
+ROOT="$REPO_ROOT"
 BASE="https://github.com/qdrant/qdrant/releases/download/${VER}"
 mkdir -p "$ROOT/bin"
 

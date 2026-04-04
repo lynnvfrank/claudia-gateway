@@ -42,7 +42,7 @@ func FetchOpenAIModels(ctx context.Context, baseURL, apiKey string, timeout time
 	res, err := client.Do(req)
 	if err != nil {
 		if log != nil {
-			log.Info("litellm models fetch failed", "err", err, "target", v1URL)
+			log.Info("upstream models fetch failed", "err", err, "target", v1URL)
 		}
 		return 503, nil, false
 	}
@@ -53,7 +53,7 @@ func FetchOpenAIModels(ctx context.Context, baseURL, apiKey string, timeout time
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		if log != nil {
-			log.Info("litellm models non-OK", "status", res.StatusCode, "target", v1URL)
+			log.Info("upstream models non-OK", "status", res.StatusCode, "target", v1URL)
 		}
 		return res.StatusCode, b, false
 	}
@@ -142,7 +142,7 @@ func bifrostCatalogToOpenAIList(cat *bifrostCatalogBody) (map[string]any, error)
 	return map[string]any{"object": "list", "data": list}, nil
 }
 
-// ProbeHealth performs GET healthURL with optional Bearer (src/litellm.ts probeLitellmHealth).
+// ProbeHealth performs GET healthURL with optional Bearer token.
 func ProbeHealth(ctx context.Context, healthURL, apiKey string, timeout time.Duration, log *slog.Logger) (ok bool, status int, detail string) {
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
@@ -155,7 +155,7 @@ func ProbeHealth(ctx context.Context, healthURL, apiKey string, timeout time.Dur
 	res, err := client.Do(req)
 	if err != nil {
 		if log != nil {
-			log.Info("litellm health probe failed", "err", err, "target", healthURL)
+			log.Info("upstream health probe failed", "err", err, "target", healthURL)
 		}
 		return false, 503, err.Error()
 	}

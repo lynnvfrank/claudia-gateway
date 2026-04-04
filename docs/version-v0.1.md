@@ -17,7 +17,7 @@ The gateway is a **small Go** service in front of **BiFrost** (OpenAI-compatible
 - **Routing policy** (`config/routing-policy.yaml`): for the virtual model only, **rule-based** selection of the **first** upstream model to try (`internal/routing`). Conditions today are thin (e.g. `min_message_chars` on the **last** user message); then optional `ambiguous_default_model`, else **`routing.fallback_chain[0]`** in `config/gateway.yaml`.
 - **Fallback chain**: on **429 / 5xx** from the upstream, the gateway walks **`routing.fallback_chain`** starting at the index of the model that was attempted (`internal/chat`).
 - **Streaming** (SSE) and non-streaming proxying to BiFrost.
-- **`GET /health`**: probes the configured upstream (JSON field **`checks.litellm`** for historical naming). **Qdrant** is optional via **`claudia serve`**; the **v0.1** gateway does not call Qdrant for chat.
+- **`GET /health`**: probes the configured upstream (JSON field **`checks.upstream`**). **Qdrant** is optional via **`claudia serve`**; the **v0.1** gateway does not call Qdrant for chat.
 
 **Default local stack:** **`go run ./cmd/claudia serve`** (or **`make claudia-serve-local`** with **`./bin/bifrost-http`**), plus provider env keys for **`config/bifrost.config.json`**.
 

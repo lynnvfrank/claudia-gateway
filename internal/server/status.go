@@ -31,7 +31,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 	res, _, _ := rt.Snapshot()
 	apiKey := rt.UpstreamAPIKey()
 	ctx := r.Context()
-	ok, st, detail := upstream.ProbeHealth(ctx, res.HealthLitellmURL, apiKey, healthTimeout(res), log)
+	ok, st, detail := upstream.ProbeHealth(ctx, res.HealthUpstreamURL, apiKey, healthTimeout(res), log)
 
 	listen := res.ListenAddr()
 	if overlay != nil && overlay.EffectiveListen != "" {
@@ -55,10 +55,10 @@ func handleStatus(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 			"listen":            listen,
 			"virtual_model":     res.VirtualModelID,
 			"semver":            res.Semver,
-			"upstream_base_url": res.LitellmBaseURL,
+			"upstream_base_url": res.UpstreamBaseURL,
 		},
 		"upstream": map[string]any{
-			"health_url": res.HealthLitellmURL,
+			"health_url": res.HealthUpstreamURL,
 			"ok":         ok,
 			"status":     st,
 			"detail":     detail,

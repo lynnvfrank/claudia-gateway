@@ -14,7 +14,7 @@ func CloneResolved(r *Resolved) *Resolved {
 	return &n
 }
 
-// PatchResolvedUpstream sets litellm base and default {base}/health (supervised local BiFrost).
+// PatchResolvedUpstream sets upstream base and default {base}/health (supervised local BiFrost).
 func PatchResolvedUpstream(r *Resolved, baseURL string) {
 	if r == nil {
 		return
@@ -23,6 +23,6 @@ func PatchResolvedUpstream(r *Resolved, baseURL string) {
 	if base == "" {
 		return
 	}
-	r.LitellmBaseURL = base
-	r.HealthLitellmURL = base + "/health"
+	r.UpstreamBaseURL = base
+	r.HealthUpstreamURL = base + "/health"
 }

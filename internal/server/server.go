@@ -72,15 +72,16 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
 		res, _, _ := rt.Snapshot()
 		apiKey := rt.UpstreamAPIKey()
 		ctx := r.Context()
-		ok, st, detail := upstream.ProbeHealth(ctx, res.HealthLitellmURL, apiKey, healthTimeout(res), log)
-		checks := map[string]any{
-			"litellm": map[string]any{
-				"ok":     ok,
-				"status": st,
-			},
+		ok, st, detail := upstream.ProbeHealth(ctx, res.HealthUpstreamURL, apiKey, healthTimeout(res), log)
+		upstreamCheck := map[string]any{
+			"ok":     ok,
+			"status": st,
 		}
 		if detail != "" {
-			checks["litellm"].(map[string]any)["detail"] = detail
+			upstreamCheck["detail"] = detail
+		}
+		checks := map[string]any{
+			"upstream": upstreamCheck,
 		}
 		if !ok {
 			w.Header().Set("Content-Type", "application/json")
@@ -141,14 +142,14 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
-				"message": "Missing " + res.LitellmAPIKeyEnv + " for upstream proxy",
+				"message": "Missing " + res.UpstreamAPIKeyEnv + " for upstream proxy",
 				"type":    "gateway_config",
 			},
 		})
 		return
 	}
 	ctx := r.Context()
-	st, body, ok := upstream.FetchOpenAIModels(ctx, res.LitellmBaseURL, apiKey, healthTimeout(res), log)
+	st, body, ok := upstream.FetchOpenAIModels(ctx, res.UpstreamBaseURL, apiKey, healthTimeout(res), log)
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -198,7 +199,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
-				"message": "Missing " + res.LitellmAPIKeyEnv + " for upstream proxy",
+				"message": "Missing " + res.UpstreamAPIKeyEnv + " for upstream proxy",
 				"type":    "gateway_config",
 			},
 		})
@@ -244,7 +245,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 			})
 			return
 		}
-		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.LitellmBaseURL, apiKey, stream, raw, chatTimeout(res), log)
+		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.UpstreamBaseURL, apiKey, stream, raw, chatTimeout(res), log)
 		return
 	}
 
@@ -257,7 +258,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		return
 	}
 
-	pr := chat.ProxyChatCompletion(ctx, w, res.LitellmBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), log)
+	pr := chat.ProxyChatCompletion(ctx, w, res.UpstreamBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), log)
 	if pr.Stream {
 		return
 	}

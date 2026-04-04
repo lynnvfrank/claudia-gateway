@@ -41,7 +41,7 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 	}
 
 	if log != nil {
-		log.Debug("litellm chat relay", "upstreamModel", upstreamModel, "stream", stream, "target", url)
+		log.Debug("upstream chat relay", "upstreamModel", upstreamModel, "stream", stream, "target", url)
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -59,14 +59,14 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if log != nil {
-			log.Info("litellm chat fetch failed", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
+			log.Info("upstream chat fetch failed", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
 		}
 		return ProxyResult{Status: 503, ErrMessage: err.Error()}
 	}
 	defer res.Body.Close()
 
 	if log != nil {
-		log.Info("litellm chat response", "route", "POST /v1/chat/completions (upstream)", "target", url, "status", res.StatusCode, "upstreamModel", upstreamModel, "stream", stream)
+		log.Info("upstream chat response", "route", "POST /v1/chat/completions (upstream)", "target", url, "status", res.StatusCode, "upstreamModel", upstreamModel, "stream", stream)
 	}
 
 	if !statusOK(res.StatusCode) && !stream {

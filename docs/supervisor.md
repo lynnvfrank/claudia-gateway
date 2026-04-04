@@ -21,6 +21,13 @@ The repository does **not** vendor BiFrost. Install per [BiFrost documentation](
 
 ### Build from a local clone (shortcut)
 
+**Bootstrap from locked versions** (clone under **`.deps/`**, build, install **`./bin/bifrost-http`** and **`./bin/qdrant`**):
+
+```bash
+make bootstrap-deps
+make claudia-serve-local
+```
+
 If you keep BiFrost at **`$HOME/src/bifrost`** (or set **`BIFROST_SRC`**):
 
 ```bash
@@ -46,7 +53,7 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the
 
 The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG** and a full local stack.
 
-- **Pinned version:** **`scripts/qdrant-pinned-version.txt`** (used by fetch scripts and GoReleaser).
+- **Pinned version:** **`QDRANT_RELEASE`** in repo-root **`deps.lock`** (used by **`scripts/fetch-qdrant-local.sh`**, **`scripts/fetch-qdrant-for-dist.sh`**, and GoReleaser).
 - **Local install:** **`make qdrant-from-release`** → **`./bin/qdrant`** (Linux/macOS via **`scripts/fetch-qdrant-local.sh`**). On Windows, download the matching **`.zip`** from [Qdrant releases](https://github.com/qdrant/qdrant/releases) and pass **`-qdrant-bin`** to that **`qdrant.exe`**.
 - **Full local stack (Qdrant + BiFrost + gateway):** after **`make qdrant-from-release`** and **`make bifrost-from-src`**, run **`make claudia-serve-stack`**.
 

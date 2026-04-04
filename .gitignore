@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.deps/
 *.log
 .DS_Store
 config/tokens.yaml

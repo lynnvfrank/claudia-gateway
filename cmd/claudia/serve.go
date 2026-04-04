@@ -30,7 +30,7 @@ func runServe(args []string) {
 	bifrostPort := fs.Int("bifrost-port", 8080, "BiFrost listen port (-port)")
 	bifrostLogLevel := fs.String("bifrost-log-level", "info", "BiFrost -log-level (debug, info, warn, error)")
 	bifrostLogStyle := fs.String("bifrost-log-style", "json", "BiFrost -log-style (json or pretty)")
-	upstreamHost := fs.String("upstream-host", "127.0.0.1", "Host for gateway litellm.base_url (Claudia → BiFrost); use 127.0.0.1 when bifrost-bind is 0.0.0.0")
+	upstreamHost := fs.String("upstream-host", "127.0.0.1", "Host for gateway upstream.base_url (Claudia → BiFrost); use 127.0.0.1 when bifrost-bind is 0.0.0.0")
 	waitTimeout := fs.Duration("wait-bifrost", 60*time.Second, "Max time to poll BiFrost /health before exit")
 	noWait := fs.Bool("no-wait-bifrost", false, "Skip readiness poll (not recommended)")
 

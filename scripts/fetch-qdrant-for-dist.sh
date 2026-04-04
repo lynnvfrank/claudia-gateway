@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Download pinned Qdrant release binaries into dist/qdrant/<goos>_<goarch>/ for GoReleaser prebuilt.
+# Version: QDRANT_RELEASE in repo-root deps.lock.
 # Requires: curl, tar; unzip for Windows asset.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VER="$(tr -d '[:space:]' <"$ROOT/scripts/qdrant-pinned-version.txt")"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=deps-lock.sh
+source "$REPO_ROOT/scripts/deps-lock.sh"
+VER="$(deps_lock_get QDRANT_RELEASE)"
+ROOT="$REPO_ROOT"
 BASE="https://github.com/qdrant/qdrant/releases/download/${VER}"
 # Outside dist/ so GoReleaser --clean does not race with this hook (hook runs after clean).
 DEST="$ROOT/packaging/qdrant-bundles"

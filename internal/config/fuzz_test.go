@@ -9,7 +9,7 @@ import (
 func FuzzLoadGatewayYAML(f *testing.F) {
 	seed := []byte(`gateway:
   semver: "0.1.0"
-litellm:
+upstream:
   base_url: "http://127.0.0.1:8080"
 paths:
   tokens: "./tokens.yaml"

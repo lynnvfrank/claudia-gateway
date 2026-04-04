@@ -10,7 +10,7 @@ This document records **Phase 0** of [go-bifrost-migration-plan.md](go-bifrost-m
 
 | Item | Value |
 |------|--------|
-| **Binary** | **`bifrost-http`** — e.g. **`make bifrost-from-src`** → **`./bin/bifrost-http`**, or **`claudia serve`** which supervises it |
+| **Binary** | **`bifrost-http`** — e.g. **`make bootstrap-deps`** or **`make bifrost-from-src`** → **`./bin/bifrost-http`**; pins in **`deps.lock`**, or **`claudia serve`** supervises it |
 | **Listen** | Default **`127.0.0.1:8080`** (`claudia serve` flags: **`-bifrost-bind`**, **`-bifrost-port`**) |
 | **Health** | `GET http://127.0.0.1:8080/health` |
 | **Bootstrap config** | Repo **`config/bifrost.config.json`** — copied into BiFrost data dir as **`config.json`** when using **`claudia serve`** |
@@ -20,7 +20,7 @@ This document records **Phase 0** of [go-bifrost-migration-plan.md](go-bifrost-m
 ```bash
 export CLAUDIA_UPSTREAM_API_KEY=bifrost-local-dummy
 export GROQ_API_KEY=...   # per bifrost.config.json
-make bifrost-from-src     # once
+make bootstrap-deps       # once — versions from deps.lock; or: make bifrost-from-src
 make claudia-serve-local
 ```
 
@@ -36,12 +36,12 @@ make claudia-serve-local
 
 ## Gateway configuration — Claudia → BiFrost
 
-Claudia uses **`litellm.*` and `health.*` names** in YAML for historical reasons; values target **any** OpenAI-compatible upstream, including BiFrost.
+Gateway YAML uses **`upstream.*`** for the OpenAI-compatible hop (BiFrost or any compatible proxy). Legacy **`litellm`** / **`health.litellm_url`** keys are still accepted when the corresponding **`upstream`** / **`health.upstream_url`** fields are omitted.
 
 | Field | Role |
 |-------|------|
-| **`litellm.base_url`** | Upstream root. Local default **`http://127.0.0.1:8080`**. **`claudia serve`** overrides this to match the supervised BiFrost. |
-| **`litellm.api_key_env`** | Env var for **`Authorization: Bearer`** on upstream **`/v1/*`**. Default **`CLAUDIA_UPSTREAM_API_KEY`**. |
+| **`upstream.base_url`** | Upstream root. Local default **`http://127.0.0.1:8080`**. **`claudia serve`** overrides this to match the supervised BiFrost. |
+| **`upstream.api_key_env`** | Env var for **`Authorization: Bearer`** on upstream **`/v1/*`**. Default **`CLAUDIA_UPSTREAM_API_KEY`**. |
 | **`routing.fallback_chain`** | Ordered BiFrost model ids as **`provider/model`**. |
 | **`paths.tokens`** / **`paths.routing_policy`** | Gateway auth and routing policy. |
 
@@ -53,7 +53,7 @@ Claudia uses **`litellm.*` and `health.*` names** in YAML for historical reasons
 |------|----------|
 | **Chat** | `POST /v1/chat/completions`; streaming SSE pass-through |
 | **Model list** | Gateway prefers **`GET /api/models?unfiltered=true&limit=500`**, maps to **`provider/name`**, prepends **`Claudia-<semver>`** |
-| **Health** | **`GET {base_url}/health`** — JSON **`checks.litellm`** reflects upstream probe (name retained for compatibility) |
+| **Health** | **`GET {base_url}/health`** — JSON **`checks.upstream`** reflects upstream probe |
 | **Fallback** | **429** / selected **5xx** walk **`routing.fallback_chain`** |
 
 ---

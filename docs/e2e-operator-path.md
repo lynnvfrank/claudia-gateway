@@ -5,8 +5,8 @@ Documented path from clone to a first successful **`curl`** chat.
 ## Preconditions
 
 - **`config/tokens.yaml`** with at least one gateway token (copy from **`config/tokens.example.yaml`**).
-- **`CLAUDIA_UPSTREAM_API_KEY`** set (or the env name in **`gateway.yaml`** **`litellm.api_key_env`**).
-- **BiFrost** running and reachable at **`litellm.base_url`** (e.g. **`make claudia-serve-local`** after **`make bifrost-from-src`**), with provider keys in the environment for **`config/bifrost.config.json`**.
+- **`CLAUDIA_UPSTREAM_API_KEY`** set (or the env name in **`gateway.yaml`** **`upstream.api_key_env`**).
+- **BiFrost** running and reachable at **`upstream.base_url`** (e.g. **`make claudia-serve-local`** after **`make bifrost-from-src`**), with provider keys in the environment for **`config/bifrost.config.json`**.
 
 ## Path
 
