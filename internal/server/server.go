@@ -60,12 +60,21 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
   <h1>Claudia Gateway</h1>
   <p class="ok">Up and operational.</p>
   <p>Version <code>%s</code> · Virtual model <code>%s</code></p>
-  <p>OpenAI-compatible API under <code>/v1/</code> (e.g. chat and models). Use a gateway token for authenticated routes.</p>
+  <h2>OpenAI-compatible API</h2>
+  <p class="muted">Send <code>Authorization: Bearer &lt;gateway token&gt;</code> on these routes.</p>
   <ul>
-    <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
-    <li><a href="/status"><code>GET /status</code></a> — gateway + optional supervisor JSON (GUI / ops)</li>
+    <li><code>GET /v1/models</code> — list models (virtual Claudia model plus upstream)</li>
+    <li><code>POST /v1/chat/completions</code> — chat completions (JSON body; <code>stream: true</code> supported)</li>
   </ul>
-  <h2>Models visible to Claudia</h2>
+  <h2>Other routes</h2>
+  <p class="muted">No gateway token required.</p>
+  <ul>
+    <li><a href="/"><code>GET /</code></a> — gateway index (this page)</li>
+    <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
+    <li><a href="/status"><code>GET /status</code></a> — gateway and optional supervisor JSON (GUI / ops)</li>
+    <li><a href="/ui/models"><code>GET /ui/models</code></a> — same merged model list as <code>/v1/models</code> (for this page and tools)</li>
+  </ul>
+  <h2>Claudia's Models</h2>
   <p id="models-status" class="muted">Loading models…</p>
   <div id="models-root" hidden></div>
   <script>
@@ -276,7 +285,7 @@ func writeMergedModelsResponse(w http.ResponseWriter, ctx context.Context, res *
 		"id":       res.VirtualModelID,
 		"object":   "model",
 		"created":  time.Now().Unix(),
-		"owned_by": "claudia-gateway",
+		"owned_by": "claudia",
 	}
 	out := append([]any{virtual}, data...)
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": out})
