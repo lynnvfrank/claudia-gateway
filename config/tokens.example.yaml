@@ -2,6 +2,9 @@
 # Bearer value must match what clients send (Continue apiKey, curl, etc.).
 
 tokens:
-  - label: local-dev
-    token: "claudia-dev-replace-me"
-    tenant_id: "default"
+  - label: personal
+    token: "claudia-personal-replace-me"
+    tenant_id: "personal"
+  - label: partner
+    token: "claudia-partner-replace-me"
+    tenant_id: "partner"

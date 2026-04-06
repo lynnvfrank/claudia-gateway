@@ -1,0 +1,25 @@
+{
+  "client": {
+    "drop_excess_requests": false
+  },
+  "providers": {
+    "groq": {
+      "keys": [
+        {
+          "name": "groq-default",
+          "value": "env.GROQ_API_KEY",
+          "weight": 1.0
+        }
+      ]
+    },
+    "gemini": {
+      "keys": [
+        {
+          "name": "gemini-ai-studio",
+          "value": "env.GEMINI_API_KEY",
+          "weight": 1.0
+        }
+      ]
+    }
+  }
+}

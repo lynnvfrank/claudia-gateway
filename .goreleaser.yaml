@@ -1,0 +1,64 @@
+# GoReleaser v2 — Phase 4 (see docs/packaging.md).
+# Local: make release-snapshot  OR  goreleaser release --snapshot --clean
+version: 2
+
+project_name: claudia
+
+before:
+  hooks:
+    - go mod tidy
+    - bash scripts/release-snapshot-qdrant.sh
+
+builds:
+  - id: claudia
+    main: ./cmd/claudia
+    binary: claudia
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.CommitDate}}
+
+archives:
+  - id: default
+    builds:
+      - claudia
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - src: docs/packaging.md
+        dst: PACKAGING.md
+      # Qdrant binaries from scripts/release-snapshot-qdrant.sh (OSS GoReleaser: extra files, not Pro prebuilt builder).
+      - src: 'packaging/qdrant-bundles/{{ .Os }}_{{ .Arch }}/qdrant{{ if eq .Os "windows" }}.exe{{ end }}'
+        strip_parent: true
+
+checksum:
+  algorithm: sha256
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  disable: true
+
+release:
+  mode: replace

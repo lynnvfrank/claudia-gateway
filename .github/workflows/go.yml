@@ -1,0 +1,137 @@
+name: Go
+
+on:
+  push:
+    paths:
+      - "**.go"
+      - go.mod
+      - "Makefile"
+      - ".goreleaser.yaml"
+      - "docs/packaging.md"
+      - "deps.lock"
+      - "scripts/release-snapshot-qdrant.sh"
+      - "scripts/qdrant-from-release.sh"
+      - "scripts/deps-lock.sh"
+      - "scripts/install-bootstrap.sh"
+      - "scripts/install-make.sh"
+      - "scripts/install-make.ps1"
+      - "scripts/compiler-detect.sh"
+      - "scripts/install-gcc.sh"
+      - "scripts/install.sh"
+      - "scripts/configure.sh"
+      - "scripts/claudia-start.sh"
+      - "scripts/claudia-stop.sh"
+      - "scripts/claudia-status.sh"
+      - "scripts/clean.sh"
+      - "scripts/clean-all.sh"
+      - "scripts/logs.sh"
+      - "scripts/precommit-smoke.sh"
+      - "scripts/fmt-check.sh"
+      - "gui/**"
+      - "docs/gui-testing.md"
+      - ".github/workflows/go.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    paths:
+      - "**.go"
+      - go.mod
+      - "Makefile"
+      - ".goreleaser.yaml"
+      - "docs/packaging.md"
+      - "deps.lock"
+      - "scripts/release-snapshot-qdrant.sh"
+      - "scripts/qdrant-from-release.sh"
+      - "scripts/deps-lock.sh"
+      - "scripts/install-bootstrap.sh"
+      - "scripts/install-make.sh"
+      - "scripts/install-make.ps1"
+      - "scripts/compiler-detect.sh"
+      - "scripts/install-gcc.sh"
+      - "scripts/install.sh"
+      - "scripts/configure.sh"
+      - "scripts/claudia-start.sh"
+      - "scripts/claudia-stop.sh"
+      - "scripts/claudia-status.sh"
+      - "scripts/clean.sh"
+      - "scripts/clean-all.sh"
+      - "scripts/logs.sh"
+      - "scripts/precommit-smoke.sh"
+      - "scripts/fmt-check.sh"
+      - "gui/**"
+      - "docs/gui-testing.md"
+      - ".github/workflows/go.yml"
+      - ".github/workflows/release.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Format
+        run: test -z "$(gofmt -l cmd internal gui)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race -count=1
+
+  # Validates .goreleaser.yaml and produces snapshot artifacts; smoke-run linux amd64 binary.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Snapshot smoke (--version)
+        run: |
+          BIN=$(find dist -type f -path '*/claudia_linux_amd64*/claudia' | head -1)
+          test -n "$BIN" -a -x "$BIN"
+          "$BIN" --version
+
+  # Phase 5: Fyne GUI — compile-only on linux-amd64 (CGO + X11/GLES deps).
+  gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Linux dependencies (Fyne)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev
+
+      - name: Format (gui module)
+        run: test -z "$(gofmt -l gui)"
+
+      - name: Vet (gui module)
+        run: cd gui && go vet ./...
+
+      - name: Test (gui module)
+        env:
+          CGO_ENABLED: "1"
+        run: cd gui && go test ./... -count=1
+
+      - name: Build claudia-gui
+        env:
+          CGO_ENABLED: "1"
+        run: cd gui && go build -o /tmp/claudia-gui .
