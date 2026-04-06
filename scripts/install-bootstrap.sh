@@ -58,16 +58,27 @@ echo "==> Go workspace + build in BiFrost (may run npm ci in ui/)"
 "$MAKE_BIN" -C "$BIFROST_DIR" build LOCAL=1
 BF_ART="$BIFROST_DIR/tmp/bifrost-http"
 BF_DST="$REPO_ROOT/bin/bifrost-http"
+GOOS="$(go env GOOS)"
 if [[ -f "${BF_ART}.exe" ]]; then
 	cp -f "${BF_ART}.exe" "${BF_DST}.exe"
 	chmod +x "${BF_DST}.exe" 2>/dev/null || true
+	rm -f "$BF_DST"
 	echo "    installed ${BF_DST}.exe"
 	BF_INSTALLED="${BF_DST}.exe"
 elif [[ -f "$BF_ART" ]]; then
-	cp -f "$BF_ART" "$BF_DST"
-	chmod +x "$BF_DST"
-	echo "    installed $BF_DST"
-	BF_INSTALLED="$BF_DST"
+	# MinGW/MSYS Go often writes tmp/bifrost-http with no .exe; Windows CreateProcess needs .exe.
+	if [[ "$GOOS" == windows ]]; then
+		cp -f "$BF_ART" "${BF_DST}.exe"
+		chmod +x "${BF_DST}.exe" 2>/dev/null || true
+		rm -f "$BF_DST"
+		echo "    installed ${BF_DST}.exe (from tmp/bifrost-http)"
+		BF_INSTALLED="${BF_DST}.exe"
+	else
+		cp -f "$BF_ART" "$BF_DST"
+		chmod +x "$BF_DST" 2>/dev/null || true
+		echo "    installed $BF_DST"
+		BF_INSTALLED="$BF_DST"
+	fi
 else
 	echo "install-bootstrap: no $BF_ART or ${BF_ART}.exe after BiFrost build (CGO often needs gcc on PATH)." >&2
 	echo "install-bootstrap: install gcc/clang, then: make install   (see docs/installation.md#c-compiler-cgo)" >&2
