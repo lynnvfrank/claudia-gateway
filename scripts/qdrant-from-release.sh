@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Qdrant binary for the current machine into ./bin/qdrant (or bin/qdrant.exe on Windows).
+# Install pinned Qdrant into ./bin/qdrant (or qdrant.exe on Windows). Used by install-bootstrap.sh; run directly to refresh Qdrant only.
 # Version: QDRANT_RELEASE in repo-root deps.lock.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +13,30 @@ mkdir -p "$ROOT/bin"
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 case "$os" in
+mingw*|msys*|cygwin*)
+  case "$arch" in
+  x86_64) asset="qdrant-x86_64-pc-windows-msvc.zip" ;;
+  *)
+    echo "qdrant-from-release: unsupported Windows arch: $arch (Qdrant ships windows amd64 only; use WSL or a manual download from ${BASE})" >&2
+    exit 1
+    ;;
+  esac
+  command -v unzip >/dev/null 2>&1 || {
+    echo "qdrant-from-release: unzip is required for the Windows Qdrant zip (install Git for Windows or add unzip to PATH)." >&2
+    exit 1
+  }
+  tmp="$(mktemp -d)"
+  curl -fsSL "${BASE}/${asset}" -o "$tmp/q.zip"
+  unzip -q "$tmp/q.zip" -d "$tmp"
+  if [[ -f "$tmp/qdrant.exe" ]]; then
+    mv "$tmp/qdrant.exe" "$ROOT/bin/qdrant.exe"
+  else
+    echo "qdrant-from-release: expected qdrant.exe in ${asset}" >&2
+    exit 1
+  fi
+  rm -rf "$tmp"
+  echo "Installed $ROOT/bin/qdrant.exe ($VER)"
+  ;;
 linux)
   case "$arch" in
   x86_64) asset="qdrant-x86_64-unknown-linux-musl.tar.gz" ;;
@@ -40,7 +64,7 @@ darwin)
   echo "Installed $ROOT/bin/qdrant ($VER)"
   ;;
 *)
-  echo "fetch-qdrant-local.sh: use WSL/Linux/macOS or download manually from ${BASE}" >&2
+  echo "qdrant-from-release: unsupported OS/kernel: $(uname -s) (try Git Bash on Windows, WSL, Linux, or macOS; or download manually from ${BASE})" >&2
   exit 1
   ;;
 esac

@@ -6,17 +6,35 @@ This document covers **installing toolchains and third-party binaries** so you c
 
 From a clean clone you typically need:
 
-1. **Language runtimes and build driver** on your machine — **Go** (to build this repo and BiFrost’s Go code), **Node.js** (BiFrost’s UI is built with `npm`; `make bootstrap-deps` runs that step), **Git** (clone BiFrost), and **GNU Make** (this repo’s **`Makefile`** and BiFrost’s **`make build`**).
+1. **Language runtimes and build driver** on your machine — **Go** (to build this repo and BiFrost’s Go code), **Node.js** (BiFrost’s UI is built with `npm`; **`make install`** runs that step), **Git** (clone BiFrost), **GNU Make**, and a **C compiler for CGO** (**`gcc`** or **`clang`** on **`PATH`**) because BiFrost’s **`bifrost-http`** binary is built with **CGO** enabled.
 2. **BiFrost** — a checkout under **`.deps/bifrost`** and a compiled **`bifrost-http`** binary copied to **`./bin/bifrost-http`**. The gateway talks to BiFrost over HTTP (upstream URL in `gateway.yaml` when you configure it later).
 3. **Qdrant** (optional for the full local stack) — a prebuilt **`./bin/qdrant`** binary downloaded from GitHub releases, matching the version pinned in **`deps.lock`**.
 
-Pinned versions live in repo-root **`deps.lock`** (single place to bump them). The important keys are **`BIFROST_GIT_URL`**, **`BIFROST_GIT_REF`** (commit, tag, or branch), and **`QDRANT_RELEASE`**. **`scripts/bootstrap-deps.sh`** and **`scripts/deps-lock.sh`** read that file; always treat **`deps.lock`** as the source of truth for exact pins.
+Pinned versions live in repo-root **`deps.lock`** (single place to bump them). The important keys are **`BIFROST_GIT_URL`**, **`BIFROST_GIT_REF`** (commit, tag, or branch), and **`QDRANT_RELEASE`**. **`scripts/install.sh`** (via **`make install`**) and **`scripts/deps-lock.sh`** read that file; always treat **`deps.lock`** as the source of truth for exact pins.
 
 ## Prerequisites
 
-You need **Go 1.22+**, **Node.js 20+**, **Git**, **GNU Make**, plus **`bash`**, **`curl`**, and **`tar`** for **`make bootstrap-deps`**. Below: **Ubuntu**, **macOS**, and **Windows** for each.
+You need **Go 1.22+**, **Node.js 20+**, **Git**, **GNU Make**, **`gcc`** or **`clang`** (CGO), plus **`bash`**, **`curl`**, and **`tar`** (and **`unzip`** on Windows/Git Bash for the Qdrant zip) for **`make install`**. Below: **Ubuntu**, **macOS**, and **Windows** for each.
 
-Go drives **`go build`** / **`make claudia-build`** here and inside BiFrost’s **`make build`**. Node is only for building BiFrost (including **`bootstrap-deps`**); the **`claudia`** binary does not embed Node.
+Go drives **`go build`** / **`make claudia-build`** here and inside BiFrost’s **`make build`**. Node is only for building BiFrost (during **`make install`**); the **`claudia`** binary does not embed Node.
+
+### C compiler (CGO) {#c-compiler-cgo}
+
+BiFrost’s **`bifrost-http`** target is linked with **CGO**. If **`gcc`** is missing, Go prints **`cgo: C compiler "gcc" not found`** and **`tmp/bifrost-http`** may not be produced.
+
+**`make install`** runs **`scripts/install.sh`**, which **sources** **`scripts/install-gcc.sh`** when neither **`gcc`** nor **`clang`** is on **`PATH`** (so any **`PATH`** fixups in that script apply to the same shell as BiFrost bootstrap). The helper uses the OS package manager when it can (**`apt`**, **`dnf`**/**`yum`**, **`pacman`**, **`zypper`**, **`apk`**, **Homebrew** on macOS, and on Windows **Git Bash / MSYS**: **`winget`** WinLibs packages, then **Chocolatey** **`mingw`**, then **Scoop** **`mingw-winlibs`**).
+
+**Git Bash** sometimes fails **`command -v gcc`** even when **`gcc.exe`** is on **`PATH`**; **`make install`** uses a shared detector that also checks **`gcc.exe`** and common MinGW names, prefers the **UCRT** WinLibs layout over **MSVCRT** when both are present, and treats Chocolatey’s **`gcc.exe`** as present with **`test -f`** (not **`-x`**, which is unreliable for Windows binaries in MSYS).
+
+On **Windows**, **`winget`** and **Chocolatey** installs often need **Administrator** rights. The script cannot become Administrator silently; when your shell is not elevated it will trigger a **UAC** prompt and re-run only that package command elevated (via PowerShell **`Start-Process -Verb RunAs`**). It first asks **`winget list`** / **`choco list`** whether the package is already installed so it does not elevate or reinstall unnecessarily. Approve the prompt, or run **Git Bash** / your terminal **as Administrator** so installs run in-session. Set **`SKIP_WIN_ELEVATE=1`** to skip that behavior and install **`gcc`** yourself (e.g. **Scoop** **`mingw-winlibs`**, which is usually per-user). You may still need a **new terminal** if **`PATH`** was updated for the machine or your profile.
+
+On **Linux**, the helper runs **`apt`** / **`dnf`** / etc. with **`sudo`** when **`sudo`** is on **`PATH`**. Set **`SKIP_AUTO_GCC=1`** when running **`make install`** if you want to install a compiler yourself and avoid the helper (the install will fail until **`gcc`** or **`clang`** is available).
+
+Manual options if auto-install is not suitable:
+
+- **Ubuntu / Debian:** **`sudo apt install build-essential`** (includes **`gcc`**).
+- **macOS:** **Xcode Command Line Tools** (**`xcode-select --install`**) or **`brew install gcc`** if **`gcc`** is not on **`PATH`**.
+- **Windows:** Install a **MinGW-w64** toolchain so **`gcc`** is on **`PATH`** in the same shell you use for **`make install`** (e.g. **MSYS2**: **`pacman -S mingw-w64-ucrt-x86_64-gcc`**, then use that environment’s **`bash`** / **`make`**), or run **`make install`** from **WSL (Ubuntu)** with **`build-essential`**.
 
 ### Go
 
@@ -40,23 +58,25 @@ Go drives **`go build`** / **`make claudia-build`** here and inside BiFrost’s 
 
 Use **GNU Make**, not MSVC **`nmake`**. Verify: **`make --version`** (look for *GNU Make*).
 
+**Auto-install helpers** (from the repo root): **`bash scripts/install-make.sh`** on Git Bash / Linux / macOS, or **`pwsh -ExecutionPolicy Bypass -File scripts/install-make.ps1`** on Windows. They try **`apt`** / **`dnf`** / **`brew`** / **`winget`** (**`GnuWin32.Make`**) / **Chocolatey** / **Scoop** as available. Set **`SKIP_AUTO_MAKE=1`** to skip. You may need a **new terminal** after **`winget`** or **Chocolatey** updates **`PATH`**.
+
+Manual options:
+
 - **Ubuntu:** **`sudo apt update && sudo apt install build-essential`** ( **`make`** plus a C toolchain BiFrost may need) or **`sudo apt install make`**. Verify: **`make --version`**.
 - **macOS:** **Xcode Command Line Tools** (**`xcode-select --install`**) provide **`make`**. Or **`brew install make`** — if the command is **`gmake`**, run **`gmake`** wherever this doc says **`make`**, or put GNU **`make`** first on **`PATH`**. Verify: **`make --version`** or **`gmake --version`**.
 - **Windows:** [Git for Windows](https://git-scm.com/download/win) does **not** ship **`make`**. Options (use the same environment you run **`make`** in): **WSL (Ubuntu):** **`sudo apt update && sudo apt install make`**; **Scoop:** **`scoop install make`**; **Chocolatey:** **`choco install make`**; **MSYS2:** **`pacman -S make`**. Verify inside that environment: **`make --version`**.
 
-### `bash`, `curl`, and `tar` (for `make bootstrap-deps`)
+### `bash`, `curl`, and `tar` (for `make install`)
 
-**`scripts/bootstrap-deps.sh`** is a **bash** script and uses **`curl`** and **`tar`** for Qdrant.
+**`scripts/install.sh`** runs **`scripts/install-bootstrap.sh`**, which uses **`curl`** and **`tar`** (or **`unzip`** for the Windows Qdrant asset).
 
 - **Ubuntu:** **`sudo apt install bash curl tar`** (**`bash`** is usually already present). Verify: **`bash --version`**, **`curl --version`**, **`tar --version`**.
 - **macOS:** **bash**, **curl**, and **tar** ship with the OS; Xcode CLT is enough if prompted. Verify the same three commands.
-- **Windows:** **WSL (Ubuntu)** — install as on Ubuntu above (minimal images: **`sudo apt install curl tar`**). **Git Bash** includes **`bash`** and **`curl.exe`**; you still need **GNU Make** separately, and **`scripts/fetch-qdrant-local.sh`** does **not** support native Windows — see below. **cmd.exe** is not supported for **`make bootstrap-deps`**.
+- **Windows:** **Git Bash** or **WSL** — install **GNU Make** (e.g. Chocolatey **`choco install make`**) and use **`make install`** from the same environment. **Git Bash** provides **`bash`** and **`unzip`** for the Qdrant zip path in **`qdrant-from-release.sh`**. **cmd.exe** alone is not supported for the bootstrap scripts.
 
-### Windows and `make bootstrap-deps`
+### Windows and `make install`
 
-For **Windows**, run **`make bootstrap-deps`** from **WSL** (same Ubuntu steps as above inside the distro) so **bash**, **curl**, **tar**, **GNU Make**, and the **Qdrant** download path all match **Linux**. You can install **Go** and **Node** inside WSL as well, or use Windows-native Go/Node only if you consistently invoke **`make`** from WSL with a consistent **`PATH`** (advanced).
-
-**Qdrant binary download:** **`scripts/fetch-qdrant-local.sh`** only supports **Linux** and **macOS**. On **Windows** without WSL, install Qdrant manually from [Qdrant releases](https://github.com/qdrant/qdrant/releases) using **`QDRANT_RELEASE`** in **`deps.lock`**, or use **WSL** for the full **`make bootstrap-deps`** flow.
+Prefer **Git Bash** (or **WSL**) so **`bash`**, **`curl`**, **`make`**, and **`unzip`** line up with **`scripts/install-bootstrap.sh`**. Native **Go** and **Node** on Windows are fine if **`make`** invokes **Git’s bash** for **`install`** (see root **`Makefile`** **`GITBASH`** on **`OS=Windows_NT`**).
 
 ## Clone the repository
 
@@ -67,44 +87,38 @@ cd claudia-gateway
 
 Use whichever remote you develop against; the install steps are the same.
 
-## Bootstrap BiFrost and Qdrant (`make bootstrap-deps`)
+## Install BiFrost and Qdrant (`make install`)
 
-Run **once** per machine (or after you delete **`.deps`** / **`bin`**) from the repository root:
+Run from the repository root (idempotent — safe to repeat after **`deps.lock`** changes or partial failures):
 
 ```bash
-make bootstrap-deps
+make install
 ```
 
 ### What this does
 
-1. Creates **`.deps/bifrost`** (default) if needed, **clones** BiFrost from **`BIFROST_GIT_URL`**, **fetches** objects until the commit in **`BIFROST_GIT_REF`** is available, and **checks out** that exact revision so your build matches everyone else using the same lock file.
-2. Runs BiFrost’s **`make setup-workspace`** and **`make build LOCAL=1`** in that tree. That can take **several minutes** the first time: it may run **`npm ci`** under BiFrost’s UI directory and compile Go with a workspace that lines up BiFrost’s local modules (see comments in **`scripts/bootstrap-deps.sh`** for why **`LOCAL=1`** is used).
-3. Copies **`tmp/bifrost-http`** from the BiFrost build into **`./bin/bifrost-http`** and marks it executable.
-4. Runs **`scripts/fetch-qdrant-local.sh`**, which downloads the **musl** (Linux) or **darwin** archive for your CPU from GitHub and installs **`./bin/qdrant`**.
+1. **Reports toolchain status** — **`go`**, **`git`**, **`make`**, **`node`** (warns if Node major version is below 20); exits if required tools are missing.
+2. Runs **`scripts/install-bootstrap.sh`**, which:
+   - Creates **`.deps/bifrost`** if needed, **clones** BiFrost from **`BIFROST_GIT_URL`**, **checks out** **`BIFROST_GIT_REF`**, runs BiFrost’s **`make setup-workspace`** and **`make build LOCAL=1`** (may run **`npm ci`** in BiFrost’s UI — several minutes first time).
+   - Copies **`tmp/bifrost-http`** (or **`.exe`** on Windows) into **`./bin/`**.
+   - Runs **`scripts/qdrant-from-release.sh`** for your OS (Linux **tar.gz**, macOS **tar.gz**, Windows **zip** under Git Bash / MSYS).
 
 ### Re-runs and disk layout
 
-- If **`.deps/bifrost`** already exists, the script **reuses** it, fetches updates, and checks out the pinned ref again — useful after a **`deps.lock`** bump.
-- Expect a **large** **`.deps/bifrost`** directory (clone + `node_modules` + build artifacts). **`./bin`** holds the two binaries you run directly.
+- If **`.deps/bifrost`** already exists, the script **reuses** it, fetches updates, and checks out the pinned ref again.
+- Expect a **large** **`.deps/bifrost`** directory. **`./bin`** holds **`bifrost-http`** and **`qdrant`** (with **`.exe`** suffixes on Windows where applicable).
 
 ### Common failures
 
 | Symptom | Likely cause |
 |--------|----------------|
-| `bootstrap-deps: install Node.js 20+` | Node missing or too old; install or upgrade and open a new shell. |
-| `git` / `curl` / `make` / `bash` not found, or **`make`** is not GNU Make | Install the missing tools (see above); on Windows use **GNU Make** from WSL / Scoop / Chocolatey / MSYS2 — not MSVC **`nmake`**. |
-| BiFrost `make` errors | Often network or incomplete clone; try removing **`.deps/bifrost`** and re-running, or check BiFrost’s docs for extra OS packages. |
-| Qdrant script exits on Windows | Use **WSL** for **`make bootstrap-deps`**, or install Qdrant manually (see **Windows** above). |
+| `install: install missing tools` / Node warnings | Install **Go**, **Node 20+**, **Git**, **Make**, **gcc** or **clang**, **bash**; open a new shell. |
+| `cgo: C compiler "gcc" not found` / no **`tmp/bifrost-http`** | Install **gcc** (or **clang**) on **`PATH`**; see **C compiler (CGO)** above. |
+| `git` / `curl` / `make` / `bash` not found | See prerequisites; on Windows use **GNU Make** + **Git Bash** for **`make install`**. |
+| BiFrost `make` errors | Network or incomplete clone; try **`make clean-all CONFIRM=1`** then **`make install`**, or check BiFrost docs. |
+| Qdrant fetch fails | Ensure **`unzip`** (Windows) or **`tar`** (Unix) on PATH; confirm **`QDRANT_RELEASE`** in **`deps.lock`**. |
 
-## Alternative: build BiFrost from your own checkout (`make bifrost-from-src`)
-
-If you already maintain a BiFrost tree (for example at **`$HOME/src/bifrost`**), set **`BIFROST_SRC`** to that path and run:
-
-```bash
-make bifrost-from-src
-```
-
-That builds from **your** branch or commit and copies **`bifrost-http`** to **`./bin/bifrost-http`**. It does **not** download Qdrant; use **`make qdrant-from-release`** (or the fetch script) if you still need **`./bin/qdrant`**. Use this path when you are developing or patching BiFrost and want the gateway to run your local build instead of the **`deps.lock`** pin.
+To refresh **Qdrant only** (no BiFrost): **`bash scripts/qdrant-from-release.sh`** from the repo root (same script **`make install`** runs).
 
 ## Build the `claudia` binary
 

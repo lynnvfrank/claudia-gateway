@@ -8,8 +8,11 @@ config/tokens.yaml
 /claudia
 /claudia-gui
 /bin/bifrost-http
+/bin/bifrost-http.exe
 /data/bifrost/
 /data/qdrant/
 /packaging/qdrant-bundles/
 /bin/qdrant
 /bin/qdrant.exe
+/logs/
+/run/

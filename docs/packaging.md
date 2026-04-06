@@ -1,6 +1,6 @@
 # Packaging and releases (Phase 4)
 
-The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (**`QDRANT_RELEASE`** in repo-root **`deps.lock`**, fetched by **`scripts/fetch-qdrant-for-dist.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); operators use **`make bootstrap-deps`** or **`make bifrost-from-src`** — see [supervisor.md](supervisor.md).
+The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (**`QDRANT_RELEASE`** in repo-root **`deps.lock`**, fetched by **`scripts/release-snapshot-qdrant.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); operators use **`make install`** — see [supervisor.md](supervisor.md).
 
 ## Artifact layout
 

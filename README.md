@@ -2,94 +2,190 @@
 
 **v0.1** — OpenAI-compatible **Go** gateway in front of **BiFrost**: virtual model `Claudia-<semver>`, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and `GET /health`. Optional **Qdrant** via `claudia serve` targets **v0.2** RAG; the gateway does not call it in v0.1.
 
-## Installation
+## Quick start
 
-**Prerequisites**
+You need **GNU Make**.
 
-- **Go** 1.22 or later ([Go section](docs/installation.md#go))
-- **Node.js** 20 or later ([Node.js section](docs/installation.md#nodejs-20-or-later))
-- **GNU Make** ([Make section](docs/installation.md#make))
-- **BiFrost** at git ref `58076d50df0d48d47ad917da3f604cf787ec7708` (`maximhq/bifrost`, pinned in repo-root `deps.lock`)
-- **Qdrant** at `v1.14.1` (pinned in repo-root `deps.lock`)
+On Windows:
 
-**Install BiFrost and Qdrant**
+```powershell
+pwsh -ExecutionPolicy Bypass -File scripts/install-make.ps1
+```
 
-1. Clone the repository and `cd` into it.
-2. Fetch BiFrost and download the pinned Qdrant binary:
+On Ubuntu and OSX:
 
-   ```bash
-   make bootstrap-deps   # → .deps/bifrost, ./bin/bifrost-http, ./bin/qdrant
-   ```
+```bash
+bash scripts/install-make.sh
+```
 
-Further explanation in [docs/installation.md](docs/installation.md).
+### Install and Start (all-in-one)
 
-## Configuration
+One-shot onboarding: get dependencies, seed config if needed, build the gateway, and start the supervisor in the background.
+
+```bash
+make up
+```
+
+## Installing Dependencies and Building the Service
+
+### Install
+
+Install all the dependencies and build the dependent projects.
+
+```bash
+make install
+```
+
+**Dependencies**
+
+- **Go (1.22+)** — builds the gateway and BiFrost’s Go code.
+- **Node.js (20+)** — BiFrost’s UI is built with npm during install; it is not shipped inside the **`claudia`** binary.
+- **Git** — BiFrost is vendored from a tracked revision, not embedded in the clone.
+- **GNU Make** — single entrypoint for install and build targets from the repo root.
+- **gcc or clang** — BiFrost’s HTTP server is built with **CGO**; the Go toolchain must invoke a C compiler or the build fails early.
+- **bash, curl, tar** (and **unzip** on Windows) — reliable way to download and unpack release artifacts the same way on every platform.
+
+Full reference: **[docs/installation.md](docs/installation.md)**.
+
+### Configuration
+
+Create local config files from the shipped examples when they are missing.
+
+```bash
+make configure
+```
+
+**Creates (only if absent):** **`.env`** from **`env.example`**, **`config/tokens.yaml`** from **`config/tokens.example.yaml`**. Does not overwrite existing files. Afterward edit values to match your providers and **`config/gateway.yaml`**.
 
 | Purpose | File | Role |
 | ------- | ---- | ---- |
 | Process environment | `.env`<br/>(copied from [env.example](env.example)) | Optional local environment variable file to set Claudia<->BiFrost key and API keys. Not committed. |
 | Gateway client auth | `config/tokens.yaml`<br/>(copied from [config/tokens.example.yaml](config/tokens.example.yaml)) | Tokens for you and other users to use to authenticate with Claudia Gateway. Not committed. |
 | Gateway listen + upstream | `config/gateway.yaml` | Claudia Gateway's primary configuration file to connect the Client<->Claudia<->BiFrost  |
-| BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment variables set in in `.env` or the shell. |
+| BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment variables set in `.env` or the shell. |
 | Virtual model mapping | `config/routing-policy.yaml` | Rules that define how the virtual `Claudia-<semver>` model routes prompts/turns to underlying models |
 
-**Set up files**
+**Manual follow-up**
 
-1. Process environment - `.env`
-   - Copy: `cp env.example .env`  
-   - Edit: set `CLAUDIA_UPSTREAM_API_KEY` to match `upstream.api_key_env` in `config/gateway.yaml` (BiFrost often accepts any non-empty placeholder unless governance keys are enabled). Set `GROQ_API_KEY`, `GEMINI_API_KEY`, or other keys that `config/bifrost.config.json` references. Do not commit `.env`.
+1. **`.env`:** set `CLAUDIA_UPSTREAM_API_KEY` to match `upstream.api_key_env` in `config/gateway.yaml`. Set `GROQ_API_KEY`, `GEMINI_API_KEY`, or other keys that `config/bifrost.config.json` references.
+2. **`config/tokens.yaml`:** at least one gateway token; clients use `Authorization: Bearer <token>`.
+3. **`config/gateway.yaml`** — starter in repo; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed.
+4. **`config/bifrost.config.json`** — align provider blocks and `env.*` with your **`.env`**.
+5. **`config/routing-policy.yaml`** — committed default; edit or point `gateway.yaml` at another file.
 
-1. Gateway client auth - `config/tokens.yaml`  
-   - Copy: `cp config/tokens.example.yaml config/tokens.yaml`  
-   - Edit: set at least one gateway token and a strong secret; clients send it as `Authorization: Bearer <token>`. Adjust `tenant_id` if you use multiple tenants.
+Full reference: [docs/configuration.md](docs/configuration.md).
 
-3. Gateway listen + upstream - `config/gateway.yaml`  
-   - The repo includes a starter `config/gateway.yaml`. To build your own from the documented template: `cp config/gateway.example.yaml config/gateway.yaml`  
-   - Edit: `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain` (use BiFrost model ids: `provider/model`), and `paths.tokens` / `paths.routing_policy` if you move those files.
+### Build the Gateway
 
-4. BiFrost bootstrap - `config/bifrost.config.json`  
-   - No separate example file in-tree: adjust provider blocks and `env.*` names so they match variables you define in `.env` or the environment. Add or remove providers to match the models you list in `routing.fallback_chain`.
-
-5. Virtual model mapping - `config/routing-policy.yaml`  
-   - Committed default; edit rules for your virtual model and upstream behavior. If you use a copy under another name, point `paths.routing_policy` in `config/gateway.yaml` at that file.
-
-The `claudia` binary resolves `gateway.yaml` via `-config`, `CLAUDIA_GATEWAY_CONFIG`, or default `./config/gateway.yaml` (working directory). It loads `.env` from the working directory when present. Keep `routing.fallback_chain` aligned with model ids BiFrost actually exposes (`provider/model`).
-
-Full reference (env vars, reload semantics, field tables): [docs/configuration.md](docs/configuration.md).
-
-## Execution
-
-Run Claudia Gateway, BiFrost and Qdrant with the [Supervisor](docs/supervisor.md).
+The install process builds and downloads **BiFrost** and **Qdrant**. This builds the gateway.
 
 ```bash
-make claudia-serve-local
-curl -sS http://127.0.0.1:3000/health
+make claudia-build
 ```
 
-- Claudia Gateway available on port [3000](http://localhost:3000)
-- BiFrost available on port [8080](http://localhost:8080)
-- Qdrant available on port [6333](http://localhost:6333)
+## Managing the Service
 
-## Common commands and shortcuts
+With the gateway and BiFrost built and Qdrant installed the components of the service are in place.
 
-Run `make help` from the repo root to see the [make](Makefile) tasks.
+### Start the Service
 
-| Goal | Command |
-|------|---------|
-| Build and download Bootstrap BiFrost + Qdrant | `make bootstrap-deps` |
-| Build BiFrost from `$HOME/src/bifrost` (or `BIFROST_SRC`) → `bin/bifrost-http` | `make bifrost-from-src` |
-| Download pinned Qdrant binary → `./bin/qdrant` | `make qdrant-from-release` |
-| Build `claudia` | `make claudia-build` |
-| Run Claudia Gateway | `make claudia-run` |
-| Run Gateway + BiFrost | `make claudia-serve` |
-| Run Gateway + BiFrost + Qdrant | `make claudia-serve-stack` |
-| Build `claudia-gui` | `make claudia-gui-build` |
-| Run GUI | `make claudia-gui-run` |
-| GoReleaser snapshot → `dist/` | `make release-snapshot` |
+Claudia runs Gateway, BiFrost, and Qdrant.
 
-**Automated checks:** `./scripts/smoke-go-gateway.sh` (`gofmt`, `go vet`, `go test ./... -race`).
+Run the **services in the foreground**:
 
-Module path `github.com/lynn/claudia-gateway`; change `go.mod` if your fork uses another import path.
+```bash
+make claudia-serve
+```
+
+Run the **service in the background**:
+
+Run 
+```bash
+make claudia-start
+```
+
+Further reference: [docs/supervisor.md](docs/supervisor.md).
+
+### View the logs of the background service
+
+Follow the supervisor log in the terminal.
+
+```bash
+make logs
+```
+
+**Tails** **`logs/claudia.log`** (typically **`tail -f`**). Useful after **`make up`** or **`make claudia-start`**.
+
+### Check Service
+
+Check the service (PID file) checks the health of the gateway, bifrost, and qdrant.
+
+```bash
+make claudia-status
+```
+
+### Stop the Service
+
+```bash
+make claudia-stop
+```
+
+## Graphic User Interface (gui)
+
+| Target | What it does |
+| ------ | ------------ |
+| **`make claudia-gui-help`** | Prints the **`sudo apt-get install ...`** line for **Debian/Ubuntu** OpenGL and X11 dev packages Fyne needs; does **not** install anything. |
+| **`make claudia-gui-build`** | **`CGO_ENABLED=1 go build`** from **`gui/`** into **`./claudia-gui`**; requires a Fyne-capable toolchain (see [docs/gui-testing.md](docs/gui-testing.md)). |
+| **`make claudia-gui-run`** | Builds **`./claudia-gui`** via **`claudia-gui-build`** if it is missing, then runs it. |
+| **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same expectations as **`test-gui`**. |
+| **`make test-gui`** | **`go test -C gui ./...`** with **CGO** — same native libraries as **`claudia-gui-build`**. |
+
+**`make precommit`** runs **`vet-gui`** and **`test-gui`** unless **`SKIP_GUI=1`**; details are in **Testing and Linting** below.
+
+## Testing and Linting
+
+| Target | What it does |
+| ------ | ------------ |
+| **`make fmt`** | **`gofmt -w`** on **`cmd`**, **`internal`**, and **`gui`**. |
+| **`make fmt-check`** | Fails if **`gofmt`** would change any file (same check as CI). Used by **`precommit`**. |
+| **`make vet-gateway`** | **`go vet ./...`** on the main module (no **`gui`**). Used by **`precommit`**. |
+| **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same toolchain expectations as **`test-gui`**. Used by **`precommit`** unless **`SKIP_GUI=1`**. |
+| **`make test-gateway`** | **`go test ./...`** on the main module with **`-race`** on Unix; does not run **`gui`** tests. |
+| **`make test-gui`** | **`go test -C gui ./...`** — requires **CGO** and the same native libraries as **`make claudia-gui-build`**. |
+| **`make precommit`** | Runs **`fmt-check`**, **`vet-gateway`**, **`test-gateway`**, and **`vet-gui`** + **`test-gui`** unless **`SKIP_GUI=1`** (no Fyne/CGO, e.g. Windows without a GUI toolchain). On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** runs **`precommit`** with **`SKIP_GUI=1`** by default; set **`FULL_GUI=1`** to include GUI checks. |
+
+## Repo Management and Packaging
+
+### Clean up built binaries
+
+Remove **built gateway/GUI binaries** and release scratch output.
+
+```bash
+make clean
+```
+
+**Deletes** **`./claudia`**, **`./claudia-gui`**, Windows **`.exe`** variants, and **`dist/`**. Does **not** remove **`bin/bifrost-http`**, **`bin/qdrant`**, **`.deps/`**, **`run/`**, or **`logs/`**.
+
+### Clean up everything
+
+Deep clean: everything **`make clean`** removes **plus** third-party binaries and working directories.
+
+```bash
+make clean-all CONFIRM=1
+```
+
+**Requires** **`CONFIRM=1`**. **Also removes** **`bin/bifrost-http`**, **`bin/qdrant`**, **`.deps/`**, **`run/`**, **`logs/`** (after running **`make clean`**). Use when you want a fresh **`make install`**.
+
+### `make release-snapshot`
+
+```bash
+make release-snapshot
+```
+
+Build snapshot artifacts with **GoReleaser**.
+
+**Requires** **`goreleaser`** on **`PATH`**. **Writes** snapshot outputs under **`dist/`** (see [docs/packaging.md](docs/packaging.md)).
+
 
 ## Documentation
 
@@ -99,6 +195,7 @@ Module path `github.com/lynn/claudia-gateway`; change `go.mod` if your fork uses
 - **Configuration:** [docs/configuration.md](docs/configuration.md)
 - **Supervisor:** [docs/supervisor.md](docs/supervisor.md)
 - **Packaging / releases:** [docs/packaging.md](docs/packaging.md)
+- **Makefile plan:** [makefile.plan.md](makefile.plan.md)
 - **GUI:** [docs/gui-testing.md](docs/gui-testing.md)
 - **End-to-end operator path:** [docs/e2e-operator-path.md](docs/e2e-operator-path.md)
 - **Continue samples:** [vscode-continue/README.md](vscode-continue/README.md)
@@ -108,7 +205,7 @@ Module path `github.com/lynn/claudia-gateway`; change `go.mod` if your fork uses
 ## Development roadmap
 
 | Version | Where to read |
-|---------|----------------|
+|---------|---------------|
 | **v0.1** | [Working notes](docs/version-v0.1.md); [Go + BiFrost migration plan](docs/go-bifrost-migration-plan.md) |
 | **v0.2+** | [Release roadmap](docs/claudia-gateway.plan.md#release-roadmap) in [docs/claudia-gateway.plan.md](docs/claudia-gateway.plan.md) |
 

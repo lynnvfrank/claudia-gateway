@@ -19,7 +19,7 @@ The gateway is a **small Go** service in front of **BiFrost** (OpenAI-compatible
 - **Streaming** (SSE) and non-streaming proxying to BiFrost.
 - **`GET /health`**: probes the configured upstream (JSON field **`checks.upstream`**). **Qdrant** is optional via **`claudia serve`**; the **v0.1** gateway does not call Qdrant for chat.
 
-**Default local stack:** **`go run ./cmd/claudia serve`** (or **`make claudia-serve-local`** with **`./bin/bifrost-http`**), plus provider env keys for **`config/bifrost.config.json`**.
+**Default local stack:** **`make up`** or **`go run ./cmd/claudia serve`** with **`./bin/bifrost-http`** after **`make install`**, plus provider env keys for **`config/bifrost.config.json`**.
 
 ---
 

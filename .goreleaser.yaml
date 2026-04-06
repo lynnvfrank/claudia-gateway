@@ -7,7 +7,7 @@ project_name: claudia
 before:
   hooks:
     - go mod tidy
-    - bash scripts/fetch-qdrant-for-dist.sh
+    - bash scripts/release-snapshot-qdrant.sh
 
 builds:
   - id: claudia
@@ -46,7 +46,7 @@ archives:
       - README.md
       - src: docs/packaging.md
         dst: PACKAGING.md
-      # Qdrant binaries from scripts/fetch-qdrant-for-dist.sh (OSS GoReleaser: extra files, not Pro prebuilt builder).
+      # Qdrant binaries from scripts/release-snapshot-qdrant.sh (OSS GoReleaser: extra files, not Pro prebuilt builder).
       - src: 'packaging/qdrant-bundles/{{ .Os }}_{{ .Arch }}/qdrant{{ if eq .Os "windows" }}.exe{{ end }}'
         strip_parent: true
 
