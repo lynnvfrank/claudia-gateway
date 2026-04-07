@@ -57,6 +57,18 @@ The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG
 - **Local install:** **`make install`** (includes Qdrant) or **`bash scripts/qdrant-from-release.sh`** alone → **`./bin/qdrant`** or **`qdrant.exe`** (see **`scripts/qdrant-from-release.sh`**).
 - **Full local stack (Qdrant + BiFrost + gateway):** **`make up`** or **`make claudia-serve`** (foreground).
 
+### Qdrant startup log warnings (optional YAML and `./static`)
+
+You do **not** need **`config/config`** or **`config/development`** (or other optional YAML) for the stack Claudia starts. Claudia configures Qdrant with environment variables (**`QDRANT__STORAGE__STORAGE_PATH`**, **`QDRANT__SERVICE__HOST`**, HTTP/gRPC ports, etc.; see **`internal/supervisor/qdrant.go`**), and the Qdrant process **working directory** is set to the **storage directory** (default **`data/qdrant`**). Qdrant may still probe for optional config files relative to that directory. If they are missing, it logs a **WARN** and continues using **environment variables and defaults**.
+
+Add YAML only when you want settings that are easier to express in a file (for example clustering or extra services). Follow [Qdrant’s configuration guide](https://qdrant.tech/documentation/guides/configuration/) and place files where Qdrant expects them for your chosen layout (often under the storage or run directory).
+
+A message that **`./static`** does not exist refers to Qdrant’s built-in **dashboard** static files. A release binary started with **cwd** in the storage directory usually has no **`./static`** there, so the web UI is not served. That is common for minimal or repackaged builds.
+
+For this repository, Qdrant is optional; the gateway in **v0.1** does not depend on it. Most use is via the HTTP API on the configured port (default **6333**), for example **`GET /readyz`**, not the dashboard.
+
+**Summary:** These warnings are **safe to ignore** for local development unless you want a custom Qdrant file-based configuration or the full web UI—in which case follow Qdrant’s docs and use a build or layout that includes the **`static`** assets.
+
 ## Usage
 
 From the repo root (with `config/gateway.yaml`, `config/tokens.yaml`, `config/bifrost.config.json`):

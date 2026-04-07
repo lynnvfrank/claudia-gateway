@@ -34,6 +34,26 @@ make claudia-serve        # or: make up
 
 ---
 
+## `env.*` in bootstrap JSON (what BiFrost actually expands)
+
+BiFrost does **not** treat every string in `config.json` as an environment reference. Resolution depends on the **Go field type** in Maxim’s BiFrost schemas, not on the JSON key name.
+
+| Location | Type in BiFrost | `"env.MY_VAR"` in JSON |
+|----------|-----------------|-------------------------|
+| **`providers.<name>.keys[].value`** | **`EnvVar`** | **Yes** — BiFrost records the reference and resolves **`MY_VAR`** from the process environment when it needs the secret (same idea as **`env.GROQ_API_KEY`**, **`env.GEMINI_API_KEY`**). |
+| **`providers.<name>.network_config.base_url`** | Plain **`string`** | **No** — the value is stored and used **literally**. A value like **`env.OLLAMA_BASE_URL`** is **not** looked up in the environment; the Ollama (and similar) code paths trim it and use it as the HTTP base URL, which breaks if you intended indirection. |
+| Other **`EnvVar`**-typed fields (Azure, Vertex, Bedrock, MCP `connection_string`, etc.) | **`EnvVar`** | **Yes**, per BiFrost’s rules for those structs. |
+
+**Implications for Ollama:** set **`network_config.base_url`** to a real URL string (e.g. **`http://localhost:11434`**) in **`config/bifrost.config.json`**, unless you introduce your own preprocessing before BiFrost reads the file.
+
+**Claudia today:** **`claudia serve`** copies **`config/bifrost.config.json`** into the BiFrost data directory as **`config.json`** without rewriting or expanding strings ([`CopyConfigJSON`](../internal/supervisor/bifrost.go)); environment variables from **`.env`** still apply to **key** values BiFrost resolves at runtime.
+
+**`env.example`:** A variable such as **`OLLAMA_BASE_URL`** documents the URL you use for local Ollama; it does **not** by itself substitute into **`network_config.base_url`** in BiFrost (see table above).
+
+Upstream BiFrost has had requests to support **`env.*`** more broadly across arbitrary JSON strings (not only **`EnvVar`** fields); until that exists, **`base_url`** stays a literal string in the bootstrap file.
+
+---
+
 ## Gateway configuration — Claudia → BiFrost
 
 Gateway YAML uses **`upstream.*`** for the OpenAI-compatible hop (BiFrost or any compatible proxy). Legacy **`litellm`** / **`health.litellm_url`** keys are still accepted when the corresponding **`upstream`** / **`health.upstream_url`** fields are omitted.

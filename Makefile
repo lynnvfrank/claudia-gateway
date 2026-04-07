@@ -1,7 +1,8 @@
 # Claudia Gateway — see makefile.plan.md and README.md
 #
-# clean:      removes ./claudia[.exe], ./claudia-gui[.exe], dist/ only.
+# clean:      removes ./claudia[.exe], claudia-gui[.exe], dist/ only.
 # clean-all:  also removes bin/bifrost-http*, bin/qdrant*, .deps/, run/, logs/ (requires CONFIRM=1).
+# clean-data: removes data/bifrost/, data/qdrant/ — fresh BiFrost + Qdrant state (requires CONFIRM=1).
 
 ifeq ($(OS),Windows_NT)
   # Same bash as install/*.sh (Git for Windows). MSYS2-only: set GITBASH, e.g.
@@ -12,6 +13,7 @@ ifeq ($(OS),Windows_NT)
   RACE_GATEWAY :=
   BIFROST_BIN := bin/bifrost-http.exe
   QDRANT_BIN := bin/qdrant.exe
+  GUI_BIN := claudia-gui.exe
 else
   ifeq ($(origin GITBASH),undefined)
     GITBASH := bash
@@ -19,6 +21,7 @@ else
   RACE_GATEWAY := -race
   BIFROST_BIN := bin/bifrost-http
   QDRANT_BIN := bin/qdrant
+  GUI_BIN := claudia-gui
 endif
 
 SKIP_GUI ?=
@@ -35,9 +38,9 @@ else
   _BG_FLAGS := --stack
 endif
 
-.PHONY: help up install configure clean clean-all fmt fmt-check logs \
+.PHONY: help up install configure clean clean-all clean-data fmt fmt-check logs \
 	bash \
-	claudia-build claudia-gui-help claudia-gui-build claudia-gui-run \
+	claudia-build gui-install gui-build gui-run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
 	release-snapshot \
 	vet-gateway vet-gui test-gateway test-gui precommit
@@ -78,6 +81,9 @@ clean-all:
 	$(MAKE) clean
 	$(GITBASH) scripts/clean-all.sh
 
+clean-data:
+	$(GITBASH) scripts/clean-data.sh $(CONFIRM)
+
 # --- CI / pre-commit (.github/workflows/go.yml test + gui jobs) ---
 fmt:
 	gofmt -w cmd internal gui
@@ -104,23 +110,14 @@ precommit: fmt-check vet-gateway test-gateway $(_GUI_PRECOMMIT_TARGETS)
 claudia-build:
 	go build -o claudia ./cmd/claudia
 
-claudia-gui-help:
-	@echo "Debian/Ubuntu — install OpenGL + X11 dev packages for Fyne, then re-run make claudia-gui-build:"
-	@echo "  sudo apt-get install -y gcc pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev"
+gui-install:
+	$(GITBASH) scripts/gui-install.sh
 
-claudia-gui-build:
-	@cd gui && CGO_ENABLED=1 go build -o ../claudia-gui . || { \
-		echo "" >&2; \
-		echo "claudia-gui-build: Fyne needs CGO plus OpenGL and X11 headers on Linux." >&2; \
-		echo "  Run:  make claudia-gui-help" >&2; \
-		echo "  Doc:  docs/gui-testing.md" >&2; \
-		exit 1; \
-	}
-	@echo "Built ./claudia-gui — open a graphical session and run:  ./claudia-gui   (or:  make claudia-gui-run)"
+gui-build:
+	$(GITBASH) scripts/gui-build.sh $(GUI_BIN)
 
-claudia-gui-run:
-	@test -f claudia-gui || $(MAKE) claudia-gui-build
-	./claudia-gui
+gui-run:
+	$(GITBASH) scripts/gui-run.sh $(GUI_BIN) "$(MAKE)"
 
 claudia-run:
 	go run ./cmd/claudia

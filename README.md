@@ -134,11 +134,11 @@ make claudia-stop
 
 | Target | What it does |
 | ------ | ------------ |
-| **`make claudia-gui-help`** | Prints the **`sudo apt-get install ...`** line for **Debian/Ubuntu** OpenGL and X11 dev packages Fyne needs; does **not** install anything. |
-| **`make claudia-gui-build`** | **`CGO_ENABLED=1 go build`** from **`gui/`** into **`./claudia-gui`**; requires a Fyne-capable toolchain (see [docs/gui-testing.md](docs/gui-testing.md)). |
-| **`make claudia-gui-run`** | Builds **`./claudia-gui`** via **`claudia-gui-build`** if it is missing, then runs it. |
+| **`make gui-install`** | Installs native dependencies for the Fyne GUI (**Ubuntu/Debian** incl. 14.04+ via **`apt-get`**, **macOS** Xcode CLT via **`xcode-select --install`**, **Windows 11** **`winget`** MSYS2 + printed **`pacman`** steps). May prompt for **`sudo`** or admin. |
+| **`make gui-build`** | **`CGO_ENABLED=1 go build`** from **`gui/`** into **`./claudia-gui`** (or **`./claudia-gui.exe`** on Windows); requires a Fyne-capable toolchain (see [docs/gui-testing.md](docs/gui-testing.md)). |
+| **`make gui-run`** | Runs **`gui-build`** if the binary is missing, then runs **`./claudia-gui`** (or **`./claudia-gui.exe`** on Windows). |
 | **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same expectations as **`test-gui`**. |
-| **`make test-gui`** | **`go test -C gui ./...`** with **CGO** — same native libraries as **`claudia-gui-build`**. |
+| **`make test-gui`** | **`go test -C gui ./...`** with **CGO** — same native libraries as **`make gui-build`**. |
 
 **`make precommit`** runs **`vet-gui`** and **`test-gui`** unless **`SKIP_GUI=1`**; details are in **Testing and Linting** below.
 
@@ -151,7 +151,7 @@ make claudia-stop
 | **`make vet-gateway`** | **`go vet ./...`** on the main module (no **`gui`**). Used by **`precommit`**. |
 | **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same toolchain expectations as **`test-gui`**. Used by **`precommit`** unless **`SKIP_GUI=1`**. |
 | **`make test-gateway`** | **`go test ./...`** on the main module with **`-race`** on Unix; does not run **`gui`** tests. |
-| **`make test-gui`** | **`go test -C gui ./...`** — requires **CGO** and the same native libraries as **`make claudia-gui-build`**. |
+| **`make test-gui`** | **`go test -C gui ./...`** — requires **CGO** and the same native libraries as **`make gui-build`**. |
 | **`make precommit`** | Runs **`fmt-check`**, **`vet-gateway`**, **`test-gateway`**, and **`vet-gui`** + **`test-gui`** unless **`SKIP_GUI=1`** (no Fyne/CGO, e.g. Windows without a GUI toolchain). On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** runs **`precommit`** with **`SKIP_GUI=1`** by default; set **`FULL_GUI=1`** to include GUI checks. |
 
 ## Repo Management and Packaging

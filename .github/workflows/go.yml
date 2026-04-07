@@ -131,7 +131,7 @@ jobs:
           CGO_ENABLED: "1"
         run: cd gui && go test ./... -count=1
 
-      - name: Build claudia-gui
+      - name: Build GUI (claudia-gui)
         env:
           CGO_ENABLED: "1"
         run: cd gui && go build -o /tmp/claudia-gui .

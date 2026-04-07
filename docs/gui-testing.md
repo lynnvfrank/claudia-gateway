@@ -4,24 +4,23 @@ The **Claudia** desktop shell lives in the nested module **`gui/`** ([Fyne](http
 
 **Connection model:** the GUI does **not** embed the supervisor. Run the gateway (**Go** **`claudia`** / **`claudia serve`**); the GUI is an **HTTP client** to **`GET /status`**.
 
-Automated UI/E2E in CI is **not** wired (no display server in the default pipeline). This checklist is for **manual** verification after **`make claudia-gui-build`** or **`cd gui && go build -o claudia-gui .`** on your machine.
+Automated UI/E2E in CI is **not** wired (no display server in the default pipeline). This checklist is for **manual** verification after **`make gui-build`** or **`cd gui && go build -o claudia-gui .`** on your machine.
 
-## Prerequisites (Linux)
+## Prerequisites
 
-Install build deps (names vary by distro; Debian/Ubuntu example):
+Run **`make gui-install`** once per machine (uses Git Bash on Windows, same as other **`make`** scripts):
 
-```bash
-sudo apt-get install -y gcc pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev \
-  libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev
-```
+- **Ubuntu / Debian** (incl. **14.04+**): **`sudo apt-get install`** for **gcc**, **OpenGL**, and **X11** development packages required by Fyne.
+- **macOS**: ensures **Xcode Command Line Tools** / **`clang`** (launches Apple’s installer if needed).
+- **Windows 11**: uses **`winget`** to install **MSYS2** when possible, then runs **`pacman`** (non-interactive) inside MSYS2 to install **UCRT MinGW GCC** and **`pkg-config`**, prepends **`ucrt64`** (or **`mingw64`**) **`bin`** to **`PATH`** for the current session, and appends a guarded block to **`~/.bashrc`** so **interactive** Git Bash picks up **`gcc`**. **`make gui-build`** runs a **non-interactive** bash that does **not** read **`~/.bashrc`**; **`scripts/gui-build.sh`** sources **`scripts/msys2-gcc-path.sh`** so **MSYS2** **`gcc`** is on **`PATH`** for **`go build`** / **CGO** anyway. Override **`MSYS2_ROOT`** if MSYS2 is not under **`C:\\msys64`**. Set **`SKIP_MSYS_PACMAN=1`** to skip **`pacman`**, or **`SKIP_BASHRC_PATH=1`** to skip editing **`~/.bashrc`**. If automation still fails (fresh MSYS2 sometimes needs an extra **`pacman -Syu`** cycle in the **UCRT64** terminal), follow the script’s printed fallback steps.
 
-**macOS** / **Windows:** follow [Fyne — Getting started](https://developer.fyne.io/started/) (Xcode command line tools / MSVC + GCC as appropriate).
+For non-Debian Linux or manual setup, see [Fyne — Getting started](https://developer.fyne.io/started/).
 
 ## Build
 
 ```bash
-make claudia-gui-build
-# → ./claudia-gui in repo root
+make gui-build
+# → ./claudia-gui (or ./claudia-gui.exe on Windows) in repo root
 ```
 
 ## Flags

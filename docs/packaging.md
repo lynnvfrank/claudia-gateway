@@ -73,7 +73,7 @@ Releases version **`claudia`** and bundle **Qdrant** as above. Record the **BiFr
 
 ## GUI binary (`claudia-gui`)
 
-The **Fyne** app is a **separate nested module** under **`gui/`** (CGO, platform UI libraries). It is **not** part of the static **`claudia`** GoReleaser archives. Build locally with **`make claudia-gui-build`** → **`./claudia-gui`**; see [gui-testing.md](gui-testing.md). Bundling the GUI into release zips may be added later (cross-compiling Fyne in CI is heavier than the gateway binary).
+The **Fyne** app is a **separate nested module** under **`gui/`** (CGO, platform UI libraries). It is **not** part of the static **`claudia`** GoReleaser archives. Build locally with **`make gui-build`** → **`./claudia-gui`** (or **`./claudia-gui.exe`** on Windows); see [gui-testing.md](gui-testing.md). Bundling the GUI into release zips may be added later (cross-compiling Fyne in CI is heavier than the gateway binary).
 
 ## Follow-ups (not in Phase 4)
 

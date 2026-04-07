@@ -20,6 +20,18 @@
           "weight": 1.0
         }
       ]
+    },
+    "ollama": {
+      "keys": [
+        {
+          "name": "ollama-local",
+          "value": "dummy",
+          "weight": 1.0
+        }
+      ],
+      "network_config": {
+        "base_url": "http://localhost:11434"
+      }
     }
   }
 }
