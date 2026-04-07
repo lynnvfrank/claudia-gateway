@@ -1,40 +1,21 @@
 #!/usr/bin/env bash
-# Idempotent: verify toolchain, then install-bootstrap.sh (BiFrost + Qdrant from deps.lock).
+# Idempotent: verify toolchain (auto-install git/make/go/node/gcc when possible), then install-bootstrap.sh (BiFrost + Qdrant from deps.lock).
+# Skip auto-install: SKIP_AUTO_GIT, SKIP_AUTO_MAKE, SKIP_AUTO_GO, SKIP_AUTO_NODE, SKIP_AUTO_GCC (see scripts/install-toolchain-deps.sh, install-gcc.sh).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck source=scripts/compiler-detect.sh
 source "$REPO_ROOT/scripts/compiler-detect.sh"
+# shellcheck source=scripts/install-toolchain-deps.sh
+source "$REPO_ROOT/scripts/install-toolchain-deps.sh"
 
 echo "==> install: toolchain"
 missing=0
-need() {
-	if command -v "$1" >/dev/null 2>&1; then
-		echo "    OK  $1 → $(command -v "$1")"
-	else
-		echo "    MISSING  $1" >&2
-		missing=1
-	fi
-}
 
-need go
-need git
-need make
-if command -v go >/dev/null 2>&1; then
-	echo "    go version: $(go version)"
-fi
-if command -v node >/dev/null 2>&1; then
-	ver="$(node -v 2>/dev/null || true)"
-	major="$(node -p "parseInt(process.versions.node.split('.')[0],10)" 2>/dev/null || echo 0)"
-	if [ "$major" -lt 20 ]; then
-		echo "    WARN  Node.js should be >= 20 for BiFrost UI (found $ver)" >&2
-	else
-		echo "    OK  node $ver"
-	fi
-else
-	echo "    MISSING  node (required for BiFrost UI build during bootstrap)" >&2
-	missing=1
-fi
+toolchain_ensure_git || missing=1
+toolchain_ensure_make || missing=1
+toolchain_ensure_go || missing=1
+toolchain_ensure_node || missing=1
 
 # BiFrost's bifrost-http binary is built with CGO; Go needs a C toolchain (gcc or clang on PATH).
 if has_cc; then

@@ -5,11 +5,14 @@
 # Windows: winget/chocolatey installs use a UAC elevation prompt when not already Administrator
 # unless SKIP_WIN_ELEVATE=1 (then run Git Bash / make install as Administrator yourself).
 # Sourced by install.sh so PATH shims (e.g. WinGet WinLibs) apply to the same shell.
+# On Windows, discovered compiler bin dirs are also appended to the User PATH (registry) when missing.
 set -euo pipefail
 
 _SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=compiler-detect.sh
 source "$_SCRIPTS/compiler-detect.sh"
+# shellcheck source=win-persist-user-path.sh
+source "$_SCRIPTS/win-persist-user-path.sh"
 
 main() {
 	if has_cc; then
@@ -215,6 +218,8 @@ main() {
 				export PATH="$msysdir:$bindir:$PATH"
 				hash -r 2>/dev/null || true
 				echo "install-gcc: prepended to PATH: $msysdir"
+				win_persist_user_path_dir "$msysdir"
+				win_persist_user_path_dir "$bindir"
 			}
 			_shim_winlibs_path
 			has_cc && return 0
@@ -245,6 +250,7 @@ main() {
 						export PATH="${d}:$PATH"
 						hash -r 2>/dev/null || true
 						echo "install-gcc: prepended to PATH: $d"
+						win_persist_user_path_dir "$d"
 						break
 					fi
 				done

@@ -8,7 +8,16 @@ ifeq ($(OS),Windows_NT)
   # Same bash as install/*.sh (Git for Windows). MSYS2-only: set GITBASH, e.g.
   #   set "GITBASH=C:\msys64\usr\bin\bash.exe"
   ifeq ($(origin GITBASH),undefined)
-    GITBASH := "$(ProgramW6432)/Git/bin/bash.exe"
+    # Per-machine install first; then per-user (winget / default installer path).
+    _GIT_BASH := $(wildcard $(ProgramW6432)/Git/bin/bash.exe)
+    ifeq ($(_GIT_BASH),)
+      _GIT_BASH := $(wildcard $(LOCALAPPDATA)/Programs/Git/bin/bash.exe)
+    endif
+    ifneq ($(_GIT_BASH),)
+      GITBASH := "$(firstword $(_GIT_BASH))"
+    else
+      GITBASH := "$(ProgramW6432)/Git/bin/bash.exe"
+    endif
   endif
   RACE_GATEWAY :=
   BIFROST_BIN := bin/bifrost-http.exe
