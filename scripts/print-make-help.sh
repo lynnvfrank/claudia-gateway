@@ -9,6 +9,7 @@ echo "  make install            verify toolchain + bootstrap BiFrost/Qdrant from
 echo "  make configure          seed .env + config/tokens.yaml from examples if missing"
 echo
 echo "  make claudia-build      go build -o claudia ./cmd/claudia"
+echo "  make claudia-run        go run ./cmd/claudia"
 echo "  make claudia-serve      foreground supervisor + BiFrost + Qdrant"
 echo "  make claudia-start      background: ./claudia serve (logs/claudia.log, run/claudia.pid)"
 echo "  make logs               tail logs/claudia.log"
