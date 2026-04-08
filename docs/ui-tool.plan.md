@@ -1,6 +1,8 @@
 # Plan: Claudia desktop UI (webview) + gateway admin surface
 
-This document plans a **cross-platform desktop shell** that wraps a **system webview** and loads **operator UI served by the Claudia gateway**. The goal is **one** web-based control experience shared with the browser (and eventually a PWA). **Version 0.1 removes** the legacy **Fyne** desktop app ([`gui/`](../gui/)) entirely; the webview wrapper does not use Fyne and is the only desktop shell.
+This document plans a **cross-platform desktop shell** that wraps a **system webview** and loads **operator UI served by the Claudia gateway**. The goal is **one** web-based control experience shared with the browser (and eventually a PWA). **Version 0.1 removes** the legacy **Fyne** desktop app ([`gui/`](../gui/)) entirely; the webview shell does not use Fyne and is the only desktop UI.
+
+**Implementation direction:** work toward **one primary executable** (`claudia` / `claudia.exe`) that the user launches in **desktop mode**: it starts the **supervised stack** (optional Qdrant, BiFrost, and the **HTTP gateway** in-process, per [`supervisor.md`](supervisor.md)), then opens the **webview** against the gateway’s `/ui/…` entry. The same binary also supports **headless** operation (no webview) for servers, automation, and future **platform installers** that install a bundle without a desktop shell.
 
 **Related docs:** [`cli-tool-plan.md`](cli-tool-plan.md) (operator CLI, shared BiFrost assumptions), [`supervisor.md`](supervisor.md), [`bifrost-discovery.md`](bifrost-discovery.md), [`configuration.md`](configuration.md), [`vscode-continue/`](../vscode-continue/) (Continue examples).
 
@@ -10,11 +12,11 @@ This document plans a **cross-platform desktop shell** that wraps a **system web
 
 ### Version 0.1 — Webview wrapper + gateway admin UI
 
-**Desktop wrapper**
+**Desktop shell (webview)**
 
 - Embeds a **native webview** (platform WebView2 / WKWebView / WebKitGTK, or a small helper such as Wails/Tauri if the team standardizes on one). **No Fyne** — CGO is only required if the chosen webview stack requires it (unlike the old Fyne GUI).
-- **Build entry:** new package under e.g. [`cmd/claudia-gui`](../cmd/claudia-gui) (or `cmd/claudia-webview`) producing the same artifact name **`claudia-gui`** / **`claudia-gui.exe`** as today so existing **`make gui-build`** output expectations stay familiar.
-- **Remove in v0.1:** delete the Fyne [`gui/`](../gui/) module; retarget [`scripts/gui-build.sh`](../scripts/gui-build.sh), [`scripts/gui-install.sh`](../scripts/gui-install.sh), and [`scripts/gui-run.sh`](../scripts/gui-run.sh) at the webview binary; update [`Makefile`](../Makefile) **`vet-gui`** / **`test-gui`** / **`fmt`** paths and drop **`CGO_ENABLED=1`** unless the webview stack needs CGO; update [`scripts/clean.sh`](../scripts/clean.sh), [`scripts/print-make-help.sh`](../scripts/print-make-help.sh), [`docs/gui-testing.md`](../docs/gui-testing.md), README, and CI (e.g. `.github/workflows`) so they describe webview deps, not Fyne.
+- **Build entry (target):** integrate the webview into **[`cmd/claudia`](../cmd/claudia)** so **one binary** runs **desktop mode** (supervisor + gateway + window). A **temporary** separate package (e.g. [`cmd/claudia-gui`](../cmd/claudia-gui)) is acceptable only if it accelerates early integration; the **deliverable** to optimize for is **single `claudia`**. Makefile / script names such as **`make gui-build`** may continue to produce a **`claudia-gui`** artifact during transition, or may be retargeted to the desktop-capable `claudia` build once merged — document whichever layout the repo uses after the cutover.
+- **Remove in v0.1:** delete the Fyne [`gui/`](../gui/) module; retarget [`scripts/gui-build.sh`](../scripts/gui-build.sh), [`scripts/gui-install.sh`](../scripts/gui-install.sh), and [`scripts/gui-run.sh`](../scripts/gui-run.sh) at the **webview-capable** build; update [`Makefile`](../Makefile) **`vet-gui`** / **`test-gui`** / **`fmt`** paths and drop **`CGO_ENABLED=1`** unless the webview stack needs CGO; update [`scripts/clean.sh`](../scripts/clean.sh), [`scripts/print-make-help.sh`](../scripts/print-make-help.sh), [`docs/gui-testing.md`](../docs/gui-testing.md), README, and CI (e.g. `.github/workflows`) so they describe webview deps, not Fyne.
 - **Default navigation target:** Claudia gateway **operator entry** served by `claudia` (e.g. `http://127.0.0.1:3000/ui/` or a concrete path agreed in implementation — **must** be a page shipped **from the gateway**, not only bundled inside the wrapper).
 - **Static assets bundled with the wrapper** (not the gateway): a **gateway unreachable** page (HTML/CSS) shown when the wrapper cannot connect to the configured base URL (connection refused, timeout, DNS failure). No token or secrets on that page.
 - **v0.1 default base URL:** `http://127.0.0.1:3000` (hard-coded or single compile-time default; configurable persistence is **v0.8**).
@@ -62,21 +64,54 @@ Everything **not** required to satisfy v0.1 above, including but not limited to:
 
 ---
 
+## Desktop launcher, bundled release, and lifecycle
+
+**Single executable, not a single file for the whole product**
+
+- The **user-facing launcher** is **one** `claudia` binary that, in **desktop mode**, starts everything that belongs in-process and via the existing **supervisor** (optional **Qdrant** and **BiFrost** subprocesses, plus the **Go HTTP gateway**).
+- A **release** for end users is still a **bundle**: that executable **plus** the other programs the supervisor runs (**`bifrost-http`**, optional **Qdrant** binary), **configuration** (`config/gateway.yaml`, tokens, `bifrost.config.json`, etc.), and **data directories** as documented in installation / [`supervisor.md`](supervisor.md). Installers (future) ship this layout; nothing requires stuffing BiFrost or Qdrant *into* the same PE/ELF file.
+
+**Headless vs desktop (same binary)**
+
+- **Headless:** e.g. `claudia serve` with flags as today (or an explicit `--headless` / build tag that omits webview linkage for smaller CI and server artifacts). No window; shutdown is driven by **OS signals** only (unless extended later).
+- **Desktop:** same binary opens the webview after (or while) the gateway is listening; default URL remains **`http://127.0.0.1:3000`** (or the resolved listen address) for `/ui/…`.
+
+**Unified shutdown**
+
+- Implement **one** internal shutdown path (e.g. cancel a **root context** and/or a dedicated `shutdown()` used everywhere). **Both** of the following must invoke it:
+  - **OS signals** (**SIGINT**, **SIGTERM**) — same semantics as today’s `claudia serve`.
+  - **Webview window close** (`OnClose` or the framework’s equivalent).
+- **Order (conceptual):** graceful **HTTP server shutdown**, then **cancel supervisor child context** so **Qdrant** / **BiFrost** processes stop. Avoid duplicating teardown logic between signal handlers and UI callbacks.
+
+**Backend failures vs. the shell**
+
+- If **Qdrant** or **BiFrost** exits or never becomes healthy, the **desktop process** (and webview) **should keep running** so the operator can see **degraded state** (gateway **`GET /status`**, failure page, or in-app messaging). **User-driven quit** (close window or signal) still tears down the whole operation. Exact restart policy (auto-restart children vs. report-only) is implementation detail; v0.1 should at minimum **surface** failures without killing the window immediately.
+
+---
+
 ## Architecture (v0.1)
 
+**Logical components** (desktop mode): one OS process hosts the **webview** and the **gateway**; **BiFrost** and optional **Qdrant** remain **child processes** started by the supervisor.
+
 ```text
-┌─────────────────────┐     HTTP (cookie session)      ┌──────────────────────────┐
-│  Webview wrapper    │ ──────────────────────────────►│  Claudia gateway         │
-│  (local static only │     GET /ui/…, POST /api/ui/…  │  Serves HTML/JS + BFF    │
-│   = failure page)   │                                │  Validates token store   │
-└─────────────────────┘                                └───────────┬──────────────┘
-                                                                   │ Server-side only
-                                                                   ▼
-                                                       ┌──────────────────────────┐
-                                                       │  BiFrost (config_store)  │
-                                                       │  /api/providers/…        │
-                                                       └──────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Process: claudia (desktop mode)                                             │
+│  ┌─────────────────────┐     HTTP (cookie session)      ┌───────────────────┐  │
+│  │  Webview            │ ────────────────────────────► │  Gateway (in-proc)│  │
+│  │  (bundled failure   │   GET /ui/…, POST /api/ui/…   │  HTML/JS + BFF    │  │
+│  │   page only local)  │                               │  token store      │  │
+│  └─────────────────────┘                               └─────────┬─────────┘  │
+└──────────────────────────────────────────────────────────────────┼───────────┘
+                                                                   │ exec / supervise
+                                          ┌────────────────────────┴────────────────────────┐
+                                          ▼                                                 ▼
+                                 ┌─────────────────┐                               ┌─────────────────┐
+                                 │  Qdrant (child) │                               │  BiFrost (child)│
+                                 │  optional       │                               │  config_store   │
+                                 └─────────────────┘                               └─────────────────┘
 ```
+
+**Headless** omits the webview box; the gateway + supervisor layout matches [`supervisor.md`](supervisor.md).
 
 ---
 
@@ -119,16 +154,18 @@ Optional **Refresh** control to re-fetch state from BiFrost without full page re
 - [ ] Control panel: per-row save + inline errors + masked display.
 - [ ] Continue configuration snippet block.
 
-**Wrapper**
+**Desktop shell + launcher**
 
-- [ ] Webview project (or extend repo with second `cmd/` binary) with default URL `http://127.0.0.1:3000`.
+- [ ] **Single `claudia` binary:** **desktop mode** starts supervisor + gateway and opens **webview** with default base URL `http://127.0.0.1:3000` (or resolved listen address).
+- [ ] **Headless mode** (e.g. `serve` / `--headless` / build tag) shares the same process model without linking or starting the webview.
+- [ ] **Unified shutdown:** **SIGINT** / **SIGTERM** and **window close** call the **same** teardown path (HTTP shutdown, then supervised children stopped).
 - [ ] On load failure → bundled **static failure** page; retry / quit.
 - [ ] On success → load gateway `/ui/...` entry.
 
 **Repo hygiene**
 
-- [ ] **Remove Fyne [`gui/`](../gui/)** and repurpose existing targets: **`make gui-install`**, **`make gui-build`**, **`make gui-run`** build and run the **webview** wrapper (artifact **`claudia-gui`**); update [`scripts/print-make-help.sh`](../scripts/print-make-help.sh), README, [`docs/gui-testing.md`](../docs/gui-testing.md), CI, **`fmt`** / **`vet-gui`** / **`test-gui`**, and **`SKIP_GUI`** semantics for the new module.
-- [ ] README section: “Desktop UI (webview)” + prerequisite `claudia serve`.
+- [ ] **Remove Fyne [`gui/`](../gui/)** and repurpose existing targets: **`make gui-install`**, **`make gui-build`**, **`make gui-run`** align with the **webview + `claudia`** layout (artifact names documented after cutover).
+- [ ] README: **bundled desktop release** (launcher + companion binaries + config + data dirs) vs **headless** `claudia serve` for servers and installers.
 
 ---
 
@@ -139,4 +176,4 @@ Optional **Refresh** control to re-fetch state from BiFrost without full page re
 
 ---
 
-*Plan status: **draft for implementation** — v0.1 webview + gateway admin UI; v0.8 for persistence, PWA, and extended features.*
+*Plan status: **draft for implementation** — v0.1 webview + gateway admin UI, single desktop launcher with headless variant and unified shutdown; v0.8 for persistence, PWA, and extended features.*

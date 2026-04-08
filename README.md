@@ -130,29 +130,29 @@ make claudia-status
 make claudia-stop
 ```
 
-## Graphic User Interface (gui)
+## Desktop (native webview shell)
+
+Operator UI is served by the gateway at **`/ui/login`** and **`/ui/panel`** (browser or embedded webview). A separate **`claudia-desktop`** binary (**`-tags desktop`**, **CGO**) runs **`claudia desktop`** — same flags as **`claudia serve`** — and opens a native window to the panel.
 
 | Target | What it does |
 | ------ | ------------ |
-| **`make gui-install`** | Installs native dependencies for the Fyne GUI (**Ubuntu/Debian** incl. 14.04+ via **`apt-get`**, **macOS** Xcode CLT via **`xcode-select --install`**, **Windows 11** **`winget`** MSYS2 + printed **`pacman`** steps). May prompt for **`sudo`** or admin. |
-| **`make gui-build`** | **`CGO_ENABLED=1 go build`** from **`gui/`** into **`./claudia-gui`** (or **`./claudia-gui.exe`** on Windows); requires a Fyne-capable toolchain (see [docs/gui-testing.md](docs/gui-testing.md)). |
-| **`make gui-run`** | Runs **`gui-build`** if the binary is missing, then runs **`./claudia-gui`** (or **`./claudia-gui.exe`** on Windows). |
-| **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same expectations as **`test-gui`**. |
-| **`make test-gui`** | **`go test -C gui ./...`** with **CGO** — same native libraries as **`make gui-build`**. |
+| **`make desktop-install`** | Installs native deps for **WebView** + **CGO** (Debian/Ubuntu **WebKitGTK**, macOS **CLT**, Windows hints + MSYS2 **`gcc`**). |
+| **`make desktop-build`** | **`CGO_ENABLED=1 go build -tags desktop`** → **`./claudia-desktop`** (or **`.exe`** on Windows). |
+| **`make desktop-run`** | **`desktop-build`** if missing, then **`claudia-desktop desktop`** with the same **Qdrant/BiFrost** flags as **`make claudia-serve`**. |
+| **`make vet-desktop`** | **`go vet -tags desktop ./cmd/claudia`** with **CGO** (same toolchain as **`desktop-build`**). |
 
-**`make precommit`** runs **`vet-gui`** and **`test-gui`** unless **`SKIP_GUI=1`**; details are in **Testing and Linting** below.
+**`make precommit`** runs **`vet-desktop`** unless **`SKIP_DESKTOP=1`**; see **Testing and Linting** below.
 
 ## Testing and Linting
 
 | Target | What it does |
 | ------ | ------------ |
-| **`make fmt`** | **`gofmt -w`** on **`cmd`**, **`internal`**, and **`gui`**. |
+| **`make fmt`** | **`gofmt -w`** on **`cmd`** and **`internal`**. |
 | **`make fmt-check`** | Fails if **`gofmt`** would change any file (same check as CI). Used by **`precommit`**. |
-| **`make vet-gateway`** | **`go vet ./...`** on the main module (no **`gui`**). Used by **`precommit`**. |
-| **`make vet-gui`** | **`go vet -C gui ./...`** with **CGO** enabled — same toolchain expectations as **`test-gui`**. Used by **`precommit`** unless **`SKIP_GUI=1`**. |
-| **`make test-gateway`** | **`go test ./...`** on the main module with **`-race`** on Unix; does not run **`gui`** tests. |
-| **`make test-gui`** | **`go test -C gui ./...`** — requires **CGO** and the same native libraries as **`make gui-build`**. |
-| **`make precommit`** | Runs **`fmt-check`**, **`vet-gateway`**, **`test-gateway`**, and **`vet-gui`** + **`test-gui`** unless **`SKIP_GUI=1`** (no Fyne/CGO, e.g. Windows without a GUI toolchain). On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** runs **`precommit`** with **`SKIP_GUI=1`** by default; set **`FULL_GUI=1`** to include GUI checks. |
+| **`make vet-gateway`** | **`go vet ./...`** on the main module. Used by **`precommit`**. |
+| **`make vet-desktop`** | **`go vet -tags desktop ./cmd/claudia`** with **CGO**. Used by **`precommit`** unless **`SKIP_DESKTOP=1`**. |
+| **`make test-gateway`** | **`go test ./...`** on the main module with **`-race`** on Unix. |
+| **`make precommit`** | Runs **`fmt-check`**, **`vet-gateway`**, **`test-gateway`**, and **`vet-desktop`** unless **`SKIP_DESKTOP=1`**. On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** uses **`SKIP_DESKTOP=1`** by default; set **`FULL_DESKTOP=1`** to include **`vet-desktop`**. |
 
 ## Repo Management and Packaging
 
@@ -164,7 +164,7 @@ Remove **built gateway/GUI binaries** and release scratch output.
 make clean
 ```
 
-**Deletes** **`./claudia`**, **`./claudia-gui`**, Windows **`.exe`** variants, and **`dist/`**. Does **not** remove **`bin/bifrost-http`**, **`bin/qdrant`**, **`.deps/`**, **`run/`**, or **`logs/`**.
+**Deletes** **`./claudia`**, **`./claudia-desktop`**, Windows **`.exe`** variants, and **`dist/`**. Does **not** remove **`bin/bifrost-http`**, **`bin/qdrant`**, **`.deps/`**, **`run/`**, or **`logs/`**.
 
 ### Clean up everything
 
@@ -196,7 +196,7 @@ Build snapshot artifacts with **GoReleaser**.
 - **Supervisor:** [docs/supervisor.md](docs/supervisor.md)
 - **Packaging / releases:** [docs/packaging.md](docs/packaging.md)
 - **Makefile plan:** [makefile.plan.md](makefile.plan.md)
-- **GUI:** [docs/gui-testing.md](docs/gui-testing.md)
+- **Admin UI / desktop shell:** [docs/ui-tool.plan.md](docs/ui-tool.plan.md); legacy Fyne checklist removed (use **`/ui/*`** + **`make desktop-build`**).
 - **End-to-end operator path:** [docs/e2e-operator-path.md](docs/e2e-operator-path.md)
 - **Continue samples:** [vscode-continue/README.md](vscode-continue/README.md)
 - **Security:** [SECURITY.md](SECURITY.md)

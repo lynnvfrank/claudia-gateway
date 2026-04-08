@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,7 +19,22 @@ import (
 	"github.com/lynn/claudia-gateway/internal/supervisor"
 )
 
-func runServe(args []string) {
+func panelURLFromListenAddr(ln net.Addr) string {
+	addr := ln.String()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://127.0.0.1:3000/ui/panel"
+	}
+	if host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return fmt.Sprintf("http://[%s]:%s/ui/panel", host, port)
+	}
+	return fmt.Sprintf("http://%s:%s/ui/panel", host, port)
+}
+
+func runServe(args []string, openWebview bool) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "Path to gateway.yaml (default: $CLAUDIA_GATEWAY_CONFIG or ./config/gateway.yaml)")
 	listen := fs.String("listen", "", "Override Claudia listen address (host:port or :port)")
@@ -169,12 +185,32 @@ func runServe(args []string) {
 			QdrantHTTP:       qdrantHTTP,
 		},
 	}
-	h := server.NewMux(rt, log, overlay)
+	h := server.NewMux(rt, log, overlay, server.NewUIOptions())
 
 	rootCtx, stopRoot := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRoot()
 
-	srv := &http.Server{Addr: addr, Handler: h}
+	srv := &http.Server{Handler: h}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		stopChildren()
+		if qdrantWait != nil {
+			<-qdrantWait
+		}
+		<-bifrostWaitErr
+		if log != nil {
+			log.Error("listen", "addr", addr, "err", err)
+		}
+		fmt.Fprintf(os.Stderr, "claudia serve: listen %s: %v\n", addr, err)
+		os.Exit(1)
+	}
+	panelURL := panelURLFromListenAddr(ln.Addr())
+
+	serveErrCh := make(chan error, 1)
+	go func() {
+		serveErrCh <- srv.Serve(ln)
+	}()
+
 	go func() {
 		<-rootCtx.Done()
 		shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -184,8 +220,11 @@ func runServe(args []string) {
 		}
 	}()
 
-	log.Info("claudia serve: gateway listening", "addr", addr, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "config", path)
-	serveErr := srv.ListenAndServe()
+	log.Info("claudia serve: gateway listening", "addr", ln.Addr().String(), "ui", panelURL, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "config", path)
+
+	runDesktopWebview(openWebview, panelURL, stopRoot, rootCtx)
+
+	serveErr := <-serveErrCh
 
 	stopChildren()
 	if qdrantWait != nil {

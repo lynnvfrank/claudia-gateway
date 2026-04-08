@@ -19,7 +19,8 @@ const maxBodyBytes = 25 * 1024 * 1024
 
 // NewMux builds the v0.1 HTTP surface (src/server.ts parity). overlay configures GET /status;
 // pass nil in tests; production passes listen address and optional supervisor info.
-func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler {
+// ui enables operator /ui and /api/ui routes; pass nil to disable (tests).
+func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -69,10 +70,13 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
   <h2>Other routes</h2>
   <p class="muted">No gateway token required.</p>
   <ul>
+    <li><a href="/ui"><code>GET /ui</code></a> — operator admin (redirects to login or panel)</li>
     <li><a href="/"><code>GET /</code></a> — gateway index (this page)</li>
     <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
     <li><a href="/status"><code>GET /status</code></a> — gateway and optional supervisor JSON (GUI / ops)</li>
     <li><a href="/ui/models"><code>GET /ui/models</code></a> — same merged model list as <code>/v1/models</code> (for this page and tools)</li>
+    <li><a href="/ui/login"><code>GET /ui/login</code></a> — operator admin login (when UI is enabled)</li>
+    <li><a href="/ui/panel"><code>GET /ui/panel</code></a> — operator admin (session required)</li>
   </ul>
   <h2>Claudia's Models</h2>
   <p id="models-status" class="muted">Loading models…</p>
@@ -222,6 +226,8 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http.Handler 
 		handleV1Chat(w, r, rt, log)
 	})
 
+	registerAdminUI(mux, rt, log, ui)
+
 	return loggingMiddleware(log, mux)
 }
 
@@ -239,6 +245,24 @@ func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		return
 	}
 	writeMergedModelsResponse(w, r.Context(), res, rt.UpstreamAPIKey(), healthTimeout(res), log)
+}
+
+// ensureOpenAIModelListItems sets object/created on each upstream model. BiFrost often omits
+// OpenAI's required "object":"model" and "created" on many entries; strict clients (e.g. VS Code Continue)
+// may drop or fail to display them without these fields.
+func ensureOpenAIModelListItems(data []any) {
+	for _, raw := range data {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if o, ok := m["object"].(string); !ok || strings.TrimSpace(o) == "" {
+			m["object"] = "model"
+		}
+		if _, has := m["created"]; !has {
+			m["created"] = int64(0)
+		}
+	}
 }
 
 // writeMergedModelsResponse lists upstream GET /v1/models, prepends the virtual Claudia model, and writes OpenAI-style JSON.
@@ -281,6 +305,7 @@ func writeMergedModelsResponse(w http.ResponseWriter, ctx context.Context, res *
 	if data == nil {
 		data = []any{}
 	}
+	ensureOpenAIModelListItems(data)
 	virtual := map[string]any{
 		"id":       res.VirtualModelID,
 		"object":   "model",

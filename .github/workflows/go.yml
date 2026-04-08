@@ -5,6 +5,7 @@ on:
     paths:
       - "**.go"
       - go.mod
+      - go.sum
       - "Makefile"
       - ".goreleaser.yaml"
       - "docs/packaging.md"
@@ -27,14 +28,17 @@ on:
       - "scripts/logs.sh"
       - "scripts/precommit-smoke.sh"
       - "scripts/fmt-check.sh"
-      - "gui/**"
-      - "docs/gui-testing.md"
+      - "scripts/desktop-build.sh"
+      - "scripts/desktop-install.sh"
+      - "scripts/desktop-run.sh"
+      - "internal/server/embedui/**"
       - ".github/workflows/go.yml"
       - ".github/workflows/release.yml"
   pull_request:
     paths:
       - "**.go"
       - go.mod
+      - go.sum
       - "Makefile"
       - ".goreleaser.yaml"
       - "docs/packaging.md"
@@ -57,8 +61,10 @@ on:
       - "scripts/logs.sh"
       - "scripts/precommit-smoke.sh"
       - "scripts/fmt-check.sh"
-      - "gui/**"
-      - "docs/gui-testing.md"
+      - "scripts/desktop-build.sh"
+      - "scripts/desktop-install.sh"
+      - "scripts/desktop-run.sh"
+      - "internal/server/embedui/**"
       - ".github/workflows/go.yml"
       - ".github/workflows/release.yml"
 
@@ -73,7 +79,7 @@ jobs:
           go-version: "1.22"
 
       - name: Format
-        run: test -z "$(gofmt -l cmd internal gui)"
+        run: test -z "$(gofmt -l cmd internal)"
 
       - name: Vet
         run: go vet ./...
@@ -105,8 +111,8 @@ jobs:
           test -n "$BIN" -a -x "$BIN"
           "$BIN" --version
 
-  # Phase 5: Fyne GUI — compile-only on linux-amd64 (CGO + X11/GLES deps).
-  gui:
+  # Desktop: webview_go + CGO (compile-only on linux-amd64).
+  desktop:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,23 +121,17 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Linux dependencies (Fyne)
+      - name: Linux dependencies (WebKitGTK)
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxxf86vm-dev
+          sudo apt-get install -y gcc pkg-config libgtk-3-dev libwebkit2gtk-4.0-dev
 
-      - name: Format (gui module)
-        run: test -z "$(gofmt -l gui)"
-
-      - name: Vet (gui module)
-        run: cd gui && go vet ./...
-
-      - name: Test (gui module)
+      - name: Vet (desktop tag)
         env:
           CGO_ENABLED: "1"
-        run: cd gui && go test ./... -count=1
+        run: go vet -tags desktop ./cmd/claudia
 
-      - name: Build GUI (claudia-gui)
+      - name: Build desktop binary
         env:
           CGO_ENABLED: "1"
-        run: cd gui && go build -o /tmp/claudia-gui .
+        run: go build -tags desktop -o /tmp/claudia-desktop ./cmd/claudia

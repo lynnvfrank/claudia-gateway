@@ -1,6 +1,6 @@
 # Claudia Gateway — see makefile.plan.md and README.md
 #
-# clean:      removes ./claudia[.exe], claudia-gui[.exe], dist/ only.
+# clean:      removes ./claudia[.exe], claudia-desktop[.exe], dist/ only.
 # clean-all:  also removes bin/bifrost-http*, bin/qdrant*, .deps/, run/, logs/ (requires CONFIRM=1).
 # clean-data: removes data/bifrost/, data/qdrant/ — fresh BiFrost + Qdrant state (requires CONFIRM=1).
 
@@ -22,7 +22,7 @@ ifeq ($(OS),Windows_NT)
   RACE_GATEWAY :=
   BIFROST_BIN := bin/bifrost-http.exe
   QDRANT_BIN := bin/qdrant.exe
-  GUI_BIN := claudia-gui.exe
+  DESKTOP_BIN := claudia-desktop.exe
 else
   ifeq ($(origin GITBASH),undefined)
     GITBASH := bash
@@ -30,14 +30,14 @@ else
   RACE_GATEWAY := -race
   BIFROST_BIN := bin/bifrost-http
   QDRANT_BIN := bin/qdrant
-  GUI_BIN := claudia-gui
+  DESKTOP_BIN := claudia-desktop
 endif
 
-SKIP_GUI ?=
-ifeq ($(SKIP_GUI),1)
-  _GUI_PRECOMMIT_TARGETS :=
+SKIP_DESKTOP ?=
+ifeq ($(SKIP_DESKTOP),1)
+  _DESKTOP_PRECOMMIT_TARGETS :=
 else
-  _GUI_PRECOMMIT_TARGETS := vet-gui test-gui
+  _DESKTOP_PRECOMMIT_TARGETS := vet-desktop
 endif
 
 # UP_STACK=0 starts background supervisor without Qdrant; default is full stack.
@@ -49,10 +49,10 @@ endif
 
 .PHONY: help up install configure clean clean-all clean-data fmt fmt-check logs \
 	bash \
-	claudia-build gui-install gui-build gui-run \
+	claudia-build desktop-install desktop-build desktop-run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
 	release-snapshot \
-	vet-gateway vet-gui test-gateway test-gui precommit
+	vet-gateway vet-desktop test-gateway precommit
 
 # One bash process (same as install/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
 help:
@@ -86,16 +86,16 @@ clean:
 	$(GITBASH) scripts/clean.sh
 
 clean-all:
-	@test "$(CONFIRM)" = "1" || { echo "clean-all: removes .deps/, bin/bifrost-http*, bin/qdrant*, run/, logs/ — re-run with CONFIRM=1" >&2; exit 1; }
+	$(GITBASH) scripts/clean-all-confirm.sh $(CONFIRM)
 	$(MAKE) clean
 	$(GITBASH) scripts/clean-all.sh
 
 clean-data:
 	$(GITBASH) scripts/clean-data.sh $(CONFIRM)
 
-# --- CI / pre-commit (.github/workflows/go.yml test + gui jobs) ---
+# --- CI / pre-commit (.github/workflows/go.yml test + desktop jobs) ---
 fmt:
-	gofmt -w cmd internal gui
+	gofmt -w cmd internal
 
 fmt-check:
 	$(GITBASH) scripts/fmt-check.sh
@@ -103,30 +103,26 @@ fmt-check:
 vet-gateway:
 	go vet ./...
 
+vet-desktop: export CGO_ENABLED := 1
+vet-desktop:
+	go vet -tags desktop ./cmd/claudia
+
 test-gateway:
 	go test ./... $(RACE_GATEWAY) -count=1
 
-vet-gui: export CGO_ENABLED := 1
-vet-gui:
-	go vet -C gui ./...
-
-test-gui: export CGO_ENABLED := 1
-test-gui:
-	go test -C gui ./... -count=1
-
-precommit: fmt-check vet-gateway test-gateway $(_GUI_PRECOMMIT_TARGETS)
+precommit: fmt-check vet-gateway test-gateway $(_DESKTOP_PRECOMMIT_TARGETS)
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
 
-gui-install:
-	$(GITBASH) scripts/gui-install.sh
+desktop-install:
+	$(GITBASH) scripts/desktop-install.sh
 
-gui-build:
-	$(GITBASH) scripts/gui-build.sh $(GUI_BIN)
+desktop-build:
+	$(GITBASH) scripts/desktop-build.sh $(DESKTOP_BIN)
 
-gui-run:
-	$(GITBASH) scripts/gui-run.sh $(GUI_BIN) "$(MAKE)"
+desktop-run:
+	$(GITBASH) scripts/desktop-run.sh $(DESKTOP_BIN) "$(MAKE)" -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
 claudia-run:
 	go run ./cmd/claudia
@@ -135,5 +131,4 @@ claudia-serve:
 	go run ./cmd/claudia serve -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
 release-snapshot:
-	@command -v goreleaser >/dev/null 2>&1 || { echo "release-snapshot: install https://goreleaser.com/install/ or run the docker one-liner in docs/packaging.md" >&2; exit 1; }
-	goreleaser release --snapshot --clean
+	$(GITBASH) scripts/release-snapshot.sh

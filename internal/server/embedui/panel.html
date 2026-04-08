@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Claudia — Admin panel</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; color: #1a1a1a; }
+    h1 { font-size: 1.35rem; }
+    h2 { font-size: 1.05rem; margin-top: 2rem; }
+    .row { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; background: #fafafa; }
+    .row h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+    .meta { font-size: 0.85rem; color: #444; margin-bottom: 0.5rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
+    input[type=text], input[type=password], input[type=url] { width: 100%; max-width: 100%; box-sizing: border-box; padding: 0.45rem; margin-top: 0.2rem; }
+    button { margin-top: 0.6rem; margin-right: 0.5rem; padding: 0.4rem 0.75rem; cursor: pointer; }
+    .err { color: #a40000; font-size: 0.85rem; margin-top: 0.4rem; white-space: pre-wrap; }
+    .toolbar { margin: 1rem 0; }
+    a { color: #0b57d0; }
+    #continue-block { width: 100%; min-height: 10rem; font-family: ui-monospace, monospace; font-size: 0.8rem; box-sizing: border-box; padding: 0.5rem; }
+    .warn { font-size: 0.85rem; color: #555; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Claudia operator panel</h1>
+  <p class="toolbar">
+    <button type="button" id="btn-refresh">Refresh</button>
+    <button type="button" id="btn-logout">Sign out</button>
+    <a href="/">Gateway home</a>
+  </p>
+
+  <div id="banner" class="err" hidden></div>
+
+  <section class="row" id="row-groq">
+    <h3>Groq API key</h3>
+    <p class="meta">Current: <span id="groq-hint">—</span> · Bifrost: <span id="groq-ok">—</span></p>
+    <label for="groq-val">New key (saved only to BiFrost via gateway)</label>
+    <input id="groq-val" type="password" autocomplete="off" placeholder="gsk-…"/>
+    <button type="button" id="groq-save">Save Groq</button>
+    <div id="groq-err" class="err"></div>
+  </section>
+
+  <section class="row" id="row-gemini">
+    <h3>Gemini API key</h3>
+    <p class="meta">Current: <span id="gemini-hint">—</span> · Bifrost: <span id="gemini-ok">—</span></p>
+    <label for="gemini-val">New key</label>
+    <input id="gemini-val" type="password" autocomplete="off" placeholder="AIza…"/>
+    <button type="button" id="gemini-save">Save Gemini</button>
+    <div id="gemini-err" class="err"></div>
+  </section>
+
+  <section class="row" id="row-ollama">
+    <h3>Ollama base URL</h3>
+    <p class="meta">Current: <span id="ollama-hint">—</span> · Bifrost: <span id="ollama-ok">—</span></p>
+    <label for="ollama-val">New base URL</label>
+    <input id="ollama-val" type="url" autocomplete="off" placeholder="http://127.0.0.1:11434"/>
+    <button type="button" id="ollama-save">Save Ollama URL</button>
+    <div id="ollama-err" class="err"></div>
+  </section>
+
+  <h2>VS Code Continue</h2>
+  <p>Copy into <code>~/.continue/config.yaml</code> (or merge under <code>models</code>). <code>apiKey</code> is the gateway token you used to sign in here. Do not commit this snippet.</p>
+  <textarea id="continue-block" readonly></textarea>
+  <button type="button" id="btn-copy-continue">Copy snippet</button>
+  <p class="warn">Examples and context: see the repo <code>vscode-continue/</code> directory (e.g. on GitHub <code>github.com/lynn/claudia-gateway</code>).</p>
+
+  <script>
+(function () {
+  var banner = document.getElementById("banner");
+  function showBanner(msg) {
+    if (!msg) { banner.hidden = true; banner.textContent = ""; return; }
+    banner.textContent = msg;
+    banner.hidden = false;
+  }
+
+  function setProv(name, p) {
+    var hint = document.getElementById(name + "-hint");
+    var ok = document.getElementById(name + "-ok");
+    if (!p) {
+      if (hint) hint.textContent = "—";
+      if (ok) ok.textContent = "—";
+      return;
+    }
+    if (hint) {
+      if (name === "ollama") {
+        hint.textContent = p.ollama_base_url || "(no URL)";
+      } else {
+        hint.textContent = p.key_hint || "—";
+      }
+    }
+    if (ok) ok.textContent = p.ok ? "reachable" : ("error: " + (p.error || p.detail || "?"));
+  }
+
+  async function loadState() {
+    showBanner("");
+    var r = await fetch("/api/ui/state", { credentials: "same-origin" });
+    if (r.status === 401) {
+      window.location.href = "/ui/login";
+      return;
+    }
+    var j = await r.json().catch(function () { return null; });
+    if (!r.ok || !j) {
+      showBanner((j && j.error) || ("HTTP " + r.status));
+      return;
+    }
+    var gw = j.gateway || {};
+    var prov = j.providers || {};
+    setProv("groq", prov.groq);
+    setProv("gemini", prov.gemini);
+    setProv("ollama", prov.ollama);
+
+    var base = gw.public_base_url || "http://127.0.0.1:3000";
+    var vm = gw.virtual_model_id || "Claudia-0.1.0";
+    var ver = gw.semver != null && String(gw.semver) !== "" ? String(gw.semver) : "0.1.0";
+    var tok = gw.continue_gateway_token != null ? String(gw.continue_gateway_token) : "";
+    var yml = [
+      "name: Claudia",
+      "version: " + JSON.stringify(ver),
+      "schema: v1",
+      "models:",
+      "  - name: Cℓαudια",
+      "    model: " + vm,
+      "    provider: openai",
+      "    apiKey: " + JSON.stringify(tok),
+      "    apiBase: " + base + "/v1",
+      "    roles:",
+      "      - chat",
+      "      - edit",
+      "      - apply"
+    ].join("\n");
+    document.getElementById("continue-block").value = yml;
+  }
+
+  async function postJSON(url, body, errEl) {
+    errEl.textContent = "";
+    var r = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) {
+      window.location.href = "/ui/login";
+      return false;
+    }
+    if (!r.ok) {
+      errEl.textContent = (j.error || "Error") + (j.detail ? (": " + j.detail) : "");
+      return false;
+    }
+    return true;
+  }
+
+  document.getElementById("btn-refresh").addEventListener("click", function () { loadState(); });
+  document.getElementById("btn-logout").addEventListener("click", async function () {
+    await fetch("/api/ui/logout", { method: "POST", credentials: "same-origin" });
+    window.location.href = "/ui/login";
+  });
+
+  document.getElementById("groq-save").addEventListener("click", async function () {
+    var v = (document.getElementById("groq-val").value || "").trim();
+    if (!v) { document.getElementById("groq-err").textContent = "Enter a key"; return; }
+    if (await postJSON("/api/ui/provider/groq/key", { value: v }, document.getElementById("groq-err"))) {
+      document.getElementById("groq-val").value = "";
+      loadState();
+    }
+  });
+  document.getElementById("gemini-save").addEventListener("click", async function () {
+    var v = (document.getElementById("gemini-val").value || "").trim();
+    if (!v) { document.getElementById("gemini-err").textContent = "Enter a key"; return; }
+    if (await postJSON("/api/ui/provider/gemini/key", { value: v }, document.getElementById("gemini-err"))) {
+      document.getElementById("gemini-val").value = "";
+      loadState();
+    }
+  });
+  document.getElementById("ollama-save").addEventListener("click", async function () {
+    var v = (document.getElementById("ollama-val").value || "").trim();
+    if (!v) { document.getElementById("ollama-err").textContent = "Enter a URL"; return; }
+    if (await postJSON("/api/ui/provider/ollama/base_url", { base_url: v }, document.getElementById("ollama-err"))) {
+      document.getElementById("ollama-val").value = "";
+      loadState();
+    }
+  });
+
+  document.getElementById("btn-copy-continue").addEventListener("click", function () {
+    var t = document.getElementById("continue-block");
+    t.select();
+    document.execCommand("copy");
+  });
+
+  loadState();
+})();
+  </script>
+</body>
+</html>

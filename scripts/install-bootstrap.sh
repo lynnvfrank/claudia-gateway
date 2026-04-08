@@ -62,7 +62,10 @@ GOOS="$(go env GOOS)"
 if [[ -f "${BF_ART}.exe" ]]; then
 	cp -f "${BF_ART}.exe" "${BF_DST}.exe"
 	chmod +x "${BF_DST}.exe" 2>/dev/null || true
-	rm -f "$BF_DST"
+	# On MSYS/Git Bash, `rm bin/bifrost-http` can remove bin/bifrost-http.exe — do not rm after .exe install.
+	if [[ "$GOOS" != windows ]]; then
+		rm -f "$BF_DST"
+	fi
 	echo "    installed ${BF_DST}.exe"
 	BF_INSTALLED="${BF_DST}.exe"
 elif [[ -f "$BF_ART" ]]; then
@@ -70,7 +73,7 @@ elif [[ -f "$BF_ART" ]]; then
 	if [[ "$GOOS" == windows ]]; then
 		cp -f "$BF_ART" "${BF_DST}.exe"
 		chmod +x "${BF_DST}.exe" 2>/dev/null || true
-		rm -f "$BF_DST"
+		# Same as above: never rm extensionless name on Windows — it deletes the .exe we just copied.
 		echo "    installed ${BF_DST}.exe (from tmp/bifrost-http)"
 		BF_INSTALLED="${BF_DST}.exe"
 	else

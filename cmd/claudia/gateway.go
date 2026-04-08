@@ -36,7 +36,7 @@ func runGateway(args []string) {
 
 	res, _, _ := rt.Snapshot()
 	addr := server.ListenAddrOverride(res, *listen)
-	h := server.NewMux(rt, log, &server.StatusOverlay{EffectiveListen: addr})
+	h := server.NewMux(rt, log, &server.StatusOverlay{EffectiveListen: addr}, server.NewUIOptions())
 	log.Info("claudia (go) listening", "addr", addr, "upstream", res.UpstreamBaseURL, "config", path)
 	if err := http.ListenAndServe(addr, h); err != nil {
 		log.Error("server exit", "err", err)

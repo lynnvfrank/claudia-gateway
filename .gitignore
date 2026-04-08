@@ -6,8 +6,8 @@ dist/
 .DS_Store
 config/tokens.yaml
 /claudia
-/claudia-gui
-claudia-gui.exe
+/claudia-desktop
+claudia-desktop.exe
 /bin/bifrost-http
 /bin/bifrost-http.exe
 /data/bifrost/

@@ -41,7 +41,7 @@ func TestModelsList_VirtualModelFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	front := httptest.NewServer(NewMux(rt, testLog(), nil))
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, nil))
 	t.Cleanup(front.Close)
 
 	req, _ := http.NewRequest(http.MethodGet, front.URL+"/v1/models", nil)
@@ -71,6 +71,69 @@ func TestModelsList_VirtualModelFirst(t *testing.T) {
 	}
 	if payload.Data[1].ID != "groq/x" {
 		t.Fatalf("upstream second: %q", payload.Data[1].ID)
+	}
+}
+
+func TestModelsList_NormalizesMissingOpenAIFields(t *testing.T) {
+	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			// Like BiFrost: id + extra fields, no object/created
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gemini/x","owned_by":"google","context_length":4096}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(up.Close)
+
+	dir := t.TempDir()
+	gwPath := filepath.Join(dir, "gateway.yaml")
+	writeGateway(t, gwPath, up.URL, []string{"gemini/x"})
+	tokPath := filepath.Join(dir, "tokens.yaml")
+	writeTokens(t, tokPath, "tok", "t1")
+	routePath := filepath.Join(dir, "routing-policy.yaml")
+	if err := os.WriteFile(routePath, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rt, err := NewRuntime(gwPath, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, nil))
+	t.Cleanup(front.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, front.URL+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("%d %s", res.StatusCode, b)
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	arr, _ := payload["data"].([]any)
+	if len(arr) < 2 {
+		t.Fatalf("data: %v", arr)
+	}
+	m, _ := arr[1].(map[string]any)
+	if m["object"] != "model" {
+		t.Fatalf("object: %v", m["object"])
+	}
+	if _, ok := m["created"]; !ok {
+		t.Fatal("missing created")
 	}
 }
 
@@ -105,7 +168,7 @@ func TestUIModels_NoGatewayToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	front := httptest.NewServer(NewMux(rt, testLog(), nil))
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, nil))
 	t.Cleanup(front.Close)
 
 	req, _ := http.NewRequest(http.MethodGet, front.URL+"/ui/models", nil)
