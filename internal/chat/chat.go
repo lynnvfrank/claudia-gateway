@@ -65,12 +65,9 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 	}
 	defer res.Body.Close()
 
-	if log != nil {
-		log.Info("upstream chat response", "route", "POST /v1/chat/completions (upstream)", "target", url, "status", res.StatusCode, "upstreamModel", upstreamModel, "stream", stream)
-	}
-
 	if !statusOK(res.StatusCode) && !stream {
 		b, _ := io.ReadAll(res.Body)
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(b))
 		return ProxyResult{Status: res.StatusCode, JSONBody: b}
 	}
 
@@ -91,9 +88,7 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 				},
 			})
 		}
-		if log != nil {
-			log.Debug("upstream rejected streaming chat completion", "status", res.StatusCode, "upstreamModel", upstreamModel, "stream", stream)
-		}
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(wrap))
 		return ProxyResult{Status: res.StatusCode, JSONBody: wrap}
 	}
 
@@ -110,19 +105,50 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 			h.Set("X-Request-Id", x)
 		}
 		w.WriteHeader(http.StatusOK)
+		var cw countWriter
+		cw.w = w
 		if f, ok := w.(http.Flusher); ok {
-			_, _ = io.Copy(&flushWriter{w: w, f: f}, res.Body)
+			_, _ = io.Copy(&flushWriter{w: &cw, f: f}, res.Body)
 		} else {
-			_, _ = io.Copy(w, res.Body)
+			_, _ = io.Copy(&cw, res.Body)
 		}
+		logUpstreamChatResponse(log, url, http.StatusOK, upstreamModel, stream, int(cw.n))
 		return ProxyResult{Stream: true}
 	}
 
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, 0)
 		return ProxyResult{Status: 503, ErrMessage: err.Error()}
 	}
+	logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(b))
 	return ProxyResult{Status: res.StatusCode, JSONBody: b}
+}
+
+// countWriter wraps an io.Writer and records the number of bytes written.
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func logUpstreamChatResponse(log *slog.Logger, url string, status int, upstreamModel string, stream bool, responseBytes int) {
+	if log == nil {
+		return
+	}
+	log.Info("upstream chat response",
+		"route", "POST /v1/chat/completions (upstream)",
+		"target", url,
+		"status", status,
+		"upstreamModel", upstreamModel,
+		"stream", stream,
+		"responseBytes", responseBytes,
+	)
 }
 
 type flushWriter struct {
