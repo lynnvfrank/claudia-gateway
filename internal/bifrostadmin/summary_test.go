@@ -1,9 +1,26 @@
 package bifrostadmin
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestSummarizeProvider_plainKey(t *testing.T) {
-	body := []byte(`{"name":"groq","keys":[{"value":{"value":"gsk_test1234567890"}}],"network_config":{}}`)
+	// Assemble key from fragments so static secret scanners do not match vendor key patterns.
+	key := strings.Join([]string{"unit", "plain", "credential", "7890"}, "-")
+	body, err := json.Marshal(map[string]any{
+		"name": "groq",
+		"keys": []any{
+			map[string]any{
+				"value": map[string]any{"value": key},
+			},
+		},
+		"network_config": map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := SummarizeProvider("groq", body)
 	if err != nil {
 		t.Fatal(err)
@@ -17,18 +34,41 @@ func TestSummarizeProvider_plainKey(t *testing.T) {
 }
 
 func TestSummarizeProvider_env(t *testing.T) {
-	body := []byte(`{"keys":[{"value":{"from_env":true,"env_var":"GROQ_API_KEY"}}]}`)
+	envName := strings.Join([]string{"UNITTEST", "PROVIDER", "SECRET"}, "_")
+	body, err := json.Marshal(map[string]any{
+		"keys": []any{
+			map[string]any{
+				"value": map[string]any{
+					"from_env": true,
+					"env_var":  envName,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := SummarizeProvider("groq", body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.KeyConfigured || s.KeyHint != "env:GROQ_API_KEY" {
+	want := "env:" + envName
+	if !s.KeyConfigured || s.KeyHint != want {
 		t.Fatalf("%+v", s)
 	}
 }
 
 func TestSummarizeProvider_stringInlineKey(t *testing.T) {
-	body := []byte(`{"name":"gemini","keys":[{"name":"x","value":"AIzaSyD6Kr4rtKFrxNGKCITsrmvuQd7EBhCJqIY"}]}`)
+	key := strings.Join([]string{"opaque", "inline", "fixture", "wxyz"}, "-")
+	body, err := json.Marshal(map[string]any{
+		"name": "gemini",
+		"keys": []any{
+			map[string]any{"name": "x", "value": key},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := SummarizeProvider("gemini", body)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +76,7 @@ func TestSummarizeProvider_stringInlineKey(t *testing.T) {
 	if !s.KeyConfigured {
 		t.Fatal("expected configured")
 	}
-	if s.KeyHint != "••••JqIY" {
+	if s.KeyHint != "••••wxyz" {
 		t.Fatalf("hint %q", s.KeyHint)
 	}
 }
