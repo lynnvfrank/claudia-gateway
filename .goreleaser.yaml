@@ -46,6 +46,18 @@ archives:
       - README.md
       - src: docs/packaging.md
         dst: PACKAGING.md
+      - src: config/gateway.example.yaml
+        dst: config/gateway.yaml
+      - src: config/tokens.example.yaml
+        dst: config/tokens.yaml
+      - src: config/bifrost.config.json
+        dst: config/bifrost.config.json
+      - src: config/routing-policy.yaml
+        dst: config/routing-policy.yaml
+      - src: env.example
+        dst: env.example
+      - src: packaging/archive-readme.txt
+        dst: README_ARCHIVE.txt
       # Qdrant binaries from scripts/release-snapshot-qdrant.sh (OSS GoReleaser: extra files, not Pro prebuilt builder).
       - src: 'packaging/qdrant-bundles/{{ .Os }}_{{ .Arch }}/qdrant{{ if eq .Os "windows" }}.exe{{ end }}'
         strip_parent: true

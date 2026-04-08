@@ -10,6 +10,7 @@ upstream:
   # OpenAI-compatible upstream (BiFrost on the host).
   base_url: "http://127.0.0.1:8080"
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
+  # api_key: optional Bearer for upstream /v1/*. If omitted and api_key_env is unset/empty, a secret is generated and written here on first gateway start.
 
 health:
   timeout_ms: 5000

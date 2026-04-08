@@ -10,7 +10,8 @@ gateway:
 upstream:
   # OpenAI-compatible upstream root (BiFrost on loopback for local `claudia` / `claudia serve`).
   base_url: "http://127.0.0.1:8080"
-  # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled; use any non-empty placeholder (see env.example / .env).
+  # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled.
+  # If `api_key` is omitted and CLAUDIA_UPSTREAM_API_KEY is unset, a random api_key is generated and written here on startup.
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
 
 health:

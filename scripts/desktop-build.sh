@@ -13,4 +13,4 @@ if ! go build -tags desktop -o "$root/$bin" ./cmd/claudia; then
   echo "  Run:  make desktop-install" >&2
   exit 1
 fi
-echo "Built $root/$bin — run:  ./$bin desktop   (same flags as claudia serve)"
+echo "Built $root/$bin — run:  ./$bin (supervisor+UI) or ./$bin --headless   (same flags as claudia serve)"

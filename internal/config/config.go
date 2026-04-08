@@ -19,6 +19,8 @@ type Resolved struct {
 	LogLevel          string
 	UpstreamBaseURL   string
 	UpstreamAPIKeyEnv string
+	// UpstreamAPIKey is the Bearer token from gateway.yaml (upstream.api_key). Non-empty process env named by UpstreamAPIKeyEnv overrides at runtime.
+	UpstreamAPIKey    string
 	HealthUpstreamURL string
 	HealthTimeoutMs   int
 	ChatTimeoutMs     int
@@ -31,6 +33,7 @@ type Resolved struct {
 type upstreamBlock struct {
 	BaseURL   string `yaml:"base_url"`
 	APIKeyEnv string `yaml:"api_key_env"`
+	APIKey    string `yaml:"api_key"`
 }
 
 type gatewayDoc struct {
@@ -98,6 +101,11 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 	}
 	if apiKeyEnv == "" {
 		apiKeyEnv = defaultAPIKeyEnv
+	}
+
+	apiKey := strings.TrimSpace(doc.Upstream.APIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(doc.Litellm.APIKey)
 	}
 
 	healthURL := strings.TrimSpace(doc.Health.UpstreamURL)
@@ -169,6 +177,7 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		LogLevel:          logLevel,
 		UpstreamBaseURL:   upBase,
 		UpstreamAPIKeyEnv: apiKeyEnv,
+		UpstreamAPIKey:    apiKey,
 		HealthUpstreamURL: healthURL,
 		HealthTimeoutMs:   ht,
 		ChatTimeoutMs:     ct,

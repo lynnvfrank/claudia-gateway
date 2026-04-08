@@ -1,19 +1,20 @@
 node_modules/
+packages/
 dist/
 .env
 .deps/
 *.log
 .DS_Store
 config/tokens.yaml
+# Root binaries (go build / desktop-build / package-personal output)
 /claudia
+/claudia.exe
 /claudia-desktop
-claudia-desktop.exe
-/bin/bifrost-http
-/bin/bifrost-http.exe
+/claudia-desktop.exe
+# Third-party binaries from make install (BiFrost, Qdrant)
+/bin/
 /data/bifrost/
 /data/qdrant/
 /packaging/qdrant-bundles/
-/bin/qdrant
-/bin/qdrant.exe
 /logs/
 /run/

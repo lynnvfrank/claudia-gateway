@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Remove third-party bootstrap artifacts, run state, and logs (see Makefile clean-all).
+# Remove third-party bootstrap artifacts, packaging scratch dirs, optional package caches, run state, and logs (see Makefile clean-all).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-rm -f bin/bifrost-http bin/bifrost-http.exe bin/qdrant bin/qdrant.exe
-rmdir bin 2>/dev/null || true
+rm -rf bin
+rm -rf packaging/qdrant-bundles
+rm -rf packages
+rm -rf node_modules
 
 rm -rf .deps
 rm -rf run logs
 
-echo "clean-all: removed .deps/, bin/bifrost-http*, bin/qdrant*, run/, logs/"
+echo "clean-all: removed bin/, packaging/qdrant-bundles/, packages/, node_modules/, .deps/, run/, logs/"

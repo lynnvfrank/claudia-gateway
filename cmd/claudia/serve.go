@@ -39,7 +39,7 @@ func runServe(args []string, openWebview bool) {
 	configPath := fs.String("config", "", "Path to gateway.yaml (default: $CLAUDIA_GATEWAY_CONFIG or ./config/gateway.yaml)")
 	listen := fs.String("listen", "", "Override Claudia listen address (host:port or :port)")
 
-	bifrostBin := fs.String("bifrost-bin", "bifrost", "BiFrost HTTP binary (PATH or path; after make install: ./bin/bifrost-http or ./bin/bifrost-http.exe)")
+	bifrostBin := fs.String("bifrost-bin", defaultSupervisorBifrostBin(), "BiFrost HTTP binary (PATH or path; defaults to bifrost-http next to this executable if present, else bifrost on PATH)")
 	bifrostConfig := fs.String("bifrost-config", "config/bifrost.config.json", "Source bifrost.config.json (copied to data dir as config.json)")
 	bifrostDataDir := fs.String("bifrost-data-dir", "data/bifrost", "BiFrost working directory (created; SQLite and config live here)")
 	bifrostBind := fs.String("bifrost-bind", "127.0.0.1", "BiFrost bind address (-host)")
@@ -50,7 +50,7 @@ func runServe(args []string, openWebview bool) {
 	waitTimeout := fs.Duration("wait-bifrost", 60*time.Second, "Max time to poll BiFrost /health before exit")
 	noWait := fs.Bool("no-wait-bifrost", false, "Skip readiness poll (not recommended)")
 
-	qdrantBin := fs.String("qdrant-bin", "", "Qdrant binary (PATH or path); empty skips Qdrant (e.g. ./bin/qdrant after make install)")
+	qdrantBin := fs.String("qdrant-bin", defaultSupervisorQdrantBin(), "Qdrant binary (PATH or path); empty skips Qdrant (defaults to qdrant next to this executable if present)")
 	qdrantStorage := fs.String("qdrant-storage", "data/qdrant", "Qdrant storage directory (created)")
 	qdrantBind := fs.String("qdrant-bind", "127.0.0.1", "Qdrant QDRANT__SERVICE__HOST")
 	qdrantHTTPPort := fs.Int("qdrant-http-port", 6333, "Qdrant HTTP port")
@@ -131,10 +131,10 @@ func runServe(args []string, openWebview bool) {
 		fmt.Fprintf(os.Stderr, "claudia serve: %v\n", err)
 		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found") {
 			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "No BiFrost HTTP binary found (default looks for \"bifrost\" on PATH). From repo root:")
+			fmt.Fprintln(os.Stderr, "No BiFrost HTTP binary found (place bifrost-http next to claudia, PATH, or pass -bifrost-bin). From repo root:")
 			fmt.Fprintln(os.Stderr, "  make install")
 			fmt.Fprintln(os.Stderr, "  ./claudia serve -bifrost-bin ./bin/bifrost-http")
-			fmt.Fprintln(os.Stderr, "Or: make claudia-serve")
+			fmt.Fprintln(os.Stderr, "Or: make package-personal  (full folder with bifrost-http + qdrant + config)")
 			fmt.Fprintln(os.Stderr, "See docs/supervisor.md — Obtaining the BiFrost binary.")
 		}
 		os.Exit(1)

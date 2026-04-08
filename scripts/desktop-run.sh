@@ -8,4 +8,4 @@ cd "$root"
 if [[ ! -f "$bin" ]]; then
   "$make_cmd" desktop-build
 fi
-exec "$root/$bin" desktop "$@"
+exec "$root/$bin" "$@"

@@ -19,7 +19,7 @@ Do **not** add a separate **`doctor`** / **`check-prereqs`** target. **`make ins
 ### A.3 `make clean` and `make clean-all`
 
 - **`make clean`**: remove **local build artifacts** (e.g. **`claudia`**, **`claudia-gui`**, **`dist/`**, object caches if any) — **not** downloaded **`bin/bifrost-http[.exe]`**, **`bin/qdrant[.exe]`**, and **not** **`.deps/`**, unless explicitly documented otherwise.
-- **`make clean-all`**: stronger reset — additionally remove **`bin/`** third-party binaries and/or **`.deps/`** (and any **run**/ **logs**/ PID state), with clear messaging and optional confirmation for destructive steps.
+- **`make clean-all`**: stronger reset — additionally remove **`bin/`**, **`packaging/qdrant-bundles/`**, **`packages/`**, **`node_modules/`**, **`.deps/`** (and any **run**/ **logs**/ PID state), with clear messaging and optional confirmation for destructive steps.
 
 Exact file sets should be listed in the Makefile comment block when implemented.
 

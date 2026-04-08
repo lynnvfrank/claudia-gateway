@@ -272,7 +272,7 @@ func writeMergedModelsResponse(w http.ResponseWriter, ctx context.Context, res *
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
-				"message": "Missing " + res.UpstreamAPIKeyEnv + " for upstream proxy",
+				"message": "Missing upstream API key (set " + res.UpstreamAPIKeyEnv + " or upstream.api_key in gateway.yaml)",
 				"type":    "gateway_config",
 			},
 		})
@@ -335,7 +335,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{
-				"message": "Missing " + res.UpstreamAPIKeyEnv + " for upstream proxy",
+				"message": "Missing upstream API key (set " + res.UpstreamAPIKeyEnv + " or upstream.api_key in gateway.yaml)",
 				"type":    "gateway_config",
 			},
 		})

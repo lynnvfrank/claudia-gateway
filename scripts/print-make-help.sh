@@ -18,7 +18,7 @@ echo "  make claudia-stop       stop background supervisor from run/claudia.pid"
 echo
 echo "  make desktop-install    native deps for WebView + CGO (Debian/Ubuntu, macOS CLT, Windows hints)"
 echo "  make desktop-build      go build -tags desktop -> ./claudia-desktop[.exe] (CGO required)"
-echo "  make desktop-run        desktop-build if missing, then claudia-desktop desktop (same flags as claudia-serve)"
+echo "  make desktop-run        desktop-build if missing, then claudia-desktop (supervisor + UI; --headless for no window)"
 echo "  make vet-desktop        go vet -tags desktop ./cmd/claudia (CGO)"
 echo
 echo "  make fmt                gofmt -w cmd internal"
@@ -30,6 +30,9 @@ echo
 echo "  make bash               interactive bash (-il); Windows: Git for Windows bash"
 echo
 echo "  make clean              remove claudia[.exe], claudia-desktop[.exe], dist/"
-echo "  make clean-all          remove clean + bin/*third-party + .deps + run + logs (needs CONFIRM=1)"
+echo "  make clean-all          remove clean + bin/ + packaging/qdrant-bundles + packages + node_modules + .deps + run + logs (CONFIRM=1)"
 echo "  make clean-data         remove data/bifrost + data/qdrant (fresh BiFrost/Qdrant; needs CONFIRM=1)"
-echo "  make release-snapshot   goreleaser snapshot -> dist/"
+echo
+echo "  make release-install    goreleaser v2 (go install) + curl/tar/unzip for Qdrant packaging hook"
+echo "  make release-snapshot   local goreleaser snapshot -> dist/ (GitHub uses .github/workflows/release.yml on v* tags)"
+echo "  make release-package    dist/personal/: desktop claudia + bifrost-http + qdrant + config (after make install)"

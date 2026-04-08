@@ -1,7 +1,7 @@
 # Claudia Gateway — see makefile.plan.md and README.md
 #
 # clean:      removes ./claudia[.exe], claudia-desktop[.exe], dist/ only.
-# clean-all:  also removes bin/bifrost-http*, bin/qdrant*, .deps/, run/, logs/ (requires CONFIRM=1).
+# clean-all:  also removes bin/, packaging/qdrant-bundles/, packages/, node_modules/, .deps/, run/, logs/ (requires CONFIRM=1; runs clean first).
 # clean-data: removes data/bifrost/, data/qdrant/ — fresh BiFrost + Qdrant state (requires CONFIRM=1).
 
 ifeq ($(OS),Windows_NT)
@@ -51,7 +51,7 @@ endif
 	bash \
 	claudia-build desktop-install desktop-build desktop-run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
-	release-snapshot \
+	release-install release-snapshot package-personal \
 	vet-gateway vet-desktop test-gateway precommit
 
 # One bash process (same as install/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
@@ -130,5 +130,12 @@ claudia-run:
 claudia-serve:
 	go run ./cmd/claudia serve -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
+release-install:
+	$(GITBASH) scripts/release-install.sh
+
 release-snapshot:
 	$(GITBASH) scripts/release-snapshot.sh
+
+# Desktop + bifrost-http + qdrant + config into dist/personal/ (requires: make install, CGO for desktop).
+release-package:
+	$(GITBASH) scripts/release-package.sh "$(DESKTOP_BIN)"

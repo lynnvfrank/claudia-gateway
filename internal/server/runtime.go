@@ -3,6 +3,7 @@ package server
 import (
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,10 @@ func NewRuntime(gatewayPath string, log *slog.Logger) (*Runtime, error) {
 // it replaces upstream.base_url and health probe URL on every reload (supervised BiFrost).
 func NewRuntimeWithUpstreamOverride(gatewayPath string, log *slog.Logger, upstreamOverride string) (*Runtime, error) {
 	res, err := config.LoadGatewayYAML(gatewayPath, log)
+	if err != nil {
+		return nil, err
+	}
+	res, err = config.EnsureGeneratedUpstreamAPIKey(gatewayPath, res, log)
 	if err != nil {
 		return nil, err
 	}
@@ -109,5 +114,8 @@ func (rt *Runtime) UpstreamAPIKey() string {
 	if r == nil {
 		return ""
 	}
-	return os.Getenv(r.UpstreamAPIKeyEnv)
+	if v := strings.TrimSpace(os.Getenv(r.UpstreamAPIKeyEnv)); v != "" {
+		return v
+	}
+	return strings.TrimSpace(r.UpstreamAPIKey)
 }
