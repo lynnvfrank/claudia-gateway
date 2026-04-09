@@ -169,6 +169,7 @@ func (a *adminUI) handleState(w http.ResponseWriter, r *http.Request) {
 			entry["ok"] = true
 			entry["key_configured"] = false
 			entry["key_hint"] = ""
+			entry["keys"] = []bifrostadmin.KeyEntrySummary{}
 			if name == "ollama" {
 				entry["ollama_base_url"] = ""
 			}
@@ -192,9 +193,11 @@ func (a *adminUI) handleState(w http.ResponseWriter, r *http.Request) {
 			provOut[name] = entry
 			continue
 		}
+		keyRows, _ := bifrostadmin.SummarizeProviderKeys(name, b)
 		entry["ok"] = true
 		entry["key_hint"] = sum.KeyHint
 		entry["key_configured"] = sum.KeyConfigured
+		entry["keys"] = keyRows
 		if sum.OllamaBaseURL != "" {
 			entry["ollama_base_url"] = sum.OllamaBaseURL
 		}
@@ -248,8 +251,11 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("POST /api/ui/logout", a.handleLogoutPOST)
 	mux.HandleFunc("GET /api/ui/state", a.requireAuthJSON(a.handleState))
 
-	mux.HandleFunc("POST /api/ui/provider/groq/key", a.requireAuthJSON(a.saveKeyHandler("groq")))
-	mux.HandleFunc("POST /api/ui/provider/gemini/key", a.requireAuthJSON(a.saveKeyHandler("gemini")))
+	for _, p := range []string{"groq", "gemini"} {
+		prov := p
+		mux.HandleFunc("POST /api/ui/provider/"+prov+"/keys", a.requireAuthJSON(a.saveAppendProviderKey(prov)))
+		mux.HandleFunc("POST /api/ui/provider/"+prov+"/keys/delete", a.requireAuthJSON(a.saveRemoveProviderKey(prov)))
+	}
 	mux.HandleFunc("POST /api/ui/provider/ollama/base_url", a.requireAuthJSON(a.saveOllamaBaseURL))
 
 	mux.HandleFunc("GET /api/ui/tokens", a.requireAuthJSON(a.handleTokensList))

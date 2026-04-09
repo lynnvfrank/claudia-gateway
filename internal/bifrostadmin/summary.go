@@ -2,17 +2,33 @@ package bifrostadmin
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 )
 
 // ProviderSummary is a small read model for the admin UI (no raw secrets).
 type ProviderSummary struct {
-	// KeyHint is a masked or descriptive hint for the first API key (e.g. "••••last4", "env:GROQ_API_KEY", "not set").
+	// KeyHint is a short summary for compact UI (first key in display order, or count).
 	KeyHint string `json:"key_hint"`
-	// KeyConfigured is true when a non-empty key appears to be configured (direct value or env-backed).
+	// KeyConfigured is true when any key appears configured (direct value or env-backed).
 	KeyConfigured bool `json:"key_configured"`
 	// OllamaBaseURL is set for the ollama provider from network_config.base_url.
 	OllamaBaseURL string `json:"ollama_base_url,omitempty"`
+}
+
+// KeyEntrySummary is one API key row for the admin UI (no raw secrets).
+type KeyEntrySummary struct {
+	Name          string `json:"name"`
+	KeyHint       string `json:"key_hint"`
+	KeyConfigured bool   `json:"key_configured"`
+}
+
+type keySortRec struct {
+	summary KeyEntrySummary
+	// claudiaSeq is the numeric suffix for claudia-<provider>-key-<n>; 0 means not that pattern.
+	claudiaSeq int
+	isClaudia  bool
 }
 
 // SummarizeProvider parses GET /api/providers/{p} JSON into a ProviderSummary.
@@ -33,17 +49,79 @@ func SummarizeProvider(providerName string, body []byte) (ProviderSummary, error
 			}
 		}
 	}
+	sorted, err := SummarizeProviderKeys(providerName, body)
+	if err != nil {
+		return out, err
+	}
+	if len(sorted) == 0 {
+		out.KeyHint = "not set"
+		return out, nil
+	}
+	anyCfg := false
+	for _, e := range sorted {
+		if e.KeyConfigured {
+			anyCfg = true
+		}
+	}
+	out.KeyConfigured = anyCfg
+	if len(sorted) == 1 {
+		out.KeyHint = sorted[0].KeyHint
+		return out, nil
+	}
+	out.KeyHint = fmt.Sprintf("%d keys", len(sorted))
+	return out, nil
+}
+
+// SummarizeProviderKeys returns key rows sorted for display: claudia-<provider>-key-<n> by n ascending,
+// then any other keys by name ascending.
+func SummarizeProviderKeys(providerName string, body []byte) ([]KeyEntrySummary, error) {
+	if len(body) == 0 {
+		return nil, nil
+	}
+	var root map[string]any
+	if err := json.Unmarshal(body, &root); err != nil {
+		return nil, err
+	}
 	keys, _ := root["keys"].([]any)
 	if len(keys) == 0 {
-		out.KeyHint = "not set"
-		return out, nil
+		return nil, nil
 	}
-	k0, ok := keys[0].(map[string]any)
-	if !ok {
-		out.KeyHint = "not set"
-		return out, nil
+	p := strings.TrimSpace(providerName)
+	recs := make([]keySortRec, 0, len(keys))
+	for _, raw := range keys {
+		km, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := km["name"].(string)
+		name = strings.TrimSpace(name)
+		hint, cfg := summarizeKeyValueField(km["value"])
+		s := KeyEntrySummary{Name: name, KeyHint: hint, KeyConfigured: cfg}
+		var seq int
+		var isCl bool
+		if idx, ok := parseClaudiaKeyIndex(p, name); ok {
+			seq = idx
+			isCl = true
+		}
+		recs = append(recs, keySortRec{summary: s, claudiaSeq: seq, isClaudia: isCl})
 	}
-	out.KeyHint, out.KeyConfigured = summarizeKeyValueField(k0["value"])
+	sort.Slice(recs, func(i, j int) bool {
+		a, b := recs[i], recs[j]
+		switch {
+		case a.isClaudia && b.isClaudia:
+			return a.claudiaSeq < b.claudiaSeq
+		case a.isClaudia && !b.isClaudia:
+			return true
+		case !a.isClaudia && b.isClaudia:
+			return false
+		default:
+			return strings.ToLower(a.summary.Name) < strings.ToLower(b.summary.Name)
+		}
+	})
+	out := make([]KeyEntrySummary, len(recs))
+	for i := range recs {
+		out[i] = recs[i].summary
+	}
 	return out, nil
 }
 

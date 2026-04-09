@@ -159,6 +159,10 @@ func TestUILoginAndState(t *testing.T) {
 	if groq["key_configured"] != true {
 		t.Fatalf("groq: %+v", groq)
 	}
+	gk, _ := groq["keys"].([]any)
+	if len(gk) != 1 {
+		t.Fatalf("groq.keys: %+v", groq)
+	}
 	gem, _ := prov["gemini"].(map[string]any)
 	if gem["ok"] != true || gem["key_configured"] != false {
 		t.Fatalf("gemini: %+v", gem)
@@ -229,7 +233,7 @@ func TestUISaveGroqKey(t *testing.T) {
 		t.Fatalf("login %d", loginRes.StatusCode)
 	}
 
-	saveRes, err := client.Post(front.URL+"/api/ui/provider/groq/key", "application/json", strings.NewReader(`{"value":"new-groq-secret"}`))
+	saveRes, err := client.Post(front.URL+"/api/ui/provider/groq/keys", "application/json", strings.NewReader(`{"value":"new-groq-secret"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,9 +250,15 @@ func TestUISaveGroqKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := putDoc["keys"].([]any)
-	k0 := keys[0].(map[string]any)
-	if k0["value"] != "new-groq-secret" {
-		t.Fatalf("put body keys[0].value: %+v", putDoc)
+	if len(keys) != 2 {
+		t.Fatalf("want 2 keys after append, got %d: %+v", len(keys), putDoc)
+	}
+	k1 := keys[1].(map[string]any)
+	if k1["value"] != "new-groq-secret" {
+		t.Fatalf("put body keys[1].value: %+v", putDoc)
+	}
+	if k1["name"] != "claudia-groq-key-1" {
+		t.Fatalf("name: %+v", k1)
 	}
 }
 
@@ -301,7 +311,7 @@ func TestUISaveGroqKey_providerMissing404(t *testing.T) {
 		t.Fatalf("login %d", loginRes.StatusCode)
 	}
 
-	saveRes, err := client.Post(front.URL+"/api/ui/provider/groq/key", "application/json", strings.NewReader(`{"value":"brand-new"}`))
+	saveRes, err := client.Post(front.URL+"/api/ui/provider/groq/keys", "application/json", strings.NewReader(`{"value":"brand-new"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,9 +325,88 @@ func TestUISaveGroqKey_providerMissing404(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := putDoc["keys"].([]any)
+	if len(keys) != 1 {
+		t.Fatalf("want 1 key for fresh provider, got %d", len(keys))
+	}
 	k0 := keys[0].(map[string]any)
 	if k0["value"] != "brand-new" {
 		t.Fatalf("put body keys[0].value: %+v", putDoc)
+	}
+	if k0["name"] != "claudia-groq-key-1" {
+		t.Fatalf("name: %+v", k0)
+	}
+}
+
+func TestUISaveRemoveGroqKey(t *testing.T) {
+	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
+	var lastPutBody []byte
+	bifrost := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/health" && r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/api/providers/groq" && r.Method == http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"name":"groq","keys":[
+				{"name":"claudia-groq-key-1","value":"a","weight":1},
+				{"name":"claudia-groq-key-2","value":"b","weight":1}
+			]}`))
+		case r.URL.Path == "/api/providers/groq" && r.Method == http.MethodPut:
+			lastPutBody, _ = io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(bifrost.Close)
+
+	dir := t.TempDir()
+	gwPath := filepath.Join(dir, "gateway.yaml")
+	writeGateway(t, gwPath, bifrost.URL, []string{"m"})
+	tokPath := filepath.Join(dir, "tokens.yaml")
+	writeTokens(t, tokPath, "gw-rm", "t1")
+	routePath := filepath.Join(dir, "routing-policy.yaml")
+	if err := os.WriteFile(routePath, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := NewRuntime(gwPath, testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, NewUIOptions()))
+	t.Cleanup(front.Close)
+
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	loginRes, err := client.Post(front.URL+"/api/ui/login", "application/json", strings.NewReader(`{"token":"gw-rm"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginRes.Body.Close()
+	if loginRes.StatusCode != http.StatusOK {
+		t.Fatalf("login %d", loginRes.StatusCode)
+	}
+
+	rmRes, err := client.Post(front.URL+"/api/ui/provider/groq/keys/delete", "application/json", strings.NewReader(`{"name":"claudia-groq-key-1"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rmRes.Body.Close()
+	if rmRes.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(rmRes.Body)
+		t.Fatalf("remove %d %s", rmRes.StatusCode, b)
+	}
+	var putDoc map[string]any
+	if err := json.Unmarshal(lastPutBody, &putDoc); err != nil {
+		t.Fatal(err)
+	}
+	keys := putDoc["keys"].([]any)
+	if len(keys) != 1 {
+		t.Fatalf("want 1 key after remove, got %d", len(keys))
+	}
+	if keys[0].(map[string]any)["name"] != "claudia-groq-key-2" {
+		t.Fatalf("%+v", keys[0])
 	}
 }
 

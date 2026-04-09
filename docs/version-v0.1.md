@@ -86,7 +86,7 @@ Making a fast, portable application is important for the v0.1 release as it dict
 
 **v0.1 bridge:** Concrete behavior for **gateway tokens and first boot** is specified in [§5](#5-startup--login-first-run-and-missing-config-experience) (bootstrap UI, no auto-seeded `tokens.yaml`, supervisor gating). The broader portable wizard (providers, probes, etc.) remains optional beyond that slice.
 
-### 5. Startup / login: first-run and missing-config experience
+### 5. Startup / login: first-run and missing-config experience (**implemented**)
 
 **Status:** **Product decisions below are locked.** The **implementation** described here is **in the tree** (bootstrap serve/gateway path, setup UI, token admin API, packaging/configure no longer seeding **`tokens.yaml`**). If this section drifts from code, update the doc.
 
@@ -152,13 +152,13 @@ Use this to track work; tick in PRs or remove items as completed.
 
 This aligns with **§ Portable “first run”** but narrows v0.1 to **bootstrap token UI → persist `tokens.yaml` → restart → normal login and panel**, not a full multi-step provider wizard.
 
-### 7. Support multiple Groq, Gemini API Keys, and Ollama
+### 6. Support multiple Groq, Gemini API Keys, and Ollama
 
-Currently the desktop app allows a user to add one and only API Key and Ollama service for Groq, Gemini, and Ollama.
+**Groq / Gemini (implemented):** The operator panel (`**/ui/panel**`, same embed as desktop **Admin** tab) lists **all** API key rows returned by BiFrost for each provider, sorted for display: **`claudia-<provider>-key-<n>`** names (numeric order), then any other keys by name. Adding a key **appends** a new row with **`weight: 1`** and a generated name, **without** a **`models`** field (BiFrost treats missing **`models`** as all models for that key); all keys are normalized to **weight 1** on each append/remove. Removing a key **DELETE**s that row by exact **`name`** and **PUT**s the rest of the provider document (last write wins if two tabs race). Authenticated BFF routes: **`POST /api/ui/provider/{groq|gemini}/keys`** body **`{"value":"…"}`**, **`POST /api/ui/provider/{groq|gemini}/keys/delete`** body **`{"name":"…"}`**. **`GET /api/ui/state`** includes **`providers.<id>.keys`** as `{ name, key_hint, key_configured }[]` plus existing **`key_hint`** / **`key_configured`** summaries. Implementation: **`internal/bifrostadmin/`** (merge + summarize), **`internal/server/ui_save.go`**, **`ui_handlers.go`**, **`embedui/panel.html`**.
 
-The ability to manage managing multiple API keys and define more than one site for Ollama.
+**Ollama:** Still **one** **`network_config.base_url`** per **`ollama`** provider in BiFrost; **multiple Ollama sites** remains future work unless BiFrost gains a first-class pattern for it.
 
-### 6. Routing / fallback: v0.1 “basic” ordering from available models
+### 7. Routing / fallback: v0.1 "basic" ordering from available models
 
 **Longer-term exploration** (LLM coordinator emitting full routing policy) stays under [Exploration §1](#1-setup-flow-routing-structure-from-available-models) below.
 
@@ -166,9 +166,9 @@ The ability to manage managing multiple API keys and define more than one site f
 
 1. **Source of truth:** Upstream `**GET /v1/models`** (already proxied/merged for the gateway) and/or static config already known to BiFrost.
 2. **Heuristic:** Build or **suggest** a `**routing.fallback_chain`** ordered **remote / higher-performance first**, then **local** (e.g. Ollama) — using **metadata** when available (provider id, known model families, optional operator overrides) and a **small curated map** or rules file for cases metadata is thin.
-3. **Scope:** Can be a **setup command**, **first-run bootstrap** write to `gateway.yaml`, or **admin UI** “Regenerate fallback from catalog” — must **validate** ids against the live model list before persisting.
+3. **Scope:** Can be a **setup command**, **first-run bootstrap** write to `gateway.yaml`, or **admin UI** "Regenerate fallback from catalog" — must **validate** ids against the live model list before persisting.
 
-This reduces manual drift between `**routing-policy.yaml`**, `**fallback_chain**`, and the live catalog without requiring a **per-turn** router or LLM-generated YAML in v0.1.
+This reduces manual drift between `**routing-policy.yaml**`, `**fallback_chain**`, and the live catalog without requiring a **per-turn** router or LLM-generated YAML in v0.1.
 
 ---
 

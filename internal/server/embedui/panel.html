@@ -19,6 +19,9 @@
     a { color: #0b57d0; }
     #continue-block { width: 100%; min-height: 10rem; font-family: ui-monospace, monospace; font-size: 0.8rem; box-sizing: border-box; padding: 0.5rem; }
     .warn { font-size: 0.85rem; color: #555; margin-top: 0.5rem; }
+    ul.key-rows { list-style: none; padding-left: 0; margin: 0.5rem 0; }
+    ul.key-rows li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.5rem; margin-bottom: 0.4rem; }
+    ul.key-rows code { font-size: 0.8rem; background: #eee; padding: 0.1rem 0.35rem; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -46,20 +49,24 @@
   </section>
 
   <section class="row" id="row-groq">
-    <h3>Groq API key</h3>
-    <p class="meta">Current: <span id="groq-hint">—</span> · Bifrost: <span id="groq-ok">—</span></p>
-    <label for="groq-val">New key (saved only to BiFrost via gateway)</label>
+    <h3>Groq API keys</h3>
+    <p class="meta">Summary: <span id="groq-hint">—</span> · BiFrost: <span id="groq-ok">—</span></p>
+    <p class="meta" style="margin-top:0.25rem">Keys use names <code>claudia-groq-key-1</code>, <code>claudia-groq-key-2</code>, … (equal weight, per <a href="https://docs.getbifrost.ai/quickstart/gateway/provider-configuration">BiFrost provider config</a>). List order follows name.</p>
+    <ul id="groq-key-list" class="key-rows"></ul>
+    <label for="groq-val">Add key (stored in BiFrost only)</label>
     <input id="groq-val" type="password" autocomplete="off" placeholder="gsk-…"/>
-    <button type="button" id="groq-save">Save Groq</button>
+    <button type="button" id="groq-save">Add Groq key</button>
     <div id="groq-err" class="err"></div>
   </section>
 
   <section class="row" id="row-gemini">
-    <h3>Gemini API key</h3>
-    <p class="meta">Current: <span id="gemini-hint">—</span> · Bifrost: <span id="gemini-ok">—</span></p>
-    <label for="gemini-val">New key</label>
+    <h3>Gemini API keys</h3>
+    <p class="meta">Summary: <span id="gemini-hint">—</span> · BiFrost: <span id="gemini-ok">—</span></p>
+    <p class="meta" style="margin-top:0.25rem">Keys: <code>claudia-gemini-key-1</code>, …</p>
+    <ul id="gemini-key-list" class="key-rows"></ul>
+    <label for="gemini-val">Add key</label>
     <input id="gemini-val" type="password" autocomplete="off" placeholder="AIza…"/>
-    <button type="button" id="gemini-save">Save Gemini</button>
+    <button type="button" id="gemini-save">Add Gemini key</button>
     <div id="gemini-err" class="err"></div>
   </section>
 
@@ -105,6 +112,42 @@
     if (ok) ok.textContent = p.ok ? "reachable" : ("error: " + (p.error || p.detail || "?"));
   }
 
+  function renderKeyList(apiPrefix, p, errEl) {
+    var ul = document.getElementById(apiPrefix + "-key-list");
+    if (!ul) return;
+    ul.textContent = "";
+    var rows = (p && p.keys) ? p.keys : [];
+    if (rows.length === 0) {
+      var empty = document.createElement("li");
+      empty.textContent = "No keys yet — add one below.";
+      ul.appendChild(empty);
+      return;
+    }
+    for (var i = 0; i < rows.length; i++) {
+      (function (row) {
+        var nm = row.name != null ? String(row.name) : "";
+        var li = document.createElement("li");
+        var code = document.createElement("code");
+        code.textContent = nm || "(unnamed)";
+        li.appendChild(code);
+        li.appendChild(document.createTextNode(" · " + (row.key_hint || "—")));
+        var rm = document.createElement("button");
+        rm.type = "button";
+        rm.textContent = "Remove";
+        rm.addEventListener("click", async function () {
+          if (!nm) return;
+          if (!confirm("Remove key " + nm + "?")) return;
+          errEl.textContent = "";
+          if (await postJSON("/api/ui/provider/" + apiPrefix + "/keys/delete", { name: nm }, errEl)) {
+            loadState();
+          }
+        });
+        li.appendChild(rm);
+        ul.appendChild(li);
+      })(rows[i]);
+    }
+  }
+
   async function loadState() {
     showBanner("");
     var r = await fetch("/api/ui/state", { credentials: "same-origin" });
@@ -120,7 +163,9 @@
     var gw = j.gateway || {};
     var prov = j.providers || {};
     setProv("groq", prov.groq);
+    renderKeyList("groq", prov.groq, document.getElementById("groq-err"));
     setProv("gemini", prov.gemini);
+    renderKeyList("gemini", prov.gemini, document.getElementById("gemini-err"));
     setProv("ollama", prov.ollama);
 
     loadGatewayTokens();
@@ -264,7 +309,7 @@
   document.getElementById("groq-save").addEventListener("click", async function () {
     var v = (document.getElementById("groq-val").value || "").trim();
     if (!v) { document.getElementById("groq-err").textContent = "Enter a key"; return; }
-    if (await postJSON("/api/ui/provider/groq/key", { value: v }, document.getElementById("groq-err"))) {
+    if (await postJSON("/api/ui/provider/groq/keys", { value: v }, document.getElementById("groq-err"))) {
       document.getElementById("groq-val").value = "";
       loadState();
     }
@@ -272,7 +317,7 @@
   document.getElementById("gemini-save").addEventListener("click", async function () {
     var v = (document.getElementById("gemini-val").value || "").trim();
     if (!v) { document.getElementById("gemini-err").textContent = "Enter a key"; return; }
-    if (await postJSON("/api/ui/provider/gemini/key", { value: v }, document.getElementById("gemini-err"))) {
+    if (await postJSON("/api/ui/provider/gemini/keys", { value: v }, document.getElementById("gemini-err"))) {
       document.getElementById("gemini-val").value = "";
       loadState();
     }

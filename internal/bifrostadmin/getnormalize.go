@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// NormalizeProviderGETForMerge returns JSON to pass into MergeProviderKey / MergeOllamaBaseURL
+// NormalizeProviderGETForMerge returns JSON to pass into AppendProviderAPIKey / RemoveProviderKeyByName / MergeOllamaBaseURL
 // after GET /api/providers/{name}. BiFrost may answer “not found” as HTTP 404 or as HTTP 2xx
 // with an error envelope (status_code 404 in JSON).
 func NormalizeProviderGETForMerge(st int, body []byte) (forMerge []byte, ok bool) {

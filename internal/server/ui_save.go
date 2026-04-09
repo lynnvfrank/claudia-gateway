@@ -20,7 +20,7 @@ func truncateErrMsg(s string) string {
 	return s[:maxProviderErrorBody] + "…"
 }
 
-func (a *adminUI) saveKeyHandler(provider string) http.HandlerFunc {
+func (a *adminUI) saveAppendProviderKey(provider string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -51,9 +51,59 @@ func (a *adminUI) saveKeyHandler(provider string) http.HandlerFunc {
 			writeUIJSONError(w, http.StatusBadGateway, fmt.Sprintf("bifrost GET %d", st), truncateErrMsg(string(cur)))
 			return
 		}
-		merged, err := bifrostadmin.MergeProviderKey(provider, cur, v)
+		merged, err := bifrostadmin.AppendProviderAPIKey(provider, cur, v)
 		if err != nil {
 			writeUIJSONError(w, http.StatusInternalServerError, "merge failed", truncateErrMsg(err.Error()))
+			return
+		}
+		pst, pbody, err := client.PutProvider(ctx, provider, merged)
+		if err != nil {
+			writeUIJSONError(w, http.StatusBadGateway, "bifrost PUT failed", truncateErrMsg(err.Error()))
+			return
+		}
+		if pst < 200 || pst >= 300 {
+			writeUIJSONError(w, http.StatusBadGateway, fmt.Sprintf("bifrost PUT %d", pst), truncateErrMsg(string(pbody)))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}
+}
+
+func (a *adminUI) saveRemoveProviderKey(provider string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Name string `json:"name"`
+		}
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+		if err := dec.Decode(&body); err != nil {
+			writeUIJSONError(w, http.StatusBadRequest, "invalid json", "")
+			return
+		}
+		name := strings.TrimSpace(body.Name)
+		if name == "" {
+			writeUIJSONError(w, http.StatusBadRequest, "name required", "")
+			return
+		}
+		ctx := r.Context()
+		client := bifrostAdminClient(a.rt)
+		cur, st, err := client.GetProvider(ctx, provider)
+		if err != nil {
+			writeUIJSONError(w, http.StatusBadGateway, "bifrost unreachable", truncateErrMsg(err.Error()))
+			return
+		}
+		cur, ok := bifrostadmin.NormalizeProviderGETForMerge(st, cur)
+		if !ok {
+			writeUIJSONError(w, http.StatusBadGateway, fmt.Sprintf("bifrost GET %d", st), truncateErrMsg(string(cur)))
+			return
+		}
+		merged, err := bifrostadmin.RemoveProviderKeyByName(cur, name)
+		if err != nil {
+			writeUIJSONError(w, http.StatusBadRequest, truncateErrMsg(err.Error()), "")
 			return
 		}
 		pst, pbody, err := client.PutProvider(ctx, provider, merged)

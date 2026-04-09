@@ -91,3 +91,41 @@ func TestSummarizeProvider_ollamaURL(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 }
+
+func TestSummarizeProviderKeys_claudiaOrder(t *testing.T) {
+	body := []byte(`{"keys":[
+		{"name":"claudia-groq-key-2","value":"b"},
+		{"name":"alpha-other","value":"a"},
+		{"name":"claudia-groq-key-1","value":"c"}
+	]}`)
+	keys, err := SummarizeProviderKeys("groq", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 3 {
+		t.Fatalf("len %d", len(keys))
+	}
+	if keys[0].Name != "claudia-groq-key-1" || keys[1].Name != "claudia-groq-key-2" {
+		t.Fatalf("order: %+v", keys)
+	}
+	if keys[2].Name != "alpha-other" {
+		t.Fatalf("tail: %+v", keys)
+	}
+}
+
+func TestSummarizeProvider_multiKeyHint(t *testing.T) {
+	body := []byte(`{"keys":[
+		{"name":"claudia-groq-key-1","value":"***"},
+		{"name":"claudia-groq-key-2","value":"***"}
+	]}`)
+	s, err := SummarizeProvider("groq", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.KeyConfigured {
+		t.Fatal("expected configured")
+	}
+	if s.KeyHint != "2 keys" {
+		t.Fatalf("hint %q", s.KeyHint)
+	}
+}
