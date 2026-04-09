@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -136,4 +137,40 @@ func writeFakeConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestStartBifrost_customStdout verifies optional Stdout/Stderr (tee / UI buffer integration).
+func TestStartBifrost_customStdout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	var buf bytes.Buffer
+	cfg := BifrostConfig{
+		ConfigJSON: writeFakeConfig(t),
+		DataDir:    t.TempDir(),
+		BindHost:   "127.0.0.1",
+		Port:       65532,
+		RawExec:    true,
+		Stdout:     &buf,
+		Stderr:     &buf,
+	}
+	if runtime.GOOS == "windows" {
+		cfg.Bin = "cmd"
+		cfg.Args = []string{"/c", "echo", "bifrost-writer-test"}
+	} else {
+		cfg.Bin = "/bin/sh"
+		cfg.Args = []string{"-c", "echo bifrost-writer-test"}
+	}
+
+	cmd, err := StartBifrost(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "bifrost-writer-test") {
+		t.Fatalf("stdout capture: %q", out)
+	}
 }

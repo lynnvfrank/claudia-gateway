@@ -55,12 +55,12 @@ Create local config files from the shipped examples when they are missing.
 make configure
 ```
 
-**Creates (only if absent):** **`.env`** from **`env.example`**, **`config/tokens.yaml`** from **`config/tokens.example.yaml`**. Does not overwrite existing files. Afterward edit values to match your providers and **`config/gateway.yaml`**.
+**Creates (only if absent):** **`.env`** from **`env.example`**. It does **not** create **`config/tokens.yaml`** anymore: on first run, **`claudia serve`** (or **`claudia gateway`**) enters **bootstrap** on localhost and **`/ui/setup`** creates **`tokens.yaml`**; then **restart** for the full stack. You can still copy [config/tokens.example.yaml](config/tokens.example.yaml) to **`config/tokens.yaml`** manually if you prefer.
 
 | Purpose | File | Role |
 | ------- | ---- | ---- |
 | Process environment | `.env`<br/>(copied from [env.example](env.example)) | Optional local environment variable file to set Claudia<->BiFrost key and API keys. Not committed. |
-| Gateway client auth | `config/tokens.yaml`<br/>(copied from [config/tokens.example.yaml](config/tokens.example.yaml)) | Tokens for you and other users to use to authenticate with Claudia Gateway. Not committed. |
+| Gateway client auth | `config/tokens.yaml`<br/>(from [config/tokens.example.yaml](config/tokens.example.yaml) or **setup UI**) | Tokens for clients (`Authorization: Bearer …`) and admin UI login. Not committed. |
 | Gateway listen + upstream | `config/gateway.yaml` | Claudia Gateway's primary configuration file to connect the Client<->Claudia<->BiFrost  |
 | BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment variables set in `.env` or the shell. |
 | Virtual model mapping | `config/routing-policy.yaml` | Rules that define how the virtual `Claudia-<semver>` model routes prompts/turns to underlying models |
@@ -68,7 +68,7 @@ make configure
 **Manual follow-up**
 
 1. **`.env`:** set `CLAUDIA_UPSTREAM_API_KEY` to match `upstream.api_key_env` in `config/gateway.yaml`. Set `GROQ_API_KEY`, `GEMINI_API_KEY`, or other keys that `config/bifrost.config.json` references.
-2. **`config/tokens.yaml`:** at least one gateway token; clients use `Authorization: Bearer <token>`.
+2. **`config/tokens.yaml`:** create via first-run **`/ui/setup`** (see [docs/version-v0.1.md](docs/version-v0.1.md)) or copy from **`tokens.example.yaml`**; clients use `Authorization: Bearer <token>`.
 3. **`config/gateway.yaml`** — starter in repo; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed.
 4. **`config/bifrost.config.json`** — align provider blocks and `env.*` with your **`.env`**.
 5. **`config/routing-policy.yaml`** — committed default; edit or point `gateway.yaml` at another file.

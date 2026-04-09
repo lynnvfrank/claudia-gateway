@@ -36,6 +36,9 @@ type BifrostConfig struct {
 	RawExec bool
 	// Args is argv when RawExec is true (e.g. sleep, "60").
 	Args []string
+	// Stdout and Stderr default to os.Stdout / os.Stderr when nil (e.g. use io.MultiWriter for tee + UI buffer).
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // CopyConfigJSON copies src to dstDir/config.json (overwrites).
@@ -134,8 +137,17 @@ func StartBifrost(ctx context.Context, cfg BifrostConfig, log *slog.Logger) (*ex
 		"APP_HOST": cfg.BindHost,
 		"APP_PORT": strconv.Itoa(cfg.Port),
 	})
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	out := cfg.Stdout
+	if out == nil {
+		out = os.Stdout
+	}
+	errOut := cfg.Stderr
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	applyNoConsoleWindow(cmd)
 	if log != nil {
 		if cfg.RawExec {
 			log.Info("starting bifrost subprocess", "bin", bin, "dir", cfg.DataDir, "raw", true)

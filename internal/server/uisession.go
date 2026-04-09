@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"github.com/lynn/claudia-gateway/internal/servicelogs"
 )
 
 const defaultUICookieName = "claudia_ui_session"
@@ -95,6 +97,8 @@ type UIOptions struct {
 	Sessions *uiSessionStore
 	// CookieName defaults to claudia_ui_session.
 	CookieName string
+	// LogStore enables /api/ui/logs and /api/ui/logs/stream (session auth). Nil omits those routes.
+	LogStore *servicelogs.Store
 }
 
 func (o *UIOptions) cookieName() string {

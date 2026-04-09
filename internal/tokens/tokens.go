@@ -40,6 +40,14 @@ func NewStore(path string, log *slog.Logger) *Store {
 	}
 }
 
+// Path returns the resolved tokens.yaml path.
+func (s *Store) Path() string {
+	if s == nil {
+		return ""
+	}
+	return s.path
+}
+
 func (s *Store) ReloadIfStale() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -71,6 +79,8 @@ func (s *Store) ReloadIfStale() {
 		if s.log != nil {
 			s.log.Error("failed to parse tokens yaml", "path", s.path, "err", err)
 		}
+		s.byToken = make(map[string]Record)
+		s.mtimeNs = mt
 		return
 	}
 	next := make(map[string]Record)

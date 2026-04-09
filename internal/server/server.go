@@ -77,6 +77,8 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
     <li><a href="/ui/models"><code>GET /ui/models</code></a> — same merged model list as <code>/v1/models</code> (for this page and tools)</li>
     <li><a href="/ui/login"><code>GET /ui/login</code></a> — operator admin login (when UI is enabled)</li>
     <li><a href="/ui/panel"><code>GET /ui/panel</code></a> — operator admin (session required)</li>
+    <li><a href="/ui/logs"><code>GET /ui/logs</code></a> — live service logs (session required)</li>
+    <li><a href="/ui/desktop"><code>GET /ui/desktop</code></a> — tabbed shell: main, logs, admin (session required)</li>
   </ul>
   <h2>Claudia's Models</h2>
   <p id="models-status" class="muted">Loading models…</p>

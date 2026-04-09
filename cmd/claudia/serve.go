@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,23 +16,38 @@ import (
 	"time"
 
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/platform"
 	"github.com/lynn/claudia-gateway/internal/server"
+	"github.com/lynn/claudia-gateway/internal/servicelogs"
 	"github.com/lynn/claudia-gateway/internal/supervisor"
 )
 
-func panelURLFromListenAddr(ln net.Addr) string {
+func gatewayPublicURL(ln net.Addr) string {
 	addr := ln.String()
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "http://127.0.0.1:3000/ui/panel"
+		return "http://127.0.0.1:3000"
 	}
 	if host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
 	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
-		return fmt.Sprintf("http://[%s]:%s/ui/panel", host, port)
+		return fmt.Sprintf("http://[%s]:%s", host, port)
 	}
-	return fmt.Sprintf("http://%s:%s/ui/panel", host, port)
+	return fmt.Sprintf("http://%s:%s", host, port)
+}
+
+func panelURLFromListenAddr(ln net.Addr) string {
+	return gatewayPublicURL(ln) + "/ui/panel"
+}
+
+// webviewEntryURL is opened by the native desktop shell: setup (bootstrap) or login → /ui/desktop.
+func webviewEntryURL(ln net.Addr, bootstrap bool) string {
+	base := gatewayPublicURL(ln)
+	if bootstrap {
+		return base + "/ui/setup"
+	}
+	return base + "/ui/login?next=" + url.PathEscape("/ui/desktop")
 }
 
 func runServe(args []string, openWebview bool) {
@@ -71,108 +87,114 @@ func runServe(args []string, openWebview bool) {
 		}
 	}
 
-	log := buildLogger(path)
+	logStore := servicelogs.New(servicelogs.DefaultMaxLines)
+	gwSink := logStore.Writer("gateway")
+	log := buildLoggerTo(platform.StdoutTee(gwSink), path)
 	upstreamURL := fmt.Sprintf("http://%s:%d", strings.TrimSpace(*upstreamHost), *bifrostPort)
 	healthURL := fmt.Sprintf("http://%s:%d/health", strings.TrimSpace(*upstreamHost), *bifrostPort)
 
-	childCtx, stopChildren := context.WithCancel(context.Background())
-
-	var qdrantProc *exec.Cmd
-	var qdrantWait chan error
-	qBin := strings.TrimSpace(*qdrantBin)
-	if qBin != "" {
-		qcfg := supervisor.QdrantConfig{
-			Bin:        qBin,
-			StorageDir: *qdrantStorage,
-			BindHost:   strings.TrimSpace(*qdrantBind),
-			HTTPPort:   *qdrantHTTPPort,
-			GRPCPort:   *qdrantGRPCPort,
-		}
-		var err error
-		qdrantProc, err = supervisor.StartQdrant(childCtx, qcfg, log)
-		if err != nil {
-			stopChildren()
-			fmt.Fprintf(os.Stderr, "claudia serve: %v\n", err)
-			os.Exit(1)
-		}
-		qdrantWait = make(chan error, 1)
-		go func() {
-			qdrantWait <- qdrantProc.Wait()
-		}()
-		if !*noWaitQdrant {
-			qHealth := fmt.Sprintf("http://%s:%d/readyz", strings.TrimSpace(*qdrantHealthHost), *qdrantHTTPPort)
-			wCtx, wCancel := context.WithTimeout(context.Background(), *waitQdrant)
-			err := supervisor.WaitHealthy(wCtx, qHealth, *waitQdrant, log)
-			wCancel()
-			if err != nil {
-				stopChildren()
-				<-qdrantWait
-				fmt.Fprintf(os.Stderr, "claudia serve: qdrant not healthy: %v\n", err)
-				os.Exit(1)
-			}
-		}
-	}
-
-	bcfg := supervisor.BifrostConfig{
-		Bin:        *bifrostBin,
-		ConfigJSON: *bifrostConfig,
-		DataDir:    *bifrostDataDir,
-		BindHost:   strings.TrimSpace(*bifrostBind),
-		Port:       *bifrostPort,
-		LogLevel:   strings.TrimSpace(*bifrostLogLevel),
-		LogStyle:   strings.TrimSpace(*bifrostLogStyle),
-	}
-	proc, err := supervisor.StartBifrost(childCtx, bcfg, log)
+	rt, err := server.NewRuntimeWithUpstreamOverride(path, log, upstreamURL)
 	if err != nil {
-		stopChildren()
-		if qdrantWait != nil {
-			<-qdrantWait
-		}
-		fmt.Fprintf(os.Stderr, "claudia serve: %v\n", err)
-		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found") {
-			fmt.Fprintln(os.Stderr, "")
-			fmt.Fprintln(os.Stderr, "No BiFrost HTTP binary found (place bifrost-http next to claudia, PATH, or pass -bifrost-bin). From repo root:")
-			fmt.Fprintln(os.Stderr, "  make install")
-			fmt.Fprintln(os.Stderr, "  ./claudia serve -bifrost-bin ./bin/bifrost-http")
-			fmt.Fprintln(os.Stderr, "Or: make package-personal  (full folder with bifrost-http + qdrant + config)")
-			fmt.Fprintln(os.Stderr, "See docs/supervisor.md — Obtaining the BiFrost binary.")
-		}
+		fmt.Fprintf(os.Stderr, "claudia serve: load gateway config: %v\n", err)
 		os.Exit(1)
 	}
-	bifrostWaitErr := make(chan error, 1)
-	go func() {
-		bifrostWaitErr <- proc.Wait()
-	}()
+	bootstrap := server.BootstrapMode(rt)
+	res, _, _ := rt.Snapshot()
+	qBin := strings.TrimSpace(*qdrantBin)
 
-	if !*noWait {
-		wCtx, wCancel := context.WithTimeout(context.Background(), *waitTimeout)
-		err := supervisor.WaitHealthy(wCtx, healthURL, *waitTimeout, log)
-		wCancel()
-		if err != nil {
+	childCtx, stopChildren := context.WithCancel(context.Background())
+	var qdrantWait chan error
+	var bifrostWaitErr chan error
+
+	if !bootstrap {
+		if qBin != "" {
+			qSink := logStore.Writer("qdrant")
+			qcfg := supervisor.QdrantConfig{
+				Bin:        qBin,
+				StorageDir: *qdrantStorage,
+				BindHost:   strings.TrimSpace(*qdrantBind),
+				HTTPPort:   *qdrantHTTPPort,
+				GRPCPort:   *qdrantGRPCPort,
+				Stdout:     platform.StdoutTee(qSink),
+				Stderr:     platform.StderrTee(qSink),
+			}
+			qdrantProc, qerr := supervisor.StartQdrant(childCtx, qcfg, log)
+			if qerr != nil {
+				stopChildren()
+				fmt.Fprintf(os.Stderr, "claudia serve: %v\n", qerr)
+				os.Exit(1)
+			}
+			qdrantWait = make(chan error, 1)
+			go func() {
+				qdrantWait <- qdrantProc.Wait()
+			}()
+			if !*noWaitQdrant {
+				qHealth := fmt.Sprintf("http://%s:%d/readyz", strings.TrimSpace(*qdrantHealthHost), *qdrantHTTPPort)
+				wCtx, wCancel := context.WithTimeout(context.Background(), *waitQdrant)
+				err := supervisor.WaitHealthy(wCtx, qHealth, *waitQdrant, log)
+				wCancel()
+				if err != nil {
+					stopChildren()
+					<-qdrantWait
+					fmt.Fprintf(os.Stderr, "claudia serve: qdrant not healthy: %v\n", err)
+					os.Exit(1)
+				}
+			}
+		}
+
+		bSink := logStore.Writer("bifrost")
+		bcfg := supervisor.BifrostConfig{
+			Bin:        *bifrostBin,
+			ConfigJSON: *bifrostConfig,
+			DataDir:    *bifrostDataDir,
+			BindHost:   strings.TrimSpace(*bifrostBind),
+			Port:       *bifrostPort,
+			LogLevel:   strings.TrimSpace(*bifrostLogLevel),
+			LogStyle:   strings.TrimSpace(*bifrostLogStyle),
+			Stdout:     platform.StdoutTee(bSink),
+			Stderr:     platform.StderrTee(bSink),
+		}
+		proc, berr := supervisor.StartBifrost(childCtx, bcfg, log)
+		if berr != nil {
 			stopChildren()
 			if qdrantWait != nil {
 				<-qdrantWait
 			}
-			<-bifrostWaitErr
-			fmt.Fprintf(os.Stderr, "claudia serve: bifrost not healthy: %v\n", err)
+			fmt.Fprintf(os.Stderr, "claudia serve: %v\n", berr)
+			if errors.Is(berr, exec.ErrNotFound) || strings.Contains(berr.Error(), "executable file not found") {
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "No BiFrost HTTP binary found (place bifrost-http next to claudia, PATH, or pass -bifrost-bin). From repo root:")
+				fmt.Fprintln(os.Stderr, "  make install")
+				fmt.Fprintln(os.Stderr, "  ./claudia serve -bifrost-bin ./bin/bifrost-http")
+				fmt.Fprintln(os.Stderr, "Or: make release-package  (full folder with bifrost-http + qdrant + config)")
+				fmt.Fprintln(os.Stderr, "See docs/supervisor.md — Obtaining the BiFrost binary.")
+			}
 			os.Exit(1)
 		}
-	}
+		bifrostWaitErr = make(chan error, 1)
+		go func() {
+			bifrostWaitErr <- proc.Wait()
+		}()
 
-	rt, err := server.NewRuntimeWithUpstreamOverride(path, log, upstreamURL)
-	if err != nil {
-		stopChildren()
-		if qdrantWait != nil {
-			<-qdrantWait
+		if !*noWait {
+			wCtx, wCancel := context.WithTimeout(context.Background(), *waitTimeout)
+			err := supervisor.WaitHealthy(wCtx, healthURL, *waitTimeout, log)
+			wCancel()
+			if err != nil {
+				stopChildren()
+				if qdrantWait != nil {
+					<-qdrantWait
+				}
+				<-bifrostWaitErr
+				fmt.Fprintf(os.Stderr, "claudia serve: bifrost not healthy: %v\n", err)
+				os.Exit(1)
+			}
 		}
-		<-bifrostWaitErr
-		fmt.Fprintf(os.Stderr, "claudia serve: load gateway config: %v\n", err)
-		os.Exit(1)
+	} else if log != nil {
+		log.Info("claudia serve: bootstrap mode (create gateway token at /ui/setup, then restart)", "tokens_path", res.TokensPath)
 	}
 
-	res, _, _ := rt.Snapshot()
 	addr := server.ListenAddrOverride(res, *listen)
-
 	qdrantHTTP := ""
 	if qBin != "" {
 		qdrantHTTP = fmt.Sprintf("%s:%d", strings.TrimSpace(*qdrantHealthHost), *qdrantHTTPPort)
@@ -181,50 +203,99 @@ func runServe(args []string, openWebview bool) {
 		EffectiveListen: addr,
 		Supervisor: &server.SupervisorInfo{
 			BifrostListen:    fmt.Sprintf("%s:%d", strings.TrimSpace(*bifrostBind), *bifrostPort),
-			QdrantSupervised: qBin != "",
+			QdrantSupervised: qBin != "" && !bootstrap,
 			QdrantHTTP:       qdrantHTTP,
 		},
 	}
-	h := server.NewMux(rt, log, overlay, server.NewUIOptions())
+	if bootstrap {
+		overlay.Supervisor = nil
+	}
+
+	uiOpts := server.NewUIOptions()
+	uiOpts.LogStore = logStore
+	var h http.Handler
+	if bootstrap {
+		h = server.NewBootstrapMux(rt, log, overlay)
+	} else {
+		h = server.NewMux(rt, log, overlay, uiOpts)
+	}
 
 	rootCtx, stopRoot := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRoot()
 
-	srv := &http.Server{Handler: h}
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		stopChildren()
-		if qdrantWait != nil {
-			<-qdrantWait
+	var entryURL string
+	var serveErr error
+
+	if bootstrap {
+		addrs := server.BootstrapTCPAddrs(res, *listen)
+		prim, shut, stopped, lerr := server.StartHTTPListeners(h, addrs, log)
+		if lerr != nil {
+			stopChildren()
+			if qdrantWait != nil {
+				<-qdrantWait
+			}
+			if bifrostWaitErr != nil {
+				<-bifrostWaitErr
+			}
+			if log != nil {
+				log.Error("listen", "addrs", addrs, "err", lerr)
+			}
+			fmt.Fprintf(os.Stderr, "claudia serve: listen: %v\n", lerr)
+			os.Exit(1)
 		}
-		<-bifrostWaitErr
-		if log != nil {
-			log.Error("listen", "addr", addr, "err", err)
+		overlay.EffectiveListen = prim.String()
+		entryURL = gatewayPublicURL(prim) + "/ui/setup"
+		if openWebview {
+			entryURL = webviewEntryURL(prim, true)
 		}
-		fmt.Fprintf(os.Stderr, "claudia serve: listen %s: %v\n", addr, err)
-		os.Exit(1)
+		go func() {
+			<-rootCtx.Done()
+			shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := shut(shCtx); err != nil && log != nil {
+				log.Warn("http shutdown", "err", err)
+			}
+		}()
+		log.Info("claudia serve: gateway listening (bootstrap)", "addr", prim.String(), "ui", entryURL, "config", path)
+		runDesktopWebview(openWebview, entryURL, stopRoot, rootCtx)
+		<-stopped
+	} else {
+		srv := &http.Server{Handler: h}
+		ln, lerr := net.Listen("tcp", addr)
+		if lerr != nil {
+			stopChildren()
+			if qdrantWait != nil {
+				<-qdrantWait
+			}
+			if bifrostWaitErr != nil {
+				<-bifrostWaitErr
+			}
+			if log != nil {
+				log.Error("listen", "addr", addr, "err", lerr)
+			}
+			fmt.Fprintf(os.Stderr, "claudia serve: listen %s: %v\n", addr, lerr)
+			os.Exit(1)
+		}
+		entryURL = panelURLFromListenAddr(ln.Addr())
+		if openWebview {
+			entryURL = webviewEntryURL(ln.Addr(), false)
+		}
+		serveErrCh := make(chan error, 1)
+		go func() {
+			serveErrCh <- srv.Serve(ln)
+		}()
+		go func() {
+			<-rootCtx.Done()
+			shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(shCtx); err != nil && log != nil {
+				log.Warn("http shutdown", "err", err)
+			}
+		}()
+		log.Info("claudia serve: gateway listening", "addr", ln.Addr().String(), "ui", entryURL, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "config", path)
+		runDesktopWebview(openWebview, entryURL, stopRoot, rootCtx)
+		serveErr = <-serveErrCh
 	}
-	panelURL := panelURLFromListenAddr(ln.Addr())
-
-	serveErrCh := make(chan error, 1)
-	go func() {
-		serveErrCh <- srv.Serve(ln)
-	}()
-
-	go func() {
-		<-rootCtx.Done()
-		shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shCtx); err != nil && log != nil {
-			log.Warn("http shutdown", "err", err)
-		}
-	}()
-
-	log.Info("claudia serve: gateway listening", "addr", ln.Addr().String(), "ui", panelURL, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "config", path)
-
-	runDesktopWebview(openWebview, panelURL, stopRoot, rootCtx)
-
-	serveErr := <-serveErrCh
 
 	stopChildren()
 	if qdrantWait != nil {
@@ -232,8 +303,10 @@ func runServe(args []string, openWebview bool) {
 			log.Debug("qdrant process finished", "err", werr)
 		}
 	}
-	if werr := <-bifrostWaitErr; werr != nil && log != nil {
-		log.Debug("bifrost process finished", "err", werr)
+	if bifrostWaitErr != nil {
+		if werr := <-bifrostWaitErr; werr != nil && log != nil {
+			log.Debug("bifrost process finished", "err", werr)
+		}
 	}
 
 	if serveErr != nil && serveErr != http.ErrServerClosed {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/lynn/claudia-gateway/internal/bifrostadmin"
 )
 
-//go:embed embedui/login.html embedui/panel.html
+//go:embed embedui/login.html embedui/panel.html embedui/logs.html embedui/shell.html embedui/setup.html
 var adminEmbedUI embed.FS
 
 func bifrostAdminClient(rt *Runtime) *bifrostadmin.Client {
@@ -72,7 +73,9 @@ func (a *adminUI) requireAuthJSON(next http.HandlerFunc) http.HandlerFunc {
 func (a *adminUI) requireAuthPage(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !a.sessionOK(r) {
-			http.Redirect(w, r, "/ui/login", http.StatusFound)
+			q := url.Values{}
+			q.Set("next", r.URL.Path)
+			http.Redirect(w, r, "/ui/login?"+q.Encode(), http.StatusFound)
 			return
 		}
 		next(w, r)
@@ -236,6 +239,10 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 
 	mux.HandleFunc("GET /ui/login", a.serveEmbed("embedui/login.html"))
 	mux.HandleFunc("GET /ui/panel", a.requireAuthPage(a.serveEmbed("embedui/panel.html")))
+	if a.opts.LogStore != nil {
+		mux.HandleFunc("GET /ui/logs", a.requireAuthPage(a.serveEmbed("embedui/logs.html")))
+		mux.HandleFunc("GET /ui/desktop", a.requireAuthPage(a.serveEmbed("embedui/shell.html")))
+	}
 
 	mux.HandleFunc("POST /api/ui/login", a.handleLoginPOST)
 	mux.HandleFunc("POST /api/ui/logout", a.handleLogoutPOST)
@@ -244,4 +251,10 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("POST /api/ui/provider/groq/key", a.requireAuthJSON(a.saveKeyHandler("groq")))
 	mux.HandleFunc("POST /api/ui/provider/gemini/key", a.requireAuthJSON(a.saveKeyHandler("gemini")))
 	mux.HandleFunc("POST /api/ui/provider/ollama/base_url", a.requireAuthJSON(a.saveOllamaBaseURL))
+
+	mux.HandleFunc("GET /api/ui/tokens", a.requireAuthJSON(a.handleTokensList))
+	mux.HandleFunc("POST /api/ui/tokens", a.requireAuthJSON(a.handleTokensCreate))
+	mux.HandleFunc("POST /api/ui/tokens/delete", a.requireAuthJSON(a.handleTokensDelete))
+
+	registerUILogs(mux, a)
 }

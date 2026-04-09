@@ -122,7 +122,7 @@ desktop-build:
 	$(GITBASH) scripts/desktop-build.sh $(DESKTOP_BIN)
 
 desktop-run:
-	$(GITBASH) scripts/desktop-run.sh $(DESKTOP_BIN) "$(MAKE)" -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
+	$(GITBASH) scripts/desktop-run.sh $(DESKTOP_BIN) "$(MAKE)" desktop -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
 claudia-run:
 	go run ./cmd/claudia

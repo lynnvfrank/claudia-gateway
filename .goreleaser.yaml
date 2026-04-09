@@ -49,7 +49,7 @@ archives:
       - src: config/gateway.example.yaml
         dst: config/gateway.yaml
       - src: config/tokens.example.yaml
-        dst: config/tokens.yaml
+        dst: config/tokens.example.yaml
       - src: config/bifrost.config.json
         dst: config/bifrost.config.json
       - src: config/routing-policy.yaml

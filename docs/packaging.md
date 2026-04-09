@@ -9,7 +9,7 @@ The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/
 
 ## Personal full bundle (BiFrost + desktop UI)
 
-**`make package-personal`** writes **`dist/personal/claudia-bundle_<os>_<arch>/`** with **desktop `claudia`**, **`bifrost-http`**, **`qdrant`**, and **`config/`** + **`env.example`**. Requires **`make install`** first and a working **CGO / WebView** toolchain (**`make desktop-install`** on first use).
+**`make release-package`** writes **`dist/personal/claudia-bundle_<os>_<arch>/`** with **desktop `claudia`**, **`bifrost-http`**, **`qdrant`**, and **`config/`** + **`env.example`**. Requires **`make install`** first and a working **CGO / WebView** toolchain (**`make desktop-install`** on first use).
 
 ## Artifact layout
 
@@ -17,7 +17,7 @@ Each GitHub **Release** (git tag **`v*`, e.g. `v0.1.0`**) publishes:
 
 | File | Contents |
 |------|----------|
-| **`claudia_<version>_<os>_<arch>.tar.gz`** | Linux/macOS: **`claudia`**, **`qdrant`**, starter **`config/`** (**`gateway.yaml`**, **`tokens.yaml`**, **`bifrost.config.json`**, **`routing-policy.yaml`**), **`env.example`**, **`README.md`**, **`README_ARCHIVE.txt`**, **`PACKAGING.md`** |
+| **`claudia_<version>_<os>_<arch>.tar.gz`** | Linux/macOS: **`claudia`**, **`qdrant`**, starter **`config/`** (**`gateway.yaml`**, **`tokens.example.yaml`** (not auto-copied to **`tokens.yaml`**), **`bifrost.config.json`**, **`routing-policy.yaml`**), **`env.example`**, **`README.md`**, **`README_ARCHIVE.txt`**, **`PACKAGING.md`** |
 | **`claudia_<version>_windows_amd64.zip`** | Windows: **`claudia.exe`**, **`qdrant.exe`**, same config and docs |
 | **`checksums.txt`** | SHA-256 checksums for the archives |
 
@@ -25,7 +25,7 @@ Architectures: **linux/darwin** **amd64** and **arm64**; **windows amd64** only 
 
 ## Prerequisites on the target machine
 
-- **Config:** copy or mount **`config/gateway.yaml`**, **`config/tokens.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`** paths as in YAML). See [configuration.md](configuration.md).
+- **Config:** copy or mount **`config/gateway.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`** paths as in YAML). **`config/tokens.yaml`** is created on first-run setup (localhost) or by copying **`tokens.example.yaml`**. See [configuration.md](configuration.md) and [version-v0.1.md](version-v0.1.md) §5.
 - **Environment:** **`CLAUDIA_UPSTREAM_API_KEY`** and provider keys (**`GROQ_API_KEY`**, etc.) — or a **`.env`** file in the **working directory** (the binary loads it at startup).
 - **Upstream:** BiFrost (or another OpenAI-compatible proxy) reachable at **`upstream.base_url`**.
 
@@ -43,7 +43,7 @@ cd claudia_<version>_linux_amd64   # or matching folder name inside the archive
 
 **Windows**
 
-Extract the **`.zip`**, copy **`env.example`** to **`.env`**, install **BiFrost** separately or use **`make package-personal`** for a full folder. The public zip’s **`claudia.exe`** is built **without** **`-tags desktop`** (no native webview); use **`claudia serve`** / **`claudia --headless`** for the supervisor, or **`claudia gateway`** for gateway-only. SmartScreen may warn on first run for unsigned binaries; **code signing** is a documented follow-up.
+Extract the **`.zip`**, copy **`env.example`** to **`.env`**, install **BiFrost** separately or use **`make release-package`** for a full folder. The public zip’s **`claudia.exe`** is built **without** **`-tags desktop`** (no native webview); use **`claudia serve`** / **`claudia --headless`** for the supervisor, or **`claudia gateway`** for gateway-only. SmartScreen may warn on first run for unsigned binaries; **code signing** is a documented follow-up.
 
 ## Cutting a release (maintainers)
 
@@ -82,7 +82,7 @@ Releases version **`claudia`** and bundle **Qdrant** as above. Record the **BiFr
 
 ## Desktop UI (WebView)
 
-Native panel UI is **`go build -tags desktop`** (**`make desktop-build`** → **`claudia-desktop`**). GoReleaser archives use **CGO_ENABLED=0**, so they do **not** include WebView; use **`make package-personal`** for a double-clickable desktop stack on your machine. See [gui-testing.md](gui-testing.md).
+Native panel UI is **`go build -tags desktop`** (**`make desktop-build`** → **`claudia-desktop`**). GoReleaser archives use **CGO_ENABLED=0**, so they do **not** include WebView; use **`make release-package`** for a double-clickable desktop stack on your machine. See [gui-testing.md](gui-testing.md).
 
 ## Follow-ups (not in Phase 4)
 

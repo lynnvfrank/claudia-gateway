@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Claudia</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+    #tabs {
+      display: flex; gap: 0; background: #f0f0f0; border-bottom: 1px solid #ccc;
+      padding: 0 0.25rem; align-items: stretch;
+    }
+    #tabs button {
+      border: none; background: transparent; padding: 0.6rem 1rem; cursor: pointer;
+      font-size: 0.9rem; color: #333; border-bottom: 2px solid transparent;
+    }
+    #tabs button:hover { background: #e5e5e5; }
+    #tabs button.active { border-bottom-color: #0b57d0; font-weight: 600; color: #0b57d0; }
+    #frame-wrap { height: calc(100% - 42px); position: relative; }
+    /* Opacity stacking instead of display:none so each iframe keeps its scroll position when tabs switch. */
+    iframe {
+      position: absolute; inset: 0; width: 100%; height: 100%; border: none;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    iframe.visible {
+      opacity: 1;
+      pointer-events: auto;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <nav id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="main" class="active" aria-selected="true">Main</button>
+    <button type="button" role="tab" data-tab="logs" aria-selected="false">Logs</button>
+    <button type="button" role="tab" data-tab="admin" aria-selected="false">Admin</button>
+  </nav>
+  <div id="frame-wrap">
+    <iframe id="f-main" class="visible" title="Gateway main" src="/"></iframe>
+    <iframe id="f-logs" title="Logs" src="/ui/logs?embed=1"></iframe>
+    <iframe id="f-admin" title="Admin" src="/ui/panel"></iframe>
+  </div>
+  <script>
+(function () {
+  var origin = window.location.origin;
+  var tabs = document.querySelectorAll("#tabs button");
+  var frames = {
+    main: document.getElementById("f-main"),
+    logs: document.getElementById("f-logs"),
+    admin: document.getElementById("f-admin")
+  };
+  function notifyLogsActive() {
+    var w = frames.logs.contentWindow;
+    try {
+      if (w) {
+        w.postMessage({ type: "claudia-logs-activate" }, origin);
+      }
+    } catch (e) {}
+  }
+  function show(name) {
+    if (name === "main") {
+      /* Always show gateway root (same origin → e.g. http://127.0.0.1:3000/) */
+      frames.main.src = "/";
+    }
+    Object.keys(frames).forEach(function (k) {
+      frames[k].classList.toggle("visible", k === name);
+    });
+    tabs.forEach(function (b) {
+      var on = b.getAttribute("data-tab") === name;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    if (name === "logs") {
+      notifyLogsActive();
+      setTimeout(notifyLogsActive, 50);
+    }
+  }
+  frames.logs.addEventListener("load", function () {
+    if (frames.logs.classList.contains("visible")) {
+      notifyLogsActive();
+    }
+  });
+  tabs.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      show(btn.getAttribute("data-tab"));
+    });
+  });
+})();
+  </script>
+</body>
+</html>

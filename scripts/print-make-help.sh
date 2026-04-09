@@ -6,7 +6,7 @@ echo
 echo "  make up                 install + configure + claudia-build + claudia-start (UP_STACK=0 for no Qdrant)"
 echo
 echo "  make install            verify toolchain + bootstrap BiFrost/Qdrant from deps.lock (idempotent)"
-echo "  make configure          seed .env + config/tokens.yaml from examples if missing"
+echo "  make configure          seed .env from example if missing (tokens.yaml via /ui/setup or manual copy)"
 echo
 echo "  make claudia-build      go build -o claudia ./cmd/claudia (headless; no CGO)"
 echo "  make claudia-run        go run ./cmd/claudia"

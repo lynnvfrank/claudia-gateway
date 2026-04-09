@@ -14,7 +14,7 @@
 </head>
 <body>
   <h1>Claudia admin</h1>
-  <p>Sign in with a gateway token from <code>config/tokens.yaml</code>.</p>
+  <p>Sign in with a gateway token. On first run (no <code>tokens.yaml</code> yet), start Claudia from your bundle — it listens on <strong>localhost</strong> and opens <strong>setup</strong> to create a token; then restart for the full stack.</p>
   <form id="f">
     <label for="token">Gateway token</label>
     <input id="token" name="token" type="password" autocomplete="current-password" required/>
@@ -35,7 +35,11 @@
       body: JSON.stringify({ token: token })
     }).then(function (r) {
       if (r.ok) {
-        window.location.href = "/ui/panel";
+        var next = new URLSearchParams(window.location.search).get("next") || "";
+        if (next.indexOf("/") !== 0 || next.indexOf("//") === 0 || next.indexOf("/ui/") !== 0) {
+          next = "/ui/panel";
+        }
+        window.location.href = next;
         return;
       }
       return r.json().then(function (j) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full local bundle: desktop claudia + bifrost-http + qdrant + config (make package-personal).
+# Full local bundle: desktop claudia + bifrost-http + qdrant + config (make release-package).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -46,23 +46,24 @@ cp "$ROOT/bin/$BIF" "$OUT/"
 cp "$ROOT/bin/$QDR" "$OUT/"
 
 cp "$ROOT/config/gateway.example.yaml" "$OUT/config/gateway.yaml"
-cp "$ROOT/config/tokens.example.yaml" "$OUT/config/tokens.yaml"
+cp "$ROOT/config/tokens.example.yaml" "$OUT/config/tokens.example.yaml"
 cp "$ROOT/config/bifrost.config.json" "$OUT/config/bifrost.config.json"
 cp "$ROOT/config/routing-policy.yaml" "$OUT/config/routing-policy.yaml"
 cp "$ROOT/env.example" "$OUT/env.example"
 
 cat > "$OUT/README.txt" <<'EOF'
-Personal bundle (make package-personal)
+Personal bundle (make release-package)
 
 1. Copy env.example to .env in this folder and set keys (see comments inside env.example).
-2. Run claudia from this folder (same directory as bifrost-http and qdrant):
+2. First run: start claudia — it opens setup on localhost to create config/tokens.yaml (or copy tokens.example.yaml to tokens.yaml yourself).
+3. Run claudia from this folder (same directory as bifrost-http and qdrant):
      — Desktop UI + full stack: double-click claudia (Windows) or ./claudia
      — Headless supervisor: ./claudia --headless
      — Gateway only (no local BiFrost/Qdrant): ./claudia gateway
 
 Sibling binaries (bifrost-http, qdrant) are auto-detected. Config lives in ./config/.
 
-Rebuild: from repo root run  make package-personal
+Rebuild: from repo root run  make release-package
 EOF
 
 echo "package-personal: wrote $OUT"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Idempotent: create .env and config/tokens.yaml from examples if absent.
+# Idempotent: create .env from example if absent. Does not create tokens.yaml
+# (first-run bootstrap in the UI writes config/tokens.yaml; see docs/version-v0.1.md §5).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -11,11 +12,10 @@ else
 	echo "configure: .env already exists — left unchanged."
 fi
 
-if [[ ! -f config/tokens.yaml ]]; then
-	cp config/tokens.example.yaml config/tokens.yaml
-	echo "configure: created config/tokens.yaml from tokens.example.yaml — set gateway tokens."
+if [[ -f config/tokens.yaml ]]; then
+	echo "configure: config/tokens.yaml exists — left unchanged."
 else
-	echo "configure: config/tokens.yaml already exists — left unchanged."
+	echo "configure: no config/tokens.yaml — start claudia and use /ui/setup to create a gateway token (or copy config/tokens.example.yaml manually)."
 fi
 
 echo "configure: edit config/gateway.yaml and config/bifrost.config.json as needed (see README)."

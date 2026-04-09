@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/platform"
 	"github.com/lynn/claudia-gateway/internal/server"
+	"github.com/lynn/claudia-gateway/internal/servicelogs"
 )
 
 func runGateway(args []string) {
@@ -27,7 +33,9 @@ func runGateway(args []string) {
 		}
 	}
 
-	log := buildLogger(path)
+	logStore := servicelogs.New(servicelogs.DefaultMaxLines)
+	gwSink := logStore.Writer("gateway")
+	log := buildLoggerTo(platform.StdoutTee(gwSink), path)
 	rt, err := server.NewRuntime(path, log)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claudia: load gateway config: %v\n", err)
@@ -36,7 +44,40 @@ func runGateway(args []string) {
 
 	res, _, _ := rt.Snapshot()
 	addr := server.ListenAddrOverride(res, *listen)
-	h := server.NewMux(rt, log, &server.StatusOverlay{EffectiveListen: addr}, server.NewUIOptions())
+	bootstrap := server.BootstrapMode(rt)
+	overlay := &server.StatusOverlay{EffectiveListen: addr}
+	if bootstrap {
+		overlay.Supervisor = nil
+	}
+
+	uiOpts := server.NewUIOptions()
+	uiOpts.LogStore = logStore
+
+	if bootstrap {
+		h := server.NewBootstrapMux(rt, log, overlay)
+		addrs := server.BootstrapTCPAddrs(res, *listen)
+		prim, shut, stopped, lerr := server.StartHTTPListeners(h, addrs, log)
+		if lerr != nil {
+			fmt.Fprintf(os.Stderr, "claudia: listen: %v\n", lerr)
+			os.Exit(1)
+		}
+		overlay.EffectiveListen = prim.String()
+		log.Info("claudia (go) listening (bootstrap)", "addr", prim.String(), "upstream", res.UpstreamBaseURL, "config", path)
+		rootCtx, stopRoot := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stopRoot()
+		go func() {
+			<-rootCtx.Done()
+			shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := shut(shCtx); err != nil && log != nil {
+				log.Warn("http shutdown", "err", err)
+			}
+		}()
+		<-stopped
+		return
+	}
+
+	h := server.NewMux(rt, log, overlay, uiOpts)
 	log.Info("claudia (go) listening", "addr", addr, "upstream", res.UpstreamBaseURL, "config", path)
 	if err := http.ListenAndServe(addr, h); err != nil {
 		log.Error("server exit", "err", err)

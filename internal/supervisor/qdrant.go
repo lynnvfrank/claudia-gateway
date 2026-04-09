@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -26,6 +27,9 @@ type QdrantConfig struct {
 	// RawExec runs Bin with Args only (tests).
 	RawExec bool
 	Args    []string
+	// Stdout and Stderr default to os.Stdout / os.Stderr when nil.
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // StartQdrant starts the Qdrant binary with env-based config (see https://qdrant.tech/documentation/guides/configuration/).
@@ -66,8 +70,17 @@ func StartQdrant(ctx context.Context, cfg QdrantConfig, log *slog.Logger) (*exec
 			"QDRANT__SERVICE__GRPC_PORT":    strconv.Itoa(cfg.GRPCPort),
 		})
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	out := cfg.Stdout
+	if out == nil {
+		out = os.Stdout
+	}
+	errOut := cfg.Stderr
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	cmd.Stdout = out
+	cmd.Stderr = errOut
+	applyNoConsoleWindow(cmd)
 	if log != nil {
 		if cfg.RawExec {
 			log.Info("starting qdrant subprocess", "bin", bin, "raw", true)

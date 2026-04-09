@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -90,6 +91,10 @@ Default gateway config: $CLAUDIA_GATEWAY_CONFIG or ./config/gateway.yaml
 }
 
 func buildLogger(gatewayPath string) *slog.Logger {
+	return buildLoggerTo(os.Stdout, gatewayPath)
+}
+
+func buildLoggerTo(w io.Writer, gatewayPath string) *slog.Logger {
 	hopts := &slog.HandlerOptions{}
 	if e := os.Getenv("LOG_LEVEL"); e != "" {
 		hopts.Level = server.ParseLogLevel(e)
@@ -101,5 +106,5 @@ func buildLogger(gatewayPath string) *slog.Logger {
 		}
 		hopts.Level = lvl
 	}
-	return slog.New(slog.NewTextHandler(os.Stdout, hopts))
+	return slog.New(slog.NewTextHandler(w, hopts))
 }

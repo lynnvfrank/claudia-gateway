@@ -26,10 +26,24 @@
   <p class="toolbar">
     <button type="button" id="btn-refresh">Refresh</button>
     <button type="button" id="btn-logout">Sign out</button>
-    <a href="/">Gateway home</a>
   </p>
 
   <div id="banner" class="err" hidden></div>
+
+  <section class="row" id="row-tokens">
+    <h3>Gateway tokens</h3>
+    <p class="meta">Used for <code>Authorization: Bearer …</code> on the API and to sign in here. Secret values are shown only once when created.</p>
+    <ul id="token-list" style="margin:0.5rem 0;padding-left:1.2rem;"></ul>
+    <label for="new-tok-label">New token label</label>
+    <input id="new-tok-label" type="text" autocomplete="off" placeholder="e.g. work laptop"/>
+    <button type="button" id="tok-add">Create token</button>
+    <div id="tok-new-wrap" hidden style="margin-top:0.75rem;">
+      <label for="tok-new-out">Copy this token now (not stored in the list)</label>
+      <textarea id="tok-new-out" readonly style="width:100%;min-height:4rem;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:0.8rem;"></textarea>
+      <button type="button" id="tok-copy">Copy token</button>
+    </div>
+    <div id="tok-err" class="err"></div>
+  </section>
 
   <section class="row" id="row-groq">
     <h3>Groq API key</h3>
@@ -109,6 +123,8 @@
     setProv("gemini", prov.gemini);
     setProv("ollama", prov.ollama);
 
+    loadGatewayTokens();
+
     var base = gw.public_base_url || "http://127.0.0.1:3000";
     var vm = gw.virtual_model_id || "Claudia-0.1.0";
     var ver = gw.semver != null && String(gw.semver) !== "" ? String(gw.semver) : "0.1.0";
@@ -150,6 +166,94 @@
     }
     return true;
   }
+
+  async function loadGatewayTokens() {
+    var listEl = document.getElementById("token-list");
+    var errEl = document.getElementById("tok-err");
+    errEl.textContent = "";
+    var r = await fetch("/api/ui/tokens", { credentials: "same-origin" });
+    if (r.status === 401) {
+      window.location.href = "/ui/login";
+      return;
+    }
+    var j = await r.json().catch(function () { return null; });
+    if (!r.ok || !j) {
+      errEl.textContent = (j && j.error) || ("HTTP " + r.status);
+      return;
+    }
+    listEl.textContent = "";
+    var rows = j.tokens || [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var li = document.createElement("li");
+      li.style.marginBottom = "0.35rem";
+      var label = row.label || "(no label)";
+      var tenant = row.tenant_id || "—";
+      li.appendChild(document.createTextNode(label + " · tenant " + tenant + " "));
+      var del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "Remove";
+      del.dataset.index = String(row.index);
+      del.addEventListener("click", async function (ev) {
+        var idx = parseInt(ev.target.dataset.index, 10);
+        if (!confirm("Remove this token? Clients using it will fail.")) return;
+        errEl.textContent = "";
+        var dr = await fetch("/api/ui/tokens/delete", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: idx })
+        });
+        var dj = await dr.json().catch(function () { return {}; });
+        if (!dr.ok) {
+          errEl.textContent = dj.error || ("HTTP " + dr.status);
+          return;
+        }
+        loadGatewayTokens();
+      });
+      li.appendChild(del);
+      listEl.appendChild(li);
+    }
+    if (rows.length === 0) {
+      var empty = document.createElement("li");
+      empty.textContent = "No tokens yet — create one below.";
+      listEl.appendChild(empty);
+    }
+  }
+
+  document.getElementById("tok-add").addEventListener("click", async function () {
+    var errEl = document.getElementById("tok-err");
+    var wrap = document.getElementById("tok-new-wrap");
+    var out = document.getElementById("tok-new-out");
+    errEl.textContent = "";
+    wrap.hidden = true;
+    out.value = "";
+    var label = (document.getElementById("new-tok-label").value || "").trim();
+    var r = await fetch("/api/ui/tokens", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: label })
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) {
+      window.location.href = "/ui/login";
+      return;
+    }
+    if (!r.ok) {
+      errEl.textContent = j.error || j.detail || ("HTTP " + r.status);
+      return;
+    }
+    out.value = j.token || "";
+    wrap.hidden = false;
+    document.getElementById("new-tok-label").value = "";
+    loadGatewayTokens();
+  });
+  document.getElementById("tok-copy").addEventListener("click", function () {
+    var t = document.getElementById("tok-new-out");
+    t.select();
+    document.execCommand("copy");
+  });
 
   document.getElementById("btn-refresh").addEventListener("click", function () { loadState(); });
   document.getElementById("btn-logout").addEventListener("click", async function () {
