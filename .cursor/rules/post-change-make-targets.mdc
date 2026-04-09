@@ -1,0 +1,10 @@
+---
+description: After edits, state exact make targets to rebuild, verify, or reset data
+alwaysApply: true
+---
+
+# Post-change `make` hints
+
+If edits touch source, build/embed inputs, Makefile/scripts, or data/runtime state, close with **Run the following:** then `make … …` (space-separated tasks; omit when N/A).
+
+Cheat sheet: Go → `claudia-build` or dev `claudia-run` / `claudia-serve`; verify → `test-gateway` or `precommit`; desktop → `desktop-build` / `vet-desktop`; stack/bootstrap only if clearly needed → `install` / `up`; artifacts → `clean`; deep clean → `clean-all CONFIRM=1`; fresh BiFrost+Qdrant data → `clean-data CONFIRM=1`; gofmt debt → `fmt`. Catalog: `make help`.
