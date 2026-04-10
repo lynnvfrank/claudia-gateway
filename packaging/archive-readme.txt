@@ -1,13 +1,21 @@
-Claudia release archive — quick start
+Claudia release archive — what you have
 
-1. Copy env.example to .env next to claudia (or claudia.exe) and set API keys.
-2. First run: start claudia — it listens on localhost and opens setup to create config/tokens.yaml (or copy tokens.example.yaml to tokens.yaml yourself).
-3. BiFrost (bifrost-http) is not in this zip (license/CGO). Options:
-   — Full local stack with UI: from a dev checkout run  make release-package  (bundles bifrost-http + qdrant + desktop claudia + this config layout).
-   — Or install BiFrost separately, then run:
-       claudia serve -bifrost-bin /path/to/bifrost-http
-     qdrant is included next to claudia; the supervisor auto-detects it when the binary sits in the same folder.
-4. Gateway-only (remote BiFrost):  claudia gateway
-5. With a desktop build (-tags desktop), no arguments start the supervisor + web UI; use --headless for no window.
+This zip/tar contains:
+  • claudia (or claudia.exe) — headless build (no native desktop window)
+  • qdrant (or qdrant.exe) — same folder as claudia; optional for local vector store
+  • config/ — starter YAML (gateway, routing, bifrost, tokens example, provider allowlist)
+  • env.example — copy to .env and add provider API keys
 
-See PACKAGING.md and docs/supervisor.md.
+BiFrost (bifrost-http) is not in this archive. Point gateway.yaml upstream.base_url at a running BiFrost, or install BiFrost separately and run e.g.:
+  claudia serve -bifrost-bin /path/to/bifrost-http [-qdrant-bin ./qdrant]
+
+Quick start:
+  1. Copy env.example to .env (same directory you run claudia from) and set keys.
+  2. Edit config/gateway.yaml and config/bifrost.config.json for your upstream.
+  3. Run ./claudia gateway  (gateway only, remote BiFrost)
+     or ./claudia serve -bifrost-bin …  (supervisor; add -qdrant-bin ./qdrant if you use local Qdrant)
+  4. Create config/tokens.yaml via the setup UI when prompted, or copy config/tokens.example.yaml.
+
+Full detail: PACKAGING.md in this archive (and the project repository for deeper docs).
+
+Maintainers / full local stack (BiFrost + desktop UI): build from a git checkout with make release-package (not included here).

@@ -34,12 +34,12 @@ func main() {
 
 	groqBody, err := freecatalog.FetchURL(ctx, client, *groqURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "free-tier-catalog: fetch groq: %v\n", err)
+		fmt.Fprintf(os.Stderr, "catalog-write-free: fetch groq: %v\n", err)
 		os.Exit(1)
 	}
 	gemBody, err := freecatalog.FetchURL(ctx, client, *geminiURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "free-tier-catalog: fetch gemini: %v\n", err)
+		fmt.Fprintf(os.Stderr, "catalog-write-free: fetch gemini: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -71,24 +71,24 @@ func main() {
 		})
 	}
 	if len(entries) == 0 {
-		fmt.Fprintf(os.Stderr, "free-tier-catalog: no models extracted (page layout may have changed)\n")
+		fmt.Fprintf(os.Stderr, "catalog-write-free: no models extracted (page layout may have changed)\n")
 		os.Exit(1)
 	}
 
 	if *intersectPath != "" {
 		raw, err := os.ReadFile(*intersectPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "free-tier-catalog: read intersect catalog: %v\n", err)
+			fmt.Fprintf(os.Stderr, "catalog-write-free: read intersect catalog: %v\n", err)
 			os.Exit(1)
 		}
 		catIDs, err := freecatalog.ParseCatalogIntersect(raw)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "free-tier-catalog: parse intersect catalog: %v\n", err)
+			fmt.Fprintf(os.Stderr, "catalog-write-free: parse intersect catalog: %v\n", err)
 			os.Exit(1)
 		}
 		entries = freecatalog.FilterEntriesByCatalog(entries, catIDs)
 		if len(entries) == 0 {
-			fmt.Fprintf(os.Stderr, "free-tier-catalog: intersect removed all models (check intersect file or parsing)\n")
+			fmt.Fprintf(os.Stderr, "catalog-write-free: intersect removed all models (check intersect file or parsing)\n")
 			os.Exit(1)
 		}
 		entries = freecatalog.AlignEntriesToCatalog(entries, catIDs)
@@ -96,8 +96,8 @@ func main() {
 
 	n, err := freecatalog.WriteCatalogYAML(*outPath, time.Now(), *groqURL, *geminiURL, entries)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "free-tier-catalog: write: %v\n", err)
+		fmt.Fprintf(os.Stderr, "catalog-write-free: write: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "free-tier-catalog: wrote %d models -> %s\n", n, *outPath)
+	fmt.Fprintf(os.Stderr, "catalog-write-free: wrote %d models -> %s\n", n, *outPath)
 }

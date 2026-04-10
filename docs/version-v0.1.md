@@ -179,7 +179,7 @@ This aligns with **§ Portable “first run”** but narrows v0.1 to **bootstrap
 #### Implemented in the tree today
 
 - **Authenticated HTTP API:** **`POST /api/ui/routing/generate`** (session after **`POST /api/ui/login`**) fetches upstream **`GET /v1/models`**, optionally intersects with **`provider-free-tier.yaml`** when **`routing.filter_free_tier_models`** is **true**, orders models deterministically (**`internal/routinggen`**), writes **`routing-policy.yaml`** and patches **`routing.fallback_chain`** via **`config.WriteGatewayFallbackChain`**, and **rejects** invalid output **before** leaving inconsistent files. See **`internal/server/ui_routing_generate.go`**.
-- **Free-tier catalog reference (offline / CI-friendly):** **`make catalog-write-free`** (**`go run ./cmd/free-tier-catalog`**) fetches public Groq + Gemini docs and emits a **reference** YAML snapshot (optional **`INTERSECT=`** against a local models export); operators may **manually** merge into **`provider-free-tier.yaml`** — the gateway does **not** load that snapshot automatically. See **`docs/configuration.md`**, **`internal/freecatalog/`**, **`cmd/free-tier-catalog/`**.
+- **Free-tier catalog reference (offline / CI-friendly):** **`make catalog-write-free`** (**`go run ./cmd/catalog-write-free`**) fetches public Groq + Gemini docs and emits a **reference** YAML snapshot (optional **`INTERSECT=`** against a local models export); operators may **manually** merge into **`provider-free-tier.yaml`** — the gateway does **not** load that snapshot automatically. See **`docs/configuration.md`**, **`internal/freecatalog/`**, **`cmd/catalog-write-free/`**.
 - **Catalog visibility:** When **`routing.filter_free_tier_models`** is on and the allowlist loads, merged **`GET /v1/models`** lists only allowlisted upstream ids (virtual model still first).
 
 #### Not implemented yet (track against v0.1 admin experience)
@@ -246,7 +246,7 @@ Instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch
 | BiFrost bootstrap                 | `config/bifrost.config.json`                                 |
 | Routing rules                     | `config/routing-policy.yaml`                                 |
 | Free-tier allowlist (optional)    | `config/provider-free-tier.yaml`                             |
-| Catalog snapshot tool (reference) | `make catalog-write-free`, `cmd/free-tier-catalog/`, `internal/freecatalog/` |
+| Catalog snapshot tool (reference) | `make catalog-write-free`, `cmd/catalog-write-free/`, `internal/freecatalog/` |
 | Regenerate routing (API)          | `POST /api/ui/routing/generate` (`internal/server/ui_routing_generate.go`) |
 | Operator UI (embed)               | `internal/server/embedui/`, `internal/server/ui_handlers.go` |
 | Product / locked decisions        | `docs/claudia-gateway.plan.md`                               |

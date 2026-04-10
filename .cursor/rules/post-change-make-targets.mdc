@@ -11,7 +11,7 @@ If the change affects binaries, embedded assets, scripts, or local service data,
 |-----------------|-------------------------|
 | `cmd/`, `internal/`, `go.mod` / `go.sum` | `claudia-build` · dev `claudia-run` / `claudia-serve` · verify `test-gateway` or `precommit` |
 | Desktop / webview / CGO (`webview_*.go`, etc.) | `desktop-build` · `vet-desktop` · once: `desktop-install` |
-| Free-tier catalog (`internal/freecatalog/`, `cmd/free-tier-catalog`, generator scripts) | `catalog-write-free` (network; optional `INTERSECT=`) |
+| Free-tier catalog (`internal/freecatalog/`, `cmd/catalog-write-free`) | `catalog-write-free` (network; optional `INTERSECT=`) |
 | Available-models snapshot (`cmd/catalog-write-available`, or regenerating that YAML) | `catalog-write-available` (BiFrost reachable + env from docs/help) |
 | Release / bundles (`scripts/release-*.sh`, dist packaging) | `release-package` / `release-snapshot` / `release-install` |
 | `Makefile` or `scripts/` | Parent target for that script—often `claudia-build`, `install`, `configure`, `up`, or the rows above |

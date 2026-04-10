@@ -121,7 +121,7 @@ claudia-build:
 # Optional: INTERSECT=path to JSON or YAML (OpenAI-style data[].id, e.g. catalog-available.snapshot.yaml).
 # Override OUT=path for snapshot file (default config/free-tier-catalog.snapshot.yaml).
 catalog-write-free:
-	go run ./cmd/free-tier-catalog \
+	go run ./cmd/catalog-write-free \
 		-out "$(if $(OUT),$(OUT),config/free-tier-catalog.snapshot.yaml)" \
 		$(if $(INTERSECT),-intersect $(INTERSECT),)
 
