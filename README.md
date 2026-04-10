@@ -197,7 +197,7 @@ Build snapshot artifacts with **GoReleaser**.
 - **Configuration:** [docs/configuration.md](docs/configuration.md)
 - **Supervisor:** [docs/supervisor.md](docs/supervisor.md)
 - **Packaging / releases:** [docs/packaging.md](docs/packaging.md)
-- **Makefile plan:** [makefile.plan.md](makefile.plan.md)
+- **Makefile plan:** [docs/makefile-plan.md](docs/makefile-plan.md)
 - **Admin UI / desktop shell:** [docs/ui-tool.plan.md](docs/ui-tool.plan.md); legacy Fyne checklist removed (use **`/ui/*`** + **`make desktop-build`**).
 - **End-to-end operator path:** [docs/e2e-operator-path.md](docs/e2e-operator-path.md)
 - **Continue samples:** [vscode-continue/README.md](vscode-continue/README.md)

@@ -1,4 +1,4 @@
-# Claudia Gateway — see makefile.plan.md and README.md
+# Claudia Gateway — see docs/makefile-plan.md and README.md
 #
 # clean:      removes ./claudia[.exe], claudia-desktop[.exe], dist/ only.
 # clean-all:  also removes bin/, packaging/qdrant-bundles/, packages/, node_modules/, .deps/, run/, logs/ (requires CONFIRM=1; runs clean first).
@@ -55,11 +55,11 @@ endif
 	release-install release-snapshot release-package \
 	vet-gateway vet-desktop test-gateway precommit
 
-# One bash process (same as install/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
+# One bash process (same as scripts/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
 help:
 	@$(GITBASH) scripts/print-make-help.sh
 
-# --- Full stack onboarding (§A.7 makefile.plan.md) ---
+# --- Full stack onboarding (see docs/makefile-plan.md) ---
 up: install configure claudia-build claudia-start
 
 bash:
