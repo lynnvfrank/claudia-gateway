@@ -1,25 +1,23 @@
-# Network architecture
+# Network architecture (local processes)
 
 ## Logical flow
 
 - **IDE / Continue** → **Claudia Gateway** (`POST /v1/chat/completions`, `GET /v1/models`) with `Authorization: Bearer <gateway token>`.
-- **Claudia Gateway** → **LiteLLM** (`/v1/chat/completions`, `/v1/models`) with `Authorization: Bearer <LITELLM_MASTER_KEY>`.
-- **LiteLLM** → **cloud or local model providers** (Groq, OpenAI, etc.) using keys from the host environment and `config/litellm_config.yaml`.
-- **v0.2+**: **Claudia** → **Qdrant** for retrieval and indexer-backed workflows. **v0.1**: Qdrant runs idle unless you use it manually.
+- **Claudia Gateway** → **BiFrost** (`/v1/chat/completions`, `/v1/models`) with `Authorization: Bearer <CLAUDIA_UPSTREAM_API_KEY>` (BiFrost often accepts a placeholder unless governance keys are enabled).
+- **BiFrost** → providers using **`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc. per **`config/bifrost.config.json`**.
+- **v0.2+**: **Claudia** → **Qdrant** for retrieval and indexer-backed workflows. **v0.1**: Qdrant is unused by the gateway unless you call it yourself.
 
-## Docker Compose topology
+## Typical local ports
 
-All services attach to the user-defined bridge network **`claudianet`** (see `docker-compose.yml`).
+| Process | Default port | Role |
+|---------|----------------|------|
+| **claudia** | **3000** | Client-facing gateway |
+| **bifrost-http** | **8080** | AI gateway (default upstream) |
+| **qdrant** | **6333** (HTTP), **6334** (gRPC) | Vectors (optional, v0.2+) |
 
-| Service (DNS name) | Internal ports | Typical host publish | Role |
-|--------------------|----------------|----------------------|------|
-| **claudia** | `3000` | `3000` | Client-facing gateway |
-| **litellm** | `4000` | `4000` (optional) | Model proxy |
-| **qdrant** | `6333`, `6334` | `6333`, `6334` (optional) | Vectors (v0.2+) |
+**`claudia serve`** binds BiFrost and Qdrant on loopback by default; **`config/gateway.yaml`** **`upstream.base_url`** should point at that upstream (e.g. **`http://127.0.0.1:8080`**). **`claudia serve`** overrides the upstream URL to match the supervised BiFrost listen address.
 
-**Inside the stack**, use Compose DNS hostnames and **internal** ports—for example `http://litellm:4000`, never `localhost`, from the `claudia` container.
-
-**On the host**, use `http://localhost:3000` for Continue’s `apiBase` (plus `/v1` path as required by your client).
+**On the host**, use **`http://127.0.0.1:3000`** for Continue’s **`apiBase`** (plus **`/v1`** as required by your client).
 
 ## Trust boundary (v0.1)
 

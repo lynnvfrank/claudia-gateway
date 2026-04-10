@@ -1,0 +1,22 @@
+---
+description: After edits, suggest make targets to rebuild or verify from what changed
+alwaysApply: true
+---
+
+# Post-change `make` hints
+
+If the change affects binaries, embedded assets, scripts, or local service data, close with **Run the following:** and space-separated `make` targets (omit when N/A). Full list: `make help`.
+
+| If you touched… | Run (pick what applies) |
+|-----------------|-------------------------|
+| `cmd/`, `internal/`, `go.mod` / `go.sum` | `claudia-build` · dev `claudia-run` / `claudia-serve` · verify `test-gateway` or `precommit` |
+| Desktop / webview / CGO (`webview_*.go`, etc.) | `desktop-build` · `vet-desktop` · once: `desktop-install` |
+| Free-tier catalog (`internal/freecatalog/`, `cmd/catalog-write-free`) | `catalog-write-free` (network; optional `INTERSECT=`) |
+| Available-models snapshot (`cmd/catalog-write-available`, or regenerating that YAML) | `catalog-write-available` (BiFrost reachable + env from docs/help) |
+| Release / bundles (`scripts/release-*.sh`, dist packaging) | `release-package` / `release-snapshot` / `release-install` |
+| `Makefile` or `scripts/` | Parent target for that script—often `claudia-build`, `install`, `configure`, `up`, or the rows above |
+| Stack onboarding or process control | `install` · `configure` · `up` · `claudia-start` / `claudia-stop` / `claudia-status` · `logs` |
+| Clean artifacts or reset BiFrost+Qdrant data | `clean` · `clean-all CONFIRM=1` · `clean-data CONFIRM=1` |
+| gofmt / CI-style gate | `fmt` · `fmt-check` · or `precommit` |
+
+Keep this table as the default map; do not paste long Makefile excerpts into chat.

@@ -1,0 +1,14 @@
+{
+  "config_store": {
+    "enabled": true,
+    "type": "sqlite",
+    "config": {
+      "path": "./config.db"
+    }
+  },
+  "client": {
+    "drop_excess_requests": false
+  },
+  "providers": {
+  }
+}

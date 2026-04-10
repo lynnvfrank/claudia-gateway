@@ -1,0 +1,143 @@
+name: Go
+
+on:
+  push:
+    paths:
+      - "**.go"
+      - go.mod
+      - go.sum
+      - "Makefile"
+      - ".goreleaser.yaml"
+      - "docs/packaging.md"
+      - "deps.lock"
+      - "scripts/release-snapshot-qdrant.sh"
+      - "scripts/qdrant-from-release.sh"
+      - "scripts/deps-lock.sh"
+      - "scripts/install-bootstrap.sh"
+      - "scripts/install-make.sh"
+      - "scripts/install-make.ps1"
+      - "scripts/compiler-detect.sh"
+      - "scripts/install-gcc.sh"
+      - "scripts/install.sh"
+      - "scripts/configure.sh"
+      - "scripts/claudia-start.sh"
+      - "scripts/claudia-stop.sh"
+      - "scripts/claudia-status.sh"
+      - "scripts/clean.sh"
+      - "scripts/clean-all.sh"
+      - "scripts/logs.sh"
+      - "scripts/precommit-smoke.sh"
+      - "scripts/fmt-check.sh"
+      - "scripts/desktop-build.sh"
+      - "scripts/desktop-install.sh"
+      - "scripts/desktop-run.sh"
+      - "internal/server/embedui/**"
+      - ".github/workflows/go.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    paths:
+      - "**.go"
+      - go.mod
+      - go.sum
+      - "Makefile"
+      - ".goreleaser.yaml"
+      - "docs/packaging.md"
+      - "deps.lock"
+      - "scripts/release-snapshot-qdrant.sh"
+      - "scripts/qdrant-from-release.sh"
+      - "scripts/deps-lock.sh"
+      - "scripts/install-bootstrap.sh"
+      - "scripts/install-make.sh"
+      - "scripts/install-make.ps1"
+      - "scripts/compiler-detect.sh"
+      - "scripts/install-gcc.sh"
+      - "scripts/install.sh"
+      - "scripts/configure.sh"
+      - "scripts/claudia-start.sh"
+      - "scripts/claudia-stop.sh"
+      - "scripts/claudia-status.sh"
+      - "scripts/clean.sh"
+      - "scripts/clean-all.sh"
+      - "scripts/logs.sh"
+      - "scripts/precommit-smoke.sh"
+      - "scripts/fmt-check.sh"
+      - "scripts/desktop-build.sh"
+      - "scripts/desktop-install.sh"
+      - "scripts/desktop-run.sh"
+      - "internal/server/embedui/**"
+      - ".github/workflows/go.yml"
+      - ".github/workflows/release.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Format
+        run: test -z "$(gofmt -l cmd internal)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -race -count=1
+
+  # Validates .goreleaser.yaml and produces snapshot artifacts; smoke-run linux amd64 binary.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Snapshot smoke (--version)
+        run: |
+          BIN=$(find dist -type f -path '*/claudia_linux_amd64*/claudia' | head -1)
+          test -n "$BIN" -a -x "$BIN"
+          "$BIN" --version
+
+  # Desktop: webview_go + CGO (compile-only on linux-amd64).
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Linux dependencies (WebKitGTK)
+        run: |
+          sudo apt-get update
+          # Noble+ dropped libwebkit2gtk-4.0-dev; webview_go still uses pkg-config webkit2gtk-4.0.
+          sudo apt-get install -y gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo mkdir -p /usr/local/lib/pkgconfig
+          # pkgconf (Ubuntu's pkg-config) does not support --print-filename; use dpkg.
+          wk41_pc=$(dpkg -L libwebkit2gtk-4.1-dev | grep -E '/webkit2gtk-4\.1\.pc$' | head -n1)
+          test -n "$wk41_pc" && test -f "$wk41_pc"
+          sudo ln -sf "$wk41_pc" /usr/local/lib/pkgconfig/webkit2gtk-4.0.pc
+
+      - name: Vet (desktop tag)
+        env:
+          CGO_ENABLED: "1"
+        run: go vet -tags desktop ./cmd/claudia
+
+      - name: Build desktop binary
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags desktop -o /tmp/claudia-desktop ./cmd/claudia
