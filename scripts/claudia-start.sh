@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # make claudia-start — run ./claudia serve in background; logs → logs/claudia.log, pid → run/claudia.pid
+# Makefile passes --stack unless UP_STACK=0 (then BiFrost only, no Qdrant).
 # Usage: scripts/claudia-start.sh [--stack]   (--stack adds -qdrant-bin when qdrant binary exists)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

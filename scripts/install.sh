@@ -63,4 +63,4 @@ fi
 
 echo ""
 echo "install: done. Next:"
-echo "    make configure   # seed .env and config/tokens.yaml if missing"
+echo "    make configure   # seed .env from env.example if missing; tokens.yaml via /ui/setup or manual copy"

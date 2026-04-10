@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# make desktop-build — go build -tags desktop → claudia-desktop[.exe] (arg: output name).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=scripts/msys2-gcc-path.sh
@@ -19,4 +20,4 @@ if ! go build -tags desktop "${ldflags[@]}" -o "$root/$bin" ./cmd/claudia; then
   echo "  Run:  make desktop-install" >&2
   exit 1
 fi
-echo "Built $root/$bin — run:  ./$bin (supervisor+UI) or ./$bin --headless   (same flags as claudia serve)"
+echo "Built $root/$bin — run:  make desktop-run   or  ./$bin   (supervisor+UI) / ./$bin --headless"

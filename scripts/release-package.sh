@@ -26,18 +26,18 @@ if [[ -z "$DESKTOP_BIN" ]]; then
 fi
 
 if [[ ! -f "$ROOT/$DESKTOP_BIN" ]]; then
-	echo "package-personal: building $DESKTOP_BIN (CGO + -tags desktop)..."
+	echo "release-package: building $DESKTOP_BIN (CGO + -tags desktop)..."
 	bash "$ROOT/scripts/desktop-build.sh" "$DESKTOP_BIN"
 fi
 
 BIF="bifrost-http${ext}"
 QDR="qdrant${ext}"
 if [[ ! -f "$ROOT/bin/$BIF" ]]; then
-	echo "package-personal: missing bin/$BIF — run: make install" >&2
+	echo "release-package: missing bin/$BIF — run: make install" >&2
 	exit 1
 fi
 if [[ ! -f "$ROOT/bin/$QDR" ]]; then
-	echo "package-personal: missing bin/$QDR — run: make install" >&2
+	echo "release-package: missing bin/$QDR — run: make install" >&2
 	exit 1
 fi
 
@@ -55,16 +55,10 @@ cp "$ROOT/env.example" "$OUT/env.example"
 cat > "$OUT/README.txt" <<'EOF'
 Personal bundle (make release-package)
 
-1. Copy env.example to .env in this folder and set keys (see comments inside env.example).
-2. First run: start claudia — it opens setup on localhost to create config/tokens.yaml (or copy tokens.example.yaml to tokens.yaml yourself).
-3. Run claudia from this folder (same directory as bifrost-http and qdrant):
-     — Desktop UI + full stack: double-click claudia (Windows) or ./claudia
-     — Headless supervisor: ./claudia --headless
-     — Gateway only (no local BiFrost/Qdrant): ./claudia gateway
+1. Copy env.example to .env in this folder and add provider keys.
+2. First run: start claudia (double-click or run ./claudia.exe / ./claudia) — setup opens in the browser to create config/tokens.yaml (or copy config/tokens.example.yaml to config/tokens.yaml yourself).
+3. Restart claudia and use the gateway token from setup when your client asks for it.
 
-Sibling binaries (bifrost-http, qdrant) are auto-detected. Config lives in ./config/.
-
-Rebuild: from repo root run  make release-package
 EOF
 
-echo "package-personal: wrote $OUT"
+echo "release-package: wrote $OUT"

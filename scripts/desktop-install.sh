@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native dependencies for claudia desktop (github.com/webview/webview_go + CGO).
+# make desktop-install — native deps for claudia-desktop (webview_go + CGO). Next: make desktop-build.
 set -euo pipefail
 
 os=$(uname -s)

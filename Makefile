@@ -5,7 +5,7 @@
 # clean-data: removes data/bifrost/, data/qdrant/ — fresh BiFrost + Qdrant state (requires CONFIRM=1).
 
 ifeq ($(OS),Windows_NT)
-  # Same bash as install/*.sh (Git for Windows). MSYS2-only: set GITBASH, e.g.
+  # Same bash as scripts/*.sh (Git for Windows). MSYS2-only: set GITBASH, e.g.
   #   set "GITBASH=C:\msys64\usr\bin\bash.exe"
   ifeq ($(origin GITBASH),undefined)
     # Per-machine install first; then per-user (winget / default installer path).
@@ -52,7 +52,7 @@ endif
 	claudia-build desktop-install desktop-build desktop-run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
 	catalog-write-free catalog-write-available \
-	release-install release-snapshot package-personal \
+	release-install release-snapshot release-package \
 	vet-gateway vet-desktop test-gateway precommit
 
 # One bash process (same as install/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
@@ -71,6 +71,7 @@ install:
 configure:
 	$(GITBASH) scripts/configure.sh
 
+# claudia-start: pass --stack (Qdrant + bifrost) unless UP_STACK=0 (BiFrost only, same as make up).
 claudia-start:
 	$(GITBASH) scripts/claudia-start.sh $(_BG_FLAGS)
 
@@ -94,7 +95,7 @@ clean-all:
 clean-data:
 	$(GITBASH) scripts/clean-data.sh $(CONFIRM)
 
-# --- CI / pre-commit (.github/workflows/go.yml test + desktop jobs) ---
+# --- CI / pre-commit (fmt-check, vet-gateway, test-gateway; vet-desktop unless SKIP_DESKTOP=1) ---
 fmt:
 	gofmt -w cmd internal
 
@@ -142,6 +143,7 @@ desktop-run:
 claudia-run:
 	go run ./cmd/claudia
 
+# Foreground supervisor: same bin paths as claudia-start --stack (requires make install).
 claudia-serve:
 	go run ./cmd/claudia serve -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
@@ -151,6 +153,6 @@ release-install:
 release-snapshot:
 	$(GITBASH) scripts/release-snapshot.sh
 
-# Desktop + bifrost-http + qdrant + config into dist/personal/ (requires: make install, CGO for desktop).
+# Desktop claudia + bifrost-http + qdrant + config → dist/personal/ (needs make install; CGO for desktop build).
 release-package:
 	$(GITBASH) scripts/release-package.sh "$(DESKTOP_BIN)"

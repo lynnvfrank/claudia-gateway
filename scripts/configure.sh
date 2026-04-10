@@ -15,7 +15,7 @@ fi
 if [[ -f config/tokens.yaml ]]; then
 	echo "configure: config/tokens.yaml exists — left unchanged."
 else
-	echo "configure: no config/tokens.yaml — start claudia and use /ui/setup to create a gateway token (or copy config/tokens.example.yaml manually)."
+	echo "configure: no config/tokens.yaml — run make claudia-serve or make up, then open /ui/setup (or copy config/tokens.example.yaml to config/tokens.yaml)."
 fi
 
 echo "configure: edit config/gateway.yaml and config/bifrost.config.json as needed (see README)."

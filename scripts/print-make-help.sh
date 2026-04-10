@@ -10,8 +10,8 @@ echo "  make configure          seed .env from example if missing (tokens.yaml v
 echo
 echo "  make claudia-build      go build -o claudia ./cmd/claudia (headless; no CGO)"
 echo "  make claudia-run        go run ./cmd/claudia"
-echo "  make claudia-serve      foreground supervisor + BiFrost + Qdrant"
-echo "  make claudia-start      background: ./claudia serve (logs/claudia.log, run/claudia.pid)"
+echo "  make claudia-serve      foreground: go run serve + ./bin/bifrost-http + ./bin/qdrant (needs make install)"
+echo "  make claudia-start      background ./claudia serve (UP_STACK=0 omits Qdrant); logs/claudia.log, run/claudia.pid"
 echo "  make logs               tail logs/claudia.log"
 echo "  make claudia-status     PID file + HTTP probes (gateway / BiFrost / Qdrant)"
 echo "  make claudia-stop       stop background supervisor from run/claudia.pid"
@@ -25,7 +25,7 @@ echo "  make fmt                gofmt -w cmd internal"
 echo "  make fmt-check          fail if gofmt would change files"
 echo "  make vet-gateway        go vet ./..."
 echo "  make test-gateway       go test ./... (with -race on Unix)"
-echo "  make precommit          fmt-check, vet, test; vet-desktop unless SKIP_DESKTOP=1"
+echo "  make precommit          fmt-check, vet-gateway, test-gateway; vet-desktop unless SKIP_DESKTOP=1"
 echo
 echo "  make bash               interactive bash (-il); Windows: Git for Windows bash"
 echo

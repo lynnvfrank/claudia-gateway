@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optional wrapper: same checks as CI via make precommit (SKIP_DESKTOP=1 without WebView/CGO toolchain).
+# Optional wrapper: make precommit (fmt-check, vet-gateway, test-gateway; vet-desktop unless SKIP_DESKTOP=1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

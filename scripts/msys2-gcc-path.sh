@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MSYS2 MinGW GCC on PATH for Windows CGO (Fyne). Source from other scripts.
-# Non-interactive shells (e.g. make gui-build) do not load ~/.bashrc; call msys2_prepend_gcc_path.
+# Non-interactive shells (e.g. make desktop-build) do not load ~/.bashrc; call msys2_prepend_gcc_path.
 # shellcheck shell=bash
 
 _msys2_gcc_path_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
