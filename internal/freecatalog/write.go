@@ -15,10 +15,10 @@ type GroqLimits struct {
 
 // Entry is one model line for the generated catalog.
 type Entry struct {
-	Provider   string // "groq" | "gemini"
-	SourceID   string // as printed on the provider page
-	BiFrostID  string // provider/model for BiFrost
-	SourcePage string // URL (for header only)
+	Provider   string      // "groq" | "gemini"
+	SourceID   string      // as printed on the provider page
+	BiFrostID  string      // provider/model for BiFrost
+	SourcePage string      // URL (for header only)
 	Groq       *GroqLimits // only for provider "groq"; snapshot comment includes limits
 }
 
