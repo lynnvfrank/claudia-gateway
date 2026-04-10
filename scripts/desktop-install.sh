@@ -11,12 +11,22 @@ if [[ "$os" == "Linux" ]]; then
   fi
   echo "desktop-install: Debian/Ubuntu — WebKitGTK + build tools..."
   sudo apt-get update
+  webkit_dev=libwebkit2gtk-4.0-dev
+  if ! apt-cache show "$webkit_dev" >/dev/null 2>&1; then
+    webkit_dev=libwebkit2gtk-4.1-dev
+  fi
   sudo apt-get install -y \
     build-essential \
     gcc \
     pkg-config \
     libgtk-3-dev \
-    libwebkit2gtk-4.0-dev
+    "$webkit_dev"
+  if [[ "$webkit_dev" == libwebkit2gtk-4.1-dev ]]; then
+    sudo mkdir -p /usr/local/lib/pkgconfig
+    wk41_pc=$(pkg-config --print-filename webkit2gtk-4.1)
+    sudo ln -sf "$wk41_pc" /usr/local/lib/pkgconfig/webkit2gtk-4.0.pc
+    echo "desktop-install: webview_go uses pkg-config webkit2gtk-4.0; linked $wk41_pc as webkit2gtk-4.0.pc under /usr/local/lib/pkgconfig." >&2
+  fi
   echo "desktop-install: done. Next: make desktop-build"
 
 elif [[ "$os" == "Darwin" ]]; then

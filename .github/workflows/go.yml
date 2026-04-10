@@ -124,7 +124,10 @@ jobs:
       - name: Linux dependencies (WebKitGTK)
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgtk-3-dev libwebkit2gtk-4.0-dev
+          # Noble+ dropped libwebkit2gtk-4.0-dev; webview_go still uses pkg-config webkit2gtk-4.0.
+          sudo apt-get install -y gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo mkdir -p /usr/local/lib/pkgconfig
+          sudo ln -sf "$(pkg-config --print-filename webkit2gtk-4.1)" /usr/local/lib/pkgconfig/webkit2gtk-4.0.pc
 
       - name: Vet (desktop tag)
         env:
