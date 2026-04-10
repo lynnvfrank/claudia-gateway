@@ -79,6 +79,31 @@
     <div id="ollama-err" class="err"></div>
   </section>
 
+  <section class="row" id="row-routing">
+    <h3>Routing &amp; fallback</h3>
+    <p class="meta">The virtual model (<code id="rt-vm">—</code>) uses <code id="rt-policy">routing-policy.yaml</code> to pick the first upstream model, then <strong>routing.fallback_chain</strong> in <code>gateway.yaml</code> for 429/5xx failover. Hosted models are ordered ahead of <code>ollama/</code> when you regenerate.</p>
+    <p class="meta">Saved <code>fallback_chain</code>: <code id="rt-chain-hint">—</code></p>
+    <label class="meta" style="display:block;margin-top:0.5rem;font-weight:normal;">
+      <input type="checkbox" id="rt-ft-toggle"/>
+      <strong>Filter catalog with provider-free-tier allowlist</strong> — merged <code>GET /v1/models</code> and routing preview/generate use <code>provider-free-tier.yaml</code> (<code>routing.filter_free_tier_models</code> in <code>gateway.yaml</code>). Default is on when the key is omitted.
+    </label>
+    <button type="button" id="rt-preview">Preview from live catalog</button>
+    <button type="button" id="rt-generate">Save routing (write policy + gateway)</button>
+    <div id="rt-err" class="err"></div>
+    <div id="rt-ok" class="warn" hidden></div>
+    <label for="rt-yaml">Routing policy YAML (preview or paste)</label>
+    <textarea id="rt-yaml" style="width:100%;min-height:12rem;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:0.78rem;"></textarea>
+    <p class="meta">Summary: <span id="rt-summary">—</span></p>
+    <h4 style="font-size:1rem;margin:1.25rem 0 0.35rem 0;">Fallback Chain</h4>
+    <p class="meta" style="margin-top:0;">Model ids for dry-run (<code>routing.fallback_chain</code>). One YAML list item per line (e.g. <code>- groq/llama-3.1-8b-instant</code>). A JSON array is also accepted if pasted.</p>
+    <textarea id="rt-fallback-yaml" style="width:100%;min-height:6.5rem;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:0.78rem;" placeholder="- groq/model-a&#10;- gemini/gemini-3-flash-preview"></textarea>
+    <label for="rt-msg">Sample user message (length affects <code>min_message_chars</code> rules)</label>
+    <input id="rt-msg" type="text" style="width:100%;max-width:100%;box-sizing:border-box;" placeholder="Short or long text…"/>
+    <label><input type="checkbox" id="rt-smoke"/> Optional: smoke <code>POST /v1/chat/completions</code> (1 token) with picked model</label>
+    <button type="button" id="rt-eval">Dry-run router</button>
+    <pre id="rt-eval-out" style="background:#f4f4f4;padding:0.75rem;border-radius:6px;font-size:0.78rem;overflow:auto;max-height:14rem;">—</pre>
+  </section>
+
   <h2>VS Code Continue</h2>
   <p>Copy into <code>~/.continue/config.yaml</code> (or merge under <code>models</code>). <code>apiKey</code> is the gateway token you used to sign in here. Do not commit this snippet.</p>
   <textarea id="continue-block" readonly></textarea>
@@ -92,6 +117,57 @@
     if (!msg) { banner.hidden = true; banner.textContent = ""; return; }
     banner.textContent = msg;
     banner.hidden = false;
+  }
+
+  function fallbackChainToYAML(ids) {
+    if (!ids || !ids.length) return "";
+    return ids.map(function (id) {
+      var s = String(id);
+      if (/^[\w./-]+$/.test(s)) return "- " + s;
+      return "- " + JSON.stringify(s);
+    }).join("\n");
+  }
+
+  function parseFallbackChainInput(text) {
+    var t = String(text || "").trim();
+    if (t.length > 0 && t[0] === "[") {
+      try {
+        var j = JSON.parse(t);
+        if (Array.isArray(j)) {
+          return j.map(function (x) { return String(x); });
+        }
+      } catch (e) { /* fall through to YAML lines */ }
+    }
+    var lines = String(text || "").split(/\r?\n/);
+    var out = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/#.*$/, "").trim();
+      if (!line) continue;
+      if (line[0] !== "-") {
+        throw new Error("each non-empty line must start with '-' (line " + (i + 1) + ")");
+      }
+      var rest = line.slice(1).trim();
+      if (!rest) {
+        throw new Error("empty list item (line " + (i + 1) + ")");
+      }
+      if (rest[0] === '"') {
+        try {
+          out.push(JSON.parse(rest));
+        } catch (e) {
+          throw new Error("bad double-quoted string (line " + (i + 1) + "): " + e.message);
+        }
+        continue;
+      }
+      if (rest[0] === "'") {
+        if (rest.length < 2 || rest[rest.length - 1] !== "'") {
+          throw new Error("unclosed single-quoted string (line " + (i + 1) + ")");
+        }
+        out.push(rest.slice(1, -1).replace(/''/g, "'"));
+        continue;
+      }
+      out.push(rest);
+    }
+    return out;
   }
 
   function setProv(name, p) {
@@ -172,6 +248,25 @@
 
     var base = gw.public_base_url || "http://127.0.0.1:3000";
     var vm = gw.virtual_model_id || "Claudia-0.1.0";
+    var rtVmEl = document.getElementById("rt-vm");
+    if (rtVmEl) rtVmEl.textContent = vm;
+    var rtPolEl = document.getElementById("rt-policy");
+    if (rtPolEl) rtPolEl.textContent = gw.routing_policy_basename || "routing-policy.yaml";
+    var rtFtToggle = document.getElementById("rt-ft-toggle");
+    if (rtFtToggle) {
+      rtFtToggle.dataset.programmatic = "1";
+      rtFtToggle.checked = !!gw.filter_free_tier_models;
+      rtFtToggle.dataset.programmatic = "";
+    }
+    var rtChainEl = document.getElementById("rt-chain-hint");
+    var fc = gw.fallback_chain;
+    if (rtChainEl) {
+      rtChainEl.textContent = Array.isArray(fc) && fc.length ? JSON.stringify(fc) : "(empty)";
+    }
+    var rtFb = document.getElementById("rt-fallback-yaml");
+    if (rtFb && !rtFb.dataset.touched) {
+      rtFb.value = Array.isArray(fc) && fc.length ? fallbackChainToYAML(fc) : "";
+    }
     var ver = gw.semver != null && String(gw.semver) !== "" ? String(gw.semver) : "0.1.0";
     var tok = gw.continue_gateway_token != null ? String(gw.continue_gateway_token) : "";
     var yml = [
@@ -335,6 +430,122 @@
     var t = document.getElementById("continue-block");
     t.select();
     document.execCommand("copy");
+  });
+
+  var rtFb = document.getElementById("rt-fallback-yaml");
+  if (rtFb) {
+    rtFb.addEventListener("input", function () { rtFb.dataset.touched = "1"; });
+  }
+  var rtFtToggleEl = document.getElementById("rt-ft-toggle");
+  if (rtFtToggleEl) {
+    rtFtToggleEl.addEventListener("change", async function (ev) {
+      if (ev.target.dataset.programmatic === "1") return;
+      var errEl = document.getElementById("rt-err");
+      errEl.textContent = "";
+      var r = await fetch("/api/ui/routing/filter_free_tier_models", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: ev.target.checked })
+      });
+      var j = await r.json().catch(function () { return {}; });
+      if (r.status === 401) { window.location.href = "/ui/login"; return; }
+      if (!r.ok) {
+        errEl.textContent = (j.error && j.error.message) || ("HTTP " + r.status);
+        ev.target.checked = !ev.target.checked;
+        return;
+      }
+      loadState();
+    });
+  }
+  document.getElementById("rt-preview").addEventListener("click", async function () {
+    var errEl = document.getElementById("rt-err");
+    var okEl = document.getElementById("rt-ok");
+    errEl.textContent = "";
+    okEl.hidden = true;
+    var r = await fetch("/api/ui/routing/preview", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) { window.location.href = "/ui/login"; return; }
+    if (!r.ok) {
+      errEl.textContent = (j.error && j.error.message) || ("HTTP " + r.status);
+      return;
+    }
+    document.getElementById("rt-yaml").value = j.routing_policy_yaml || "";
+    document.getElementById("rt-summary").textContent = JSON.stringify(j.routing || {});
+    if (rtFb) {
+      rtFb.value = fallbackChainToYAML(j.fallback_chain || []);
+      rtFb.dataset.touched = "";
+    }
+    okEl.textContent = "Preview OK (not saved). " + (j.models_used || 0) + " model(s) in chain.";
+    okEl.hidden = false;
+  });
+  document.getElementById("rt-generate").addEventListener("click", async function () {
+    var errEl = document.getElementById("rt-err");
+    var okEl = document.getElementById("rt-ok");
+    errEl.textContent = "";
+    okEl.hidden = true;
+    if (!confirm("Overwrite routing-policy.yaml and routing.fallback_chain in gateway.yaml?")) return;
+    var r = await fetch("/api/ui/routing/generate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) { window.location.href = "/ui/login"; return; }
+    if (!r.ok) {
+      errEl.textContent = (j.error && j.error.message) || ("HTTP " + r.status);
+      return;
+    }
+    document.getElementById("rt-yaml").value = j.routing_policy_yaml || "";
+    document.getElementById("rt-summary").textContent = JSON.stringify(j.routing || {});
+    if (rtFb) {
+      rtFb.value = fallbackChainToYAML(j.fallback_chain || []);
+      rtFb.dataset.touched = "";
+    }
+    okEl.textContent = "Saved. " + (j.models_used || 0) + " model(s). Next requests use the new routing.";
+    okEl.hidden = false;
+    loadState();
+  });
+  document.getElementById("rt-eval").addEventListener("click", async function () {
+    var errEl = document.getElementById("rt-err");
+    errEl.textContent = "";
+    var yaml = (document.getElementById("rt-yaml").value || "");
+    var fbRaw = rtFb && rtFb.value || "";
+    var fb = null;
+    try {
+      fb = parseFallbackChainInput(fbRaw);
+    } catch (e) {
+      errEl.textContent = "Fallback chain: " + e.message;
+      return;
+    }
+    if (!fb.length) { errEl.textContent = "Fallback chain: add at least one model id"; return; }
+    var msg = (document.getElementById("rt-msg").value || "");
+    var smoke = document.getElementById("rt-smoke").checked;
+    var r = await fetch("/api/ui/routing/evaluate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routing_policy_yaml: yaml,
+        fallback_chain: fb,
+        messages: [{ role: "user", content: msg }],
+        smoke_completion: smoke
+      })
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) { window.location.href = "/ui/login"; return; }
+    if (!r.ok) {
+      errEl.textContent = (j.error && j.error.message) || ("HTTP " + r.status);
+      document.getElementById("rt-eval-out").textContent = "";
+      return;
+    }
+    document.getElementById("rt-eval-out").textContent = JSON.stringify(j, null, 2);
   });
 
   loadState();

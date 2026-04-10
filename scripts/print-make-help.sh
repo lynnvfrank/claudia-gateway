@@ -33,6 +33,9 @@ echo "  make clean              remove claudia[.exe], claudia-desktop[.exe], dis
 echo "  make clean-all          remove clean + bin/ + packaging/qdrant-bundles + packages + node_modules + .deps + run + logs (CONFIRM=1)"
 echo "  make clean-data         remove data/bifrost + data/qdrant (fresh BiFrost/Qdrant; needs CONFIRM=1)"
 echo
+echo "  make catalog-write-free       fetch Groq + Gemini docs -> config/free-tier-catalog.snapshot.yaml (network; optional INTERSECT=catalog YAML/JSON OUT=)"
+echo "  make catalog-write-available  GET BiFrost /v1/models -> config/catalog-available.snapshot.yaml (BiFrost up; env BIFROST_BASE_URL OUT=)"
+echo
 echo "  make release-install    goreleaser v2 (go install) + curl/tar/unzip for Qdrant packaging hook"
 echo "  make release-snapshot   local goreleaser snapshot -> dist/ (GitHub uses .github/workflows/release.yml on v* tags)"
 echo "  make release-package    dist/personal/: desktop claudia + bifrost-http + qdrant + config (after make install)"

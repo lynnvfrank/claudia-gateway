@@ -1,0 +1,75 @@
+# =============================================================================
+# Provider free-tier allowlist (operator-maintained)
+# =============================================================================
+#
+# Purpose:
+#   When routing.filter_free_tier_models is true in gateway.yaml, only model ids
+#   that appear in BOTH this file (as an exact or pattern match) AND the live
+#   upstream catalog are treated as eligible for merged model listing and for
+#   automatic routing table generation.
+#
+# This file does not contact cloud providers. Keep entries aligned with the
+# provider documentation for your account (free tier, trial, or paid).
+#
+# format_version (required, integer):
+#   Bump when the structure of this file changes in a breaking way. The gateway
+#   only accepts the version it was built for; today that is 1.
+#
+# effective_date (recommended, YYYY-MM-DD):
+#   The calendar date when an operator last reviewed the allowlist against
+#   provider pricing pages. Update this when you add or remove models so future
+#   you knows how stale the list might be.
+#
+# models (optional, list of strings):
+#   Full BiFrost unified ids exactly as returned by the upstream catalog
+#   (e.g. groq/llama-3.1-8b-instant, gemini/gemini-2.0-flash).
+#
+# patterns (optional, list of strings):
+#   Shell-style globs matched against the full id string. Use sparingly.
+#   Example: gemini/gemini-2.0-flash* matches any catalog id with that prefix.
+#   Metacharacters follow Go path.Match: * matches within one path segment
+#   (characters other than /); use separate patterns for multiple segments.
+#
+# Empty models and patterns:
+#   Valid but matches nothing — with the gateway filter enabled, upstream models
+#   are hidden until you add entries.
+#
+# =============================================================================
+
+format_version: 1
+generated_at: "2026-04-10T01:13:17Z"
+sources:
+  groq: "https://console.groq.com/docs/rate-limits"
+  gemini: "https://ai.google.dev/gemini-api/docs/pricing"
+models:
+  - gemini/gemini-2.0-flash  # gemini-2.0-flash
+  - gemini/gemini-2.0-flash-lite  # gemini-2.0-flash-lite
+  - gemini/gemini-2.5-flash  # gemini-2.5-flash
+  - gemini/gemini-2.5-flash-lite  # gemini-2.5-flash-lite
+  - gemini/gemini-2.5-flash-native-audio-preview-12-2025  # gemini-2.5-flash-native-audio-preview-12-2025
+  - gemini/gemini-2.5-flash-preview-tts  # gemini-2.5-flash-preview-tts
+  - gemini/gemini-2.5-pro  # gemini-2.5-pro
+  - gemini/gemini-3-flash-preview  # gemini-3-flash-preview
+  - gemini/gemini-3.1-flash-lite-preview  # gemini-3.1-flash-lite-preview
+  - gemini/gemini-3.1-flash-live-preview  # gemini-3.1-flash-live-preview
+  - gemini/gemini-embedding-001  # gemini-embedding-001
+  - gemini/gemini-embedding-2-preview  # gemini-embedding-2-preview
+  - gemini/gemini-robotics-er-1.5-preview  # gemini-robotics-er-1.5-preview
+  - groq/allam-2-7b  # allam-2-7b | 30 | 7K | 6K | 500K | - | -
+  - groq/canopylabs/orpheus-arabic-saudi  # canopylabs/orpheus-arabic-saudi | 10 | 100 | 1.2K | 3.6K | - | -
+  - groq/canopylabs/orpheus-v1-english  # canopylabs/orpheus-v1-english | 10 | 100 | 1.2K | 3.6K | - | -
+  - groq/groq/compound  # groq/compound | 30 | 250 | 70K | - | - | -
+  - groq/groq/compound-mini  # groq/compound-mini | 30 | 250 | 70K | - | - | -
+  - groq/llama-3.1-8b-instant  # llama-3.1-8b-instant | 30 | 14.4K | 6K | 500K | - | -
+  - groq/llama-3.3-70b-versatile  # llama-3.3-70b-versatile | 30 | 1K | 12K | 100K | - | -
+  - groq/meta-llama/llama-4-scout-17b-16e-instruct  # meta-llama/llama-4-scout-17b-16e-instruct | 30 | 1K | 30K | 500K | - | -
+  - groq/meta-llama/llama-prompt-guard-2-22m  # meta-llama/llama-prompt-guard-2-22m | 30 | 14.4K | 15K | 500K | - | -
+  - groq/meta-llama/llama-prompt-guard-2-86m  # meta-llama/llama-prompt-guard-2-86m | 30 | 14.4K | 15K | 500K | - | -
+  - groq/moonshotai/kimi-k2-instruct  # moonshotai/kimi-k2-instruct | 60 | 1K | 10K | 300K | - | -
+  - groq/moonshotai/kimi-k2-instruct-0905  # moonshotai/kimi-k2-instruct-0905 | 60 | 1K | 10K | 300K | - | -
+  - groq/openai/gpt-oss-120b  # openai/gpt-oss-120b | 30 | 1K | 8K | 200K | - | -
+  - groq/openai/gpt-oss-20b  # openai/gpt-oss-20b | 30 | 1K | 8K | 200K | - | -
+  - groq/openai/gpt-oss-safeguard-20b  # openai/gpt-oss-safeguard-20b | 30 | 1K | 8K | 200K | - | -
+  - groq/qwen/qwen3-32b  # qwen/qwen3-32b | 60 | 1K | 6K | 500K | - | -
+  - groq/whisper-large-v3  # whisper-large-v3 | 20 | 2K | - | - | 7.2K | 28.8K
+  - groq/whisper-large-v3-turbo  # whisper-large-v3-turbo | 20 | 2K | - | - | 7.2K | 28.8K

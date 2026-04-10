@@ -17,7 +17,7 @@ Each GitHub **Release** (git tag **`v*`, e.g. `v0.1.0`**) publishes:
 
 | File | Contents |
 |------|----------|
-| **`claudia_<version>_<os>_<arch>.tar.gz`** | Linux/macOS: **`claudia`**, **`qdrant`**, starter **`config/`** (**`gateway.yaml`**, **`tokens.example.yaml`** (not auto-copied to **`tokens.yaml`**), **`bifrost.config.json`**, **`routing-policy.yaml`**), **`env.example`**, **`README.md`**, **`README_ARCHIVE.txt`**, **`PACKAGING.md`** |
+| **`claudia_<version>_<os>_<arch>.tar.gz`** | Linux/macOS: **`claudia`**, **`qdrant`**, starter **`config/`** (**`gateway.yaml`**, **`tokens.example.yaml`** (not auto-copied to **`tokens.yaml`**), **`bifrost.config.json`**, **`routing-policy.yaml`**, **`provider-free-tier.yaml`**), **`env.example`**, **`README.md`**, **`README_ARCHIVE.txt`**, **`PACKAGING.md`** |
 | **`claudia_<version>_windows_amd64.zip`** | Windows: **`claudia.exe`**, **`qdrant.exe`**, same config and docs |
 | **`checksums.txt`** | SHA-256 checksums for the archives |
 
@@ -25,7 +25,7 @@ Architectures: **linux/darwin** **amd64** and **arm64**; **windows amd64** only 
 
 ## Prerequisites on the target machine
 
-- **Config:** copy or mount **`config/gateway.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`** paths as in YAML). **`config/tokens.yaml`** is created on first-run setup (localhost) or by copying **`tokens.example.yaml`**. See [configuration.md](configuration.md) and [version-v0.1.md](version-v0.1.md) §5.
+- **Config:** copy or mount **`config/gateway.yaml`**, **`config/bifrost.config.json`** (and **`routing-policy.yaml`**, **`provider-free-tier.yaml`** paths as in YAML). **`config/tokens.yaml`** is created on first-run setup (localhost) or by copying **`tokens.example.yaml`**. See [configuration.md](configuration.md) and [version-v0.1.md](version-v0.1.md) §5.
 - **Environment:** **`CLAUDIA_UPSTREAM_API_KEY`** and provider keys (**`GROQ_API_KEY`**, etc.) — or a **`.env`** file in the **working directory** (the binary loads it at startup).
 - **Upstream:** BiFrost (or another OpenAI-compatible proxy) reachable at **`upstream.base_url`**.
 

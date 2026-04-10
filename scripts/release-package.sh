@@ -49,6 +49,7 @@ cp "$ROOT/config/gateway.example.yaml" "$OUT/config/gateway.yaml"
 cp "$ROOT/config/tokens.example.yaml" "$OUT/config/tokens.example.yaml"
 cp "$ROOT/config/bifrost.config.json" "$OUT/config/bifrost.config.json"
 cp "$ROOT/config/routing-policy.yaml" "$OUT/config/routing-policy.yaml"
+cp "$ROOT/config/provider-free-tier.yaml" "$OUT/config/provider-free-tier.yaml"
 cp "$ROOT/env.example" "$OUT/env.example"
 
 cat > "$OUT/README.txt" <<'EOF'

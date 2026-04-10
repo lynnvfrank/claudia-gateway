@@ -22,11 +22,10 @@ health:
 paths:
   tokens: "./tokens.yaml"
   routing_policy: "./routing-policy.yaml"
+  provider_free_tier: "./provider-free-tier.yaml"
 
 routing:
-  # BiFrost unified model ids (provider/model). Align with config/bifrost.config.json providers.
-  fallback_chain:
-    - "groq/llama-3.1-8b-instant"
-    - "gemini/gemini-3-flash-preview"
-    - "groq/llama-3.3-70b-versatile"
-    - "gemini/gemini-3.1-flash-lite-preview"
+  # When true, merged GET /v1/models lists only ids allowed by provider-free-tier.yaml (intersected with upstream).
+  filter_free_tier_models: true
+  # When the routing policy is not able to determine a model, the fallback chain is used.
+  fallback_chain: []

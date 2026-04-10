@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -203,11 +204,18 @@ func (a *adminUI) handleState(w http.ResponseWriter, r *http.Request) {
 		}
 		provOut[name] = entry
 	}
+	routeBase := ""
+	if p := strings.TrimSpace(res.RoutingPolicyPath); p != "" {
+		routeBase = filepath.Base(p)
+	}
 	gwOut := map[string]any{
-		"semver":           res.Semver,
-		"virtual_model_id": res.VirtualModelID,
-		"public_base_url":  publicGatewayBase(r),
-		"token_hint":       "Paste the same gateway token you used to sign in (stored only in Continue on your machine).",
+		"semver":                  res.Semver,
+		"virtual_model_id":        res.VirtualModelID,
+		"public_base_url":         publicGatewayBase(r),
+		"token_hint":              "Paste the same gateway token you used to sign in (stored only in Continue on your machine).",
+		"filter_free_tier_models": res.FilterFreeTierModels,
+		"fallback_chain":          res.FallbackChain,
+		"routing_policy_basename": routeBase,
 	}
 	if c, err := r.Cookie(a.cookieName()); err == nil && c.Value != "" {
 		if tok := a.opts.Sessions.GatewayToken(c.Value); tok != "" {
@@ -261,6 +269,10 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("GET /api/ui/tokens", a.requireAuthJSON(a.handleTokensList))
 	mux.HandleFunc("POST /api/ui/tokens", a.requireAuthJSON(a.handleTokensCreate))
 	mux.HandleFunc("POST /api/ui/tokens/delete", a.requireAuthJSON(a.handleTokensDelete))
+	mux.HandleFunc("POST /api/ui/routing/preview", a.requireAuthJSON(a.handleRoutingPreviewPOST))
+	mux.HandleFunc("POST /api/ui/routing/generate", a.requireAuthJSON(a.handleRoutingGeneratePOST))
+	mux.HandleFunc("POST /api/ui/routing/evaluate", a.requireAuthJSON(a.handleRoutingEvaluatePOST))
+	mux.HandleFunc("POST /api/ui/routing/filter_free_tier_models", a.requireAuthJSON(a.handleRoutingFilterFreeTierPOST))
 
 	registerUILogs(mux, a)
 }

@@ -160,15 +160,38 @@ This aligns with **§ Portable “first run”** but narrows v0.1 to **bootstrap
 
 ### 7. Routing / fallback: v0.1 "basic" ordering from available models
 
-**Longer-term exploration** (LLM coordinator emitting full routing policy) stays under [Exploration §1](#1-setup-flow-routing-structure-from-available-models) below.
+**Longer-term exploration** (LLM coordinator emitting full routing policy) stays under [Exploration §1](#1-self-organizing-router) below.
 
-**For v0.1**, deliver a **basic, deterministic** approach:
+**For v0.1**, the intent is a **basic, deterministic** pipeline: derive an ordered **`routing.fallback_chain`** and a matching **`routing-policy.yaml`** from what BiFrost actually exposes, with **validation before persist**, and an **operator-facing** path to **generate**, **inspect results**, and **optionally test** before trusting the new files.
 
-1. **Source of truth:** Upstream `**GET /v1/models`** (already proxied/merged for the gateway) and/or static config already known to BiFrost.
-2. **Heuristic:** Build or **suggest** a `**routing.fallback_chain`** ordered **remote / higher-performance first**, then **local** (e.g. Ollama) — using **metadata** when available (provider id, known model families, optional operator overrides) and a **small curated map** or rules file for cases metadata is thin.
-3. **Scope:** Can be a **setup command**, **first-run bootstrap** write to `gateway.yaml`, or **admin UI** "Regenerate fallback from catalog" — must **validate** ids against the live model list before persisting.
+#### Product goals (normative)
 
-This reduces manual drift between `**routing-policy.yaml**`, `**fallback_chain**`, and the live catalog without requiring a **per-turn** router or LLM-generated YAML in v0.1.
+1. **Source of truth:** Upstream **`GET /v1/models`** (already proxied/merged on the gateway) and/or static config already known to BiFrost.
+2. **Heuristic:** Build or **suggest** **`routing.fallback_chain`** ordered **remote / higher-performance first**, then **local** (e.g. Ollama) — using **metadata** when available (provider id, known model families, optional operator overrides) and a **small curated map** or rules file when metadata is thin.
+3. **Persist with safety:** Updates to **`config/routing-policy.yaml`** and **`routing.fallback_chain`** in **`config/gateway.yaml`** must **validate** (parseable YAML, policy shape the gateway accepts, gateway reloadable) **before** writing; on failure, **do not** partially update files — return a clear error to the operator.
+4. **Admin panel UX (desired):** A **Routing** area in the operator UI (after provider setup is usable) that:
+   - Explains how the **virtual model** (`Claudia-<semver>`), **`routing-policy.yaml`**, and **`routing.fallback_chain`** interact (initial model vs 429/5xx failover).
+   - Offers a primary control to **regenerate routing from the live catalog** (same behavior as the API below), respecting **`routing.filter_free_tier_models`** and **`config/provider-free-tier.yaml`** when that flag is on.
+   - Shows the **saved** **`fallback_chain`** and policy summary **after** a successful generation (no separate “preview” step required unless we add one later).
+   - **Test computed router (not implemented yet):** Let the operator run a **dry evaluation** with sample messages (e.g. short vs long user turn) and see **which rule would match**, **initial upstream id**, and **ordered fallback slice** — **without** calling a paid completion, or optionally with a **minimal** test completion — before or after save.
+5. **Other entry points:** The same generation logic may also be exposed from **first-run / setup** or a **CLI** later; v0.1 does not require all surfaces if the **admin API** exists.
+
+#### Implemented in the tree today
+
+- **Authenticated HTTP API:** **`POST /api/ui/routing/generate`** (session after **`POST /api/ui/login`**) fetches upstream **`GET /v1/models`**, optionally intersects with **`provider-free-tier.yaml`** when **`routing.filter_free_tier_models`** is **true**, orders models deterministically (**`internal/routinggen`**), writes **`routing-policy.yaml`** and patches **`routing.fallback_chain`** via **`config.WriteGatewayFallbackChain`**, and **rejects** invalid output **before** leaving inconsistent files. See **`internal/server/ui_routing_generate.go`**.
+- **Free-tier catalog reference (offline / CI-friendly):** **`make free-tier-catalog`** / **`scripts/generate-free-tier-catalog.sh`** fetch public Groq + Gemini docs and emit a **reference** YAML snapshot (optional **`INTERSECT=`** against a local models export); operators may **manually** merge into **`provider-free-tier.yaml`** — the gateway does **not** load that snapshot automatically. See **`docs/configuration.md`**, **`internal/freecatalog/`**, **`cmd/free-tier-catalog/`**.
+- **Catalog visibility:** When **`routing.filter_free_tier_models`** is on and the allowlist loads, merged **`GET /v1/models`** lists only allowlisted upstream ids (virtual model still first).
+
+#### Not implemented yet (track against v0.1 admin experience)
+
+- **Panel UI** for §7: **`embedui/panel.html`** (or a dedicated routing view) does **not** yet expose the routing explanation, **Regenerate** button, post-save **fallback_chain** / rule summary, or **test harness** — only the **API** exists; the desktop **Admin** tab is still a thin iframe to the same panel.
+- **Test computed router** (dry-run / sample evaluation UI and/or API) — **not built**.
+- **Setup / bootstrap wizard** step that runs generation automatically after keys — **not built** (generation is manual via API today).
+- **Token-count-based** routing conditions (instead of or in addition to **`min_message_chars`** on the last user message) — **not built** (`**internal/routing**` still uses character length only).
+- **LLM-assisted** policy generation (pick a coordinator model, run fixed prompts) — intentionally **out of scope** for v0.1; see [Exploration §1](#1-self-organizing-router).
+- **Centralized service** to distribute allowlists / pricing-derived model lists — **future**; today lists are file-based or **make**-generated snapshots.
+
+This section should stay aligned with **`docs/configuration.md`** and **`README.md`** as behavior evolves.
 
 ---
 
@@ -190,7 +213,7 @@ Instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch
 
 **Relationship to current code:** `RoutingPolicy` is **deterministic YAML** + simple predicates — there is **no** LLM-in-the-loop router today. This exploration would be **new behavior**, likely gated behind a setup mode or admin API.
 
-**v0.1 subset:** [§6 in “Features to Implement”](#6-routing--fallback-v01-basic-ordering-from-available-models) — **deterministic** fallback ordering from the catalog (**remote / strong first**, **local second**) without an LLM coordinator.
+**v0.1 subset:** [§7 in “Features to Implement”](#7-routing--fallback-v01-basic-ordering-from-available-models) — **deterministic** fallback ordering from the catalog (**remote / strong first**, **local second**) without an LLM coordinator; admin **UI** polish and **router test harness** in §7 may still be open.
 
 **Risks:** coordinator hallucinates ids; nondeterministic setup; security if the coordinator can be prompted during normal traffic. Mitigations: validate emitted ids against `/v1/models`, dry-run, human review step, separate command.
 
@@ -222,5 +245,8 @@ Instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch
 | Gateway tokens (example ships; live file not auto-created on first boot) | `config/tokens.example.yaml`, `config/tokens.yaml` (see §5) |
 | BiFrost bootstrap                 | `config/bifrost.config.json`                                 |
 | Routing rules                     | `config/routing-policy.yaml`                                 |
+| Free-tier allowlist (optional)    | `config/provider-free-tier.yaml`                             |
+| Catalog snapshot tool (reference) | `make free-tier-catalog`, `cmd/free-tier-catalog/`, `internal/freecatalog/` |
+| Regenerate routing (API)          | `POST /api/ui/routing/generate` (`internal/server/ui_routing_generate.go`) |
 | Operator UI (embed)               | `internal/server/embedui/`, `internal/server/ui_handlers.go` |
 | Product / locked decisions        | `docs/claudia-gateway.plan.md`                               |

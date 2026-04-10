@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -76,25 +77,14 @@ func (p *Policy) ReloadIfStale() {
 		}
 		return
 	}
-	var doc policyDoc
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	ambiguous, rules, err := parsePolicyDocument(raw)
+	if err != nil {
 		if p.log != nil {
 			p.log.Error("failed to parse routing policy yaml", "path", p.path, "err", err)
 		}
 		return
 	}
-	p.ambiguousDefault = doc.AmbiguousDefault
-	var rules []policyRule
-	for _, r := range doc.Rules {
-		if len(r.Models) == 0 {
-			continue
-		}
-		rules = append(rules, policyRule{
-			name:            r.Name,
-			minMessageChars: r.When.MinMessageChars,
-			models:          r.Models,
-		})
-	}
+	p.ambiguousDefault = ambiguous
 	p.rules = rules
 	if p.log != nil {
 		p.log.Info("reloaded routing policy", "path", p.path, "rules", len(p.rules))
@@ -118,34 +108,80 @@ func (p *Policy) PickInitialModel(body map[string]json.RawMessage, fallbackChain
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for _, rule := range p.rules {
+	return pickFromRules(p.ambiguousDefault, p.rules, lastUser, fallbackChain, p.log)
+}
+
+func parsePolicyDocument(raw []byte) (ambiguousDefault string, rules []policyRule, err error) {
+	var doc policyDoc
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return "", nil, err
+	}
+	ambiguousDefault = doc.AmbiguousDefault
+	for _, r := range doc.Rules {
+		if len(r.Models) == 0 {
+			continue
+		}
+		rules = append(rules, policyRule{
+			name:            r.Name,
+			minMessageChars: r.When.MinMessageChars,
+			models:          r.Models,
+		})
+	}
+	return ambiguousDefault, rules, nil
+}
+
+func pickFromRules(ambiguousDefault string, rules []policyRule, lastUser int, fallbackChain []string, log *slog.Logger) (model string, via Via) {
+	for _, rule := range rules {
 		if len(rule.models) == 0 {
 			continue
 		}
 		if rule.minMessageChars != nil && lastUser < *rule.minMessageChars {
 			continue
 		}
-		if p.log != nil {
-			p.log.Debug("routing rule matched", "rule", rule.name, "initialModel", rule.models[0], "lastUserChars", lastUser)
+		if log != nil {
+			log.Debug("routing rule matched", "rule", rule.name, "initialModel", rule.models[0], "lastUserChars", lastUser)
 		}
 		return rule.models[0], ViaRule
 	}
 
-	if p.ambiguousDefault != "" {
-		if p.log != nil {
-			p.log.Debug("routing: no rule matched, using ambiguous_default_model", "initialModel", p.ambiguousDefault, "lastUserChars", lastUser)
+	if ambiguousDefault != "" {
+		if log != nil {
+			log.Debug("routing: no rule matched, using ambiguous_default_model", "initialModel", ambiguousDefault, "lastUserChars", lastUser)
 		}
-		return p.ambiguousDefault, ViaAmbiguousDefault
+		return ambiguousDefault, ViaAmbiguousDefault
 	}
 
 	first := ""
 	if len(fallbackChain) > 0 {
 		first = fallbackChain[0]
 	}
-	if p.log != nil {
-		p.log.Debug("routing: no policy default; using first fallback_chain entry", "initialModel", first, "lastUserChars", lastUser)
+	if log != nil {
+		log.Debug("routing: no policy default; using first fallback_chain entry", "initialModel", first, "lastUserChars", lastUser)
 	}
 	return first, ViaChainOnly
+}
+
+// EvaluatePick applies routing-policy YAML bytes and the same selection rules as Policy.PickInitialModel (no disk read).
+func EvaluatePick(policyYAML []byte, body map[string]json.RawMessage, fallbackChain []string, virtualModelID string, log *slog.Logger) (model string, via Via, err error) {
+	if err := ValidatePolicyYAML(policyYAML); err != nil {
+		return "", "", err
+	}
+	ambiguous, rules, err := parsePolicyDocument(policyYAML)
+	if err != nil {
+		return "", "", fmt.Errorf("parse routing policy: %w", err)
+	}
+
+	var clientModel string
+	if m, ok := body["model"]; ok {
+		_ = json.Unmarshal(m, &clientModel)
+	}
+	if clientModel != virtualModelID {
+		return clientModel, ViaChainOnly, nil
+	}
+
+	lastUser := lastUserMessageCharCount(body)
+	model, via = pickFromRules(ambiguous, rules, lastUser, fallbackChain, log)
+	return model, via, nil
 }
 
 func lastUserMessageCharCount(body map[string]json.RawMessage) int {

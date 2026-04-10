@@ -1,6 +1,6 @@
 # Configuration reference
 
-The gateway reads **YAML files** and **environment variables**. **`gateway.yaml`**, **`tokens.yaml`**, and **`routing-policy.yaml`** are reloaded when their file **modification time** changes (checked on incoming traffic).
+The gateway reads **YAML files** and **environment variables**. **`gateway.yaml`**, **`tokens.yaml`**, **`routing-policy.yaml`**, and **`provider-free-tier.yaml`** (when configured) are picked up when their file **modification time** changes (**`gateway.yaml`** reload also runs when **`provider-free-tier.yaml`** alone changes).
 
 ## Go gateway binary
 
@@ -42,6 +42,8 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, **`OPENAI_API_KEY`**, e
 | **`health.chat_timeout_ms`** | Timeout for each upstream **`POST /v1/chat/completions`** attempt (default **300000**). |
 | **`paths.tokens`** | Path to **`tokens.yaml`** (relative to **`gateway.yaml`**’s directory unless absolute). |
 | **`paths.routing_policy`** | Path to **`routing-policy.yaml`**. |
+| **`paths.provider_free_tier`** | Path to **`provider-free-tier.yaml`** (default **`./provider-free-tier.yaml`** next to **`gateway.yaml`**). |
+| **`routing.filter_free_tier_models`** | When **true** and the allowlist file loads successfully, merged **`GET /v1/models`** lists only ids in both the upstream catalog and the allowlist; **`POST /api/ui/routing/generate`** (operator UI session) uses the same intersection. |
 | **`routing.fallback_chain`** | Ordered upstream **model ids** for **`Claudia-<semver>`** requests (BiFrost: **`provider/model`**). On **429** / selected **5xx**, the gateway tries the next entry. |
 
 Reload: change file and **save** (mtime update). On reload, if token or policy **paths** change, those stores are re-opened.
@@ -58,12 +60,20 @@ tokens:
 - **`token`** — must match the client’s `Authorization: Bearer` value exactly.
 - **`tenant_id`** — carried in logs today; **v0.2+** RAG scopes by tenant.
 
+## `config/provider-free-tier.yaml`
+
+Operator-maintained allowlist of BiFrost **`provider/model`** ids (and optional **`patterns`**). See comments inside the file for **`format_version`**, **`effective_date`**, and editing rules.
+
+**Reference snapshot (optional):** **`make catalog-write-free`** fetches [Groq rate limits](https://console.groq.com/docs/rate-limits) and [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), derives BiFrost-style ids, and writes **`config/free-tier-catalog.snapshot.yaml`** (gitignored by default). Use **`INTERSECT=`**_path_ to restrict lines to ids that fuzzy-match a catalog file: JSON or YAML with **`data`**.**`id`** (same shape as **`GET /v1/models`**, e.g. **`config/catalog-available.snapshot.yaml`** from **`make catalog-write-available`**). **`make catalog-write-available`** calls **`GET /v1/models`** on BiFrost (defaults **`BIFROST_BASE_URL=http://127.0.0.1:8080`**, optional **`CLAUDIA_UPSTREAM_API_KEY`**) and writes **`config/catalog-available.snapshot.yaml`**. These snapshots are **not** loaded by the gateway automatically; merge entries into **`provider-free-tier.yaml`** by hand if you want them enforced.
+
 ## `config/routing-policy.yaml`
 
 | Field | Description |
 |-------|-------------|
 | **`ambiguous_default_model`** | Upstream model id used when **no rule** matches (**#29**). |
 | **`rules`** | Ordered list. Each rule may set **`when.min_message_chars`** (compared to the **last user** message length). First match wins; **`models[0]`** is the **initial** upstream model. Every id should appear in **`routing.fallback_chain`**. |
+
+**Operator UI:** with a valid session, **`POST /api/ui/routing/generate`** fetches the upstream model list, optionally applies the free-tier filter, then writes **`routing-policy.yaml`** and **`routing.fallback_chain`** in **`gateway.yaml`** only if both outputs validate.
 
 ## `config/bifrost.config.json`
 

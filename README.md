@@ -64,6 +64,7 @@ make configure
 | Gateway listen + upstream | `config/gateway.yaml` | Claudia Gateway's primary configuration file to connect the Client<->Claudia<->BiFrost  |
 | BiFrost bootstrap | `config/bifrost.config.json` | BiFrost HTTP config; provider secrets pulled from environment variables set in `.env` or the shell. |
 | Virtual model mapping | `config/routing-policy.yaml` | Rules that define how the virtual `Claudia-<semver>` model routes prompts/turns to underlying models |
+| Free-tier allowlist (optional) | `config/provider-free-tier.yaml` | When `routing.filter_free_tier_models` is true, restricts merged model listing and UI routing generation to ids in this file |
 
 **Manual follow-up**
 
@@ -72,6 +73,7 @@ make configure
 3. **`config/gateway.yaml`** — starter in repo; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed.
 4. **`config/bifrost.config.json`** — align provider blocks and `env.*` with your **`.env`**.
 5. **`config/routing-policy.yaml`** — committed default; edit or point `gateway.yaml` at another file.
+6. **`config/provider-free-tier.yaml`** — optional operator allowlist; shipped default; tune `models` / `patterns` and set `routing.filter_free_tier_models` in `gateway.yaml` if you want catalog filtering. To refresh a **reference** list from [Groq](https://console.groq.com/docs/rate-limits) + [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) docs (network required), run **`make catalog-write-free`** (optional **`INTERSECT=`** path to JSON or YAML `data[].id`, e.g. **`config/catalog-available.snapshot.yaml`**). To snapshot models from a running BiFrost, run **`make catalog-write-available`**. See [docs/configuration.md](docs/configuration.md).
 
 Full reference: [docs/configuration.md](docs/configuration.md).
 

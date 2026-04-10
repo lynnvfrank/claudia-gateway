@@ -308,6 +308,7 @@ func writeMergedModelsResponse(w http.ResponseWriter, ctx context.Context, res *
 		data = []any{}
 	}
 	ensureOpenAIModelListItems(data)
+	data = filterOpenAIModelDataByFreeTier(data, res)
 	virtual := map[string]any{
 		"id":       res.VirtualModelID,
 		"object":   "model",

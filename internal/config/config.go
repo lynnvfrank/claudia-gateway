@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lynn/claudia-gateway/internal/providerfreetier"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,6 +29,11 @@ type Resolved struct {
 	RoutingPolicyPath string
 	FallbackChain     []string
 	GatewayYAMLPath   string
+	// ProviderFreeTierPath is the resolved filesystem path to provider-free-tier.yaml.
+	ProviderFreeTierPath string
+	// FilterFreeTierModels requests intersecting merged /v1/models with the allowlist when spec loaded.
+	FilterFreeTierModels bool
+	ProviderFreeTierSpec *providerfreetier.Spec
 }
 
 type upstreamBlock struct {
@@ -52,11 +58,13 @@ type gatewayDoc struct {
 		ChatMs      int    `yaml:"chat_timeout_ms"`
 	} `yaml:"health"`
 	Paths struct {
-		Tokens        string `yaml:"tokens"`
-		RoutingPolicy string `yaml:"routing_policy"`
+		Tokens           string `yaml:"tokens"`
+		RoutingPolicy    string `yaml:"routing_policy"`
+		ProviderFreeTier string `yaml:"provider_free_tier"`
 	} `yaml:"paths"`
 	Routing struct {
-		FallbackChain []string `yaml:"fallback_chain"`
+		FallbackChain        []string `yaml:"fallback_chain"`
+		FilterFreeTierModels *bool    `yaml:"filter_free_tier_models"`
 	} `yaml:"routing"`
 }
 
@@ -134,6 +142,36 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		routingPath = routeRel
 	}
 
+	ftRel := strings.TrimSpace(doc.Paths.ProviderFreeTier)
+	if ftRel == "" {
+		ftRel = "./provider-free-tier.yaml"
+	}
+	ftPath := filepath.Join(baseDir, ftRel)
+	if filepath.IsAbs(ftRel) {
+		ftPath = ftRel
+	}
+	var ftSpec *providerfreetier.Spec
+	if st, err := os.Stat(ftPath); err == nil && !st.IsDir() {
+		s, err := providerfreetier.Load(ftPath)
+		if err != nil {
+			if log != nil {
+				log.Error("provider free tier yaml invalid", "path", ftPath, "err", err)
+			}
+		} else {
+			ftSpec = s
+		}
+	} else if err != nil && !os.IsNotExist(err) && log != nil {
+		log.Warn("provider free tier path not stat-able", "path", ftPath, "err", err)
+	}
+
+	filterFT := true
+	if doc.Routing.FilterFreeTierModels != nil {
+		filterFT = *doc.Routing.FilterFreeTierModels
+	}
+	if filterFT && ftSpec == nil && log != nil {
+		log.Warn("routing.filter_free_tier_models is true but provider-free-tier.yaml missing or invalid; skipping catalog filter")
+	}
+
 	listenPort := doc.Gateway.ListenPort
 	if listenPort == 0 {
 		listenPort = defaultListenPort
@@ -170,21 +208,24 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 	}
 
 	return &Resolved{
-		Semver:            semver,
-		VirtualModelID:    "Claudia-" + semver,
-		ListenPort:        listenPort,
-		ListenHost:        listenHost,
-		LogLevel:          logLevel,
-		UpstreamBaseURL:   upBase,
-		UpstreamAPIKeyEnv: apiKeyEnv,
-		UpstreamAPIKey:    apiKey,
-		HealthUpstreamURL: healthURL,
-		HealthTimeoutMs:   ht,
-		ChatTimeoutMs:     ct,
-		TokensPath:        tokensPath,
-		RoutingPolicyPath: routingPath,
-		FallbackChain:     chain,
-		GatewayYAMLPath:   filePath,
+		Semver:               semver,
+		VirtualModelID:       "Claudia-" + semver,
+		ListenPort:           listenPort,
+		ListenHost:           listenHost,
+		LogLevel:             logLevel,
+		UpstreamBaseURL:      upBase,
+		UpstreamAPIKeyEnv:    apiKeyEnv,
+		UpstreamAPIKey:       apiKey,
+		HealthUpstreamURL:    healthURL,
+		HealthTimeoutMs:      ht,
+		ChatTimeoutMs:        ct,
+		TokensPath:           tokensPath,
+		RoutingPolicyPath:    routingPath,
+		FallbackChain:        chain,
+		GatewayYAMLPath:      filePath,
+		ProviderFreeTierPath: ftPath,
+		FilterFreeTierModels: filterFT,
+		ProviderFreeTierSpec: ftSpec,
 	}, nil
 }
 
@@ -203,4 +244,9 @@ func ResolveGatewayConfigPath() (string, error) {
 // ListenAddr returns "host:port" for net.Listen.
 func (r *Resolved) ListenAddr() string {
 	return fmt.Sprintf("%s:%d", r.ListenHost, r.ListenPort)
+}
+
+// ShouldApplyFreeTierCatalogFilter reports whether merged /v1/models should list only allowlisted upstream ids.
+func (r *Resolved) ShouldApplyFreeTierCatalogFilter() bool {
+	return r != nil && r.FilterFreeTierModels && r.ProviderFreeTierSpec != nil && !r.ProviderFreeTierSpec.Empty()
 }

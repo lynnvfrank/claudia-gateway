@@ -110,6 +110,40 @@ func TestPickInitialModel_FallbackChainFirst(t *testing.T) {
 	}
 }
 
+func TestEvaluatePick(t *testing.T) {
+	yaml := []byte(`
+ambiguous_default_model: "gemini/default"
+rules:
+  - name: long
+    when:
+      min_message_chars: 10
+    models:
+      - "groq/big"
+  - name: catch-all
+    when: {}
+    models:
+      - "groq/small"
+`)
+	vm := "Claudia-0.1.0"
+	chain := []string{"groq/small", "groq/big", "gemini/default"}
+	shortBody := map[string]json.RawMessage{
+		"model":    mustRaw(t, vm),
+		"messages": mustRaw(t, []map[string]string{{"role": "user", "content": "hi"}}),
+	}
+	m, via, err := EvaluatePick(yaml, shortBody, chain, vm, discardLog())
+	if err != nil || m != "groq/small" || via != ViaRule {
+		t.Fatalf("short: %q %v %v", m, via, err)
+	}
+	longBody := map[string]json.RawMessage{
+		"model":    mustRaw(t, vm),
+		"messages": mustRaw(t, []map[string]string{{"role": "user", "content": "01234567890"}}),
+	}
+	m, via, err = EvaluatePick(yaml, longBody, chain, vm, discardLog())
+	if err != nil || m != "groq/big" || via != ViaRule {
+		t.Fatalf("long: %q %v %v", m, via, err)
+	}
+}
+
 func mustRaw(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)

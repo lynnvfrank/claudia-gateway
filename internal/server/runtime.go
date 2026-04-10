@@ -18,6 +18,7 @@ type Runtime struct {
 	gatewayPath      string
 	mu               sync.RWMutex
 	gatewayMtime     time.Time
+	freeTierMtime    time.Time
 	resolved         *config.Resolved
 	tokens           *tokens.Store
 	routing          *routing.Policy
@@ -54,6 +55,11 @@ func NewRuntimeWithUpstreamOverride(gatewayPath string, log *slog.Logger, upstre
 	if st, err := os.Stat(gatewayPath); err == nil {
 		rt.gatewayMtime = st.ModTime()
 	}
+	if res != nil && res.ProviderFreeTierPath != "" {
+		if st, err := os.Stat(res.ProviderFreeTierPath); err == nil {
+			rt.freeTierMtime = st.ModTime()
+		}
+	}
 	return rt, nil
 }
 
@@ -70,17 +76,26 @@ func (rt *Runtime) Sync() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	st, err := os.Stat(rt.gatewayPath)
+	gst, err := os.Stat(rt.gatewayPath)
 	if err != nil {
 		if rt.log != nil {
 			rt.log.Error("gateway config missing", "path", rt.gatewayPath, "err", err)
 		}
 		return
 	}
-	if st.ModTime().Equal(rt.gatewayMtime) {
+	ftPath := ""
+	var ftTime time.Time
+	if rt.resolved != nil {
+		ftPath = rt.resolved.ProviderFreeTierPath
+	}
+	if ftPath != "" {
+		if st, err := os.Stat(ftPath); err == nil {
+			ftTime = st.ModTime()
+		}
+	}
+	if gst.ModTime().Equal(rt.gatewayMtime) && ftTime.Equal(rt.freeTierMtime) {
 		return
 	}
-	rt.gatewayMtime = st.ModTime()
 
 	next, err := config.LoadGatewayYAML(rt.gatewayPath, rt.log)
 	if err != nil {
@@ -92,6 +107,14 @@ func (rt *Runtime) Sync() {
 	pathsChanged := next.TokensPath != rt.resolved.TokensPath ||
 		next.RoutingPolicyPath != rt.resolved.RoutingPolicyPath
 	rt.resolved = rt.applyUpstreamOverride(next)
+	rt.gatewayMtime = gst.ModTime()
+	if next.ProviderFreeTierPath != "" {
+		if st, err := os.Stat(next.ProviderFreeTierPath); err == nil {
+			rt.freeTierMtime = st.ModTime()
+		}
+	} else {
+		rt.freeTierMtime = time.Time{}
+	}
 	if pathsChanged {
 		rt.tokens = tokens.NewStore(next.TokensPath, rt.log)
 		rt.routing = routing.NewPolicy(next.RoutingPolicyPath, rt.log)

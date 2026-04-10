@@ -16,7 +16,7 @@ Operators should still treat logs as sensitive (tenant IDs, model names, URLs) a
 - The gateway listens on **`gateway.listen_host`:`listen_port`** from YAML (default **`0.0.0.0:3000`**). Anything that can reach that port can call **`/v1/*`** with a valid gateway token or probe **`/health`**. Use host firewall rules, bind to loopback, or a reverse proxy with TLS where appropriate.
 - **`GET /status`** (no auth, like **`/health`**) returns JSON including **effective listen address**, **upstream base URL**, **upstream probe result**, and when **`claudia serve`** was used, **BiFrost/Qdrant listen hints**. Do not expose the gateway port to untrusted networks if that metadata is sensitive.
 - **TLS termination** is **not** built into `claudia`. Use a sidecar or front proxy for HTTPS in production-style deployments.
-- **Config files** (`gateway.yaml`, `tokens.yaml`, `routing-policy.yaml`) hold **gateway tokens** and routing rules. Use filesystem permissions (e.g. `chmod 600`) and avoid committing real `tokens.yaml` to version control.
+- **Config files** (`gateway.yaml`, `tokens.yaml`, `routing-policy.yaml`, `provider-free-tier.yaml`) hold **gateway tokens**, routing rules, and optional allowlists. Use filesystem permissions (e.g. `chmod 600`) and avoid committing real `tokens.yaml` to version control.
 
 ## `claudia serve` (supervisor)
 

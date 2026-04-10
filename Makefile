@@ -51,6 +51,7 @@ endif
 	bash \
 	claudia-build desktop-install desktop-build desktop-run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
+	catalog-write-free catalog-write-available \
 	release-install release-snapshot package-personal \
 	vet-gateway vet-desktop test-gateway precommit
 
@@ -114,6 +115,20 @@ precommit: fmt-check vet-gateway test-gateway $(_DESKTOP_PRECOMMIT_TARGETS)
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
+
+# Fetch Groq rate-limits + Gemini pricing pages and write BiFrost-style model ids (requires network).
+# Optional: INTERSECT=path to JSON or YAML (OpenAI-style data[].id, e.g. catalog-available.snapshot.yaml).
+# Override OUT=path for snapshot file (default config/free-tier-catalog.snapshot.yaml).
+catalog-write-free:
+	go run ./cmd/free-tier-catalog \
+		-out "$(if $(OUT),$(OUT),config/free-tier-catalog.snapshot.yaml)" \
+		$(if $(INTERSECT),-intersect $(INTERSECT),)
+
+# GET BiFrost /v1/models and write YAML (running BiFrost; env BIFROST_BASE_URL, CLAUDIA_UPSTREAM_API_KEY).
+# Override OUT=path (default config/catalog-available.snapshot.yaml).
+catalog-write-available:
+	go run ./cmd/catalog-write-available \
+		-out "$(if $(OUT),$(OUT),config/catalog-available.snapshot.yaml)"
 
 desktop-install:
 	$(GITBASH) scripts/desktop-install.sh

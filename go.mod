@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/joho/godotenv v1.5.1
 	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
+	golang.org/x/net v0.33.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

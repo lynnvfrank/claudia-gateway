@@ -19,8 +19,10 @@ health:
 paths:
   tokens: "./tokens.yaml"
   routing_policy: "./routing-policy.yaml"
+  provider_free_tier: "./provider-free-tier.yaml"
 
 routing:
+  filter_free_tier_models: true
   fallback_chain:
     - "groq/llama-3.1-8b-instant"
     - "gemini/gemini-3-flash-preview"

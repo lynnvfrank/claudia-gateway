@@ -11,6 +11,9 @@ func CloneResolved(r *Resolved) *Resolved {
 	if r.FallbackChain != nil {
 		n.FallbackChain = append([]string(nil), r.FallbackChain...)
 	}
+	n.FilterFreeTierModels = r.FilterFreeTierModels
+	n.ProviderFreeTierPath = r.ProviderFreeTierPath
+	n.ProviderFreeTierSpec = r.ProviderFreeTierSpec
 	return &n
 }
 

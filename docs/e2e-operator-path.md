@@ -11,7 +11,7 @@ Documented path from clone to a first successful **`curl`** chat.
 ## Path
 
 1. Clone the repo.
-2. Copy **`config/gateway.yaml`** / **`tokens.yaml`** / **`routing-policy.yaml`** next to **`claudia`**, preserving paths referenced in YAML.
+2. Copy **`config/gateway.yaml`** / **`tokens.yaml`** / **`routing-policy.yaml`** / **`provider-free-tier.yaml`** (if used) next to **`claudia`**, preserving paths referenced in YAML.
 3. Export env: **`export CLAUDIA_UPSTREAM_API_KEY=…`** (and **`GROQ_API_KEY`** / **`GEMINI_API_KEY`** as needed for BiFrost).
 4. Run **`./claudia`** or **`./claudia serve`** (see [supervisor.md](supervisor.md)).
 5. Health: **`make claudia-status`** (includes gateway **`/health`** body and probes BiFrost / Qdrant), or **`curl -sS http://127.0.0.1:3000/health`** by hand

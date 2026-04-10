@@ -54,6 +54,8 @@ archives:
         dst: config/bifrost.config.json
       - src: config/routing-policy.yaml
         dst: config/routing-policy.yaml
+      - src: config/provider-free-tier.yaml
+        dst: config/provider-free-tier.yaml
       - src: env.example
         dst: env.example
       - src: packaging/archive-readme.txt
