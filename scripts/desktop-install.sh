@@ -23,7 +23,9 @@ if [[ "$os" == "Linux" ]]; then
     "$webkit_dev"
   if [[ "$webkit_dev" == libwebkit2gtk-4.1-dev ]]; then
     sudo mkdir -p /usr/local/lib/pkgconfig
-    wk41_pc=$(pkg-config --print-filename webkit2gtk-4.1)
+    # pkgconf's pkg-config shim lacks --print-filename; locate .pc via the installed package.
+    wk41_pc=$(dpkg -L libwebkit2gtk-4.1-dev | grep -E '/webkit2gtk-4\.1\.pc$' | head -n1)
+    test -n "$wk41_pc" && test -f "$wk41_pc"
     sudo ln -sf "$wk41_pc" /usr/local/lib/pkgconfig/webkit2gtk-4.0.pc
     echo "desktop-install: webview_go uses pkg-config webkit2gtk-4.0; linked $wk41_pc as webkit2gtk-4.0.pc under /usr/local/lib/pkgconfig." >&2
   fi
