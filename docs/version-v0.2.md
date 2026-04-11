@@ -57,6 +57,12 @@ This document pulls together **everything scoped to product v0.2** from [`claudi
 - **One collection** per **`(tenant_id, project_id, flavor_id)`**; **collection name encoding:** lowercase, spaces → hyphens, collapse repeats, strip illegal characters, deterministic short hash suffix on collision.
 - **Qdrant payload (minimum):** **`tenant_id`**, **`project_id`**, **`text`**, **`source`**, optional **`created_at`**, optional **`flavor_id`**.
 
+### Token counting (messages and pre-embed)
+
+- The **Go gateway** must be able to **count tokens** for arbitrary strings used in the **chat path** (user-facing message text extracted from OpenAI-style **`messages`**) and for text **immediately before** calls to the **embedding** path (ingest chunks, query strings for retrieval embeddings, etc., as those code paths land in v0.2).
+- Use a **maintained, fast** Go tokenizer library whose **encoding** is documented and aligned with the **embedding / chat models** you configure (default assumption: **OpenAI-compatible cl100k_base**-style counting unless config pins another scheme). Operators should treat counts as **approximate** when the upstream model’s tokenizer differs; document that caveat in code comments and, if needed, a one-line **`docs/configuration.md`** note when a config knob exists.
+- **Observability:** on every authenticated **`POST /v1/chat/completions`**, emit a structured **`slog.Info`** line that includes the **token count** for the **user message payload** (see agent plan below for how to aggregate roles / multimodal parts), alongside existing fields such as **`tenant`**, **`clientModel`**, and **`stream`**.
+
 ### Retrieval and prompt assembly
 
 - **Query-time retrieval** for the virtual model when RAG is enabled.
@@ -214,6 +220,7 @@ Use this to track cross-cutting v0.2 work; gate detailed indexer items in [`inde
 | **Config** | Gateway config to enable/disable RAG, embedding model id, Qdrant (or adapter) connection, chunking knobs, retrieval thresholds, feature flags as needed. |
 | **HTTP API** | Implement **`POST /v1/ingest`**, **`GET /v1/indexer/config`**, **`GET /v1/indexer/storage/health`**, **`GET /v1/indexer/storage/stats`**; document schemas and limits (e.g. max body size for whole-file ingest). |
 | **Chat path** | Virtual model: when RAG enabled, run retrieval + prompt assembly; honor **`X-Claudia-Project`** / **`X-Claudia-Flavor-Id`**. |
+| **Token counting** | Add a fast tokenizer dependency; shared helper for **chat `messages`** and **pre-embed** strings; **`INFO`** log token totals on **`POST /v1/chat/completions`** (see § **Token counting** + **Agent implementation plan: token counting**). |
 | **Qdrant / adapter** | Collections per triple; payload fields; collection naming; cosine/dot and dimension checks. |
 | **Health** | Extend **`GET /health`** with Qdrant probe when RAG enabled. |
 | **Docs** | Update **`docs/overview.md`**, **`docs/network.md`**, **`docs/configuration.md`**, ingestion/indexer references; **`vscode-continue/`** samples with v0.2 headers. |
@@ -233,3 +240,44 @@ Use this to track cross-cutting v0.2 work; gate detailed indexer items in [`inde
 | [`configuration.md`](configuration.md) | Config files and v0.2+ tenant scoping note |
 
 This document also carries a **future** local **vectordb-cli** stack (§ **Future update plan**) for retrieval enhancement; reconcile its **collection naming** and **path** conventions with the v0.2 **triple** + **relative `source`** model when implementing a bridge.
+
+---
+
+## Agent implementation plan: token counting
+
+**Goal:** Implement the § **Token counting (messages and pre-embed)** requirements in the **Claudia Gateway** Go service ([`README.md`](../README.md): OpenAI-compatible proxy in front of **BiFrost**, `POST /v1/chat/completions` handled in [`internal/server/server.go`](../internal/server/server.go) via **`handleV1Chat`** and [`internal/chat/chat.go`](../internal/chat/chat.go)).
+
+### 1. Choose and add a tokenizer dependency
+
+- Add a **fast**, pure-Go (or acceptable CGO) library via **`go get`**, run **`go mod tidy`**, and document the chosen **encoding** (e.g. **cl100k_base**) in a short package comment or next to the helper.
+- **Candidates to evaluate** (pick one, justify in PR): Tiktoken-compatible Go ports (e.g. **`github.com/pkoukk/tiktoken-go`**), or other widely used tokenizer bindings that match your latency and licensing constraints.
+- Prefer **singleton / cached** encoder initialization (startup or `sync.Once`) so per-request counting does not reload data files.
+
+### 2. Implement a small internal API
+
+- Add something like **`internal/tokencount/`** (name to match repo style) with:
+  - **`Count(s string) (int, error)`** or **`Count(ctx, s) (int, error)`** wrapping the library.
+  - **`MessagesTokenEstimate(messages json.RawMessage) (int, error)`** (or equivalent) that parses the OpenAI **`messages`** array from the decoded chat body and **concatenates** (or sums per segment) all **`content`** text:
+    - **`content`** as a **string** → count that string.
+    - **`content`** as an **array** (multimodal parts) → include **`type: text`** / **`text`** fields; skip or zero-length non-text parts per OpenAI shape.
+    - Optionally include **`name`** / **`tool_calls`** text if product wants “full payload” counts; default to **user/assistant/system visible text** only and document the choice.
+- Expose a helper **`CountForEmbed(s string)`** that is the **same** underlying counter (single source of truth) for **ingest chunks** and **retrieval query** strings when those paths are implemented—call it from the embedding call sites **immediately before** the HTTP embed request.
+
+### 3. Wire **`POST /v1/chat/completions`**
+
+- In **`handleV1Chat`** (after JSON decode, alongside the existing **`log.Info("chat completion request", …)`** in [`internal/server/server.go`](../internal/server/server.go)):
+  - Read **`raw["messages"]`**, run the messages helper, and on success log at **`slog.LevelInfo`** with a dedicated attribute, e.g. **`"promptTokens"`** or **`"messageTokens"`** (name consistently with any future **`usage`** mirroring).
+  - On parse or count **failure**, log **`Warn`** (or **`Error`** if invariant) with a short reason; do **not** fail the request solely because counting failed unless you explicitly decide otherwise (default: **degrade gracefully**).
+- Ensure **virtual model** (**`chat.WithVirtualModelFallback`**) and **direct proxy** paths both run through the **same** counting + logging so every successful auth chat request gets one **INFO** line with the count.
+
+### 4. Tests and verification
+
+- **Unit tests** for the message parser: string content, array content, empty messages, malformed JSON (expect graceful behavior).
+- **Unit test** for known fixed strings if the library publishes golden token lengths for a given encoding.
+- Run **`make precommit`** (or at least **`test-gateway`**, **`vet-gateway`**, **`fmt-check`**) after touching **`go.mod`**.
+
+### 5. Done criteria
+
+- **`go list -m all`** includes the new tokenizer module; builds are clean on supported platforms.
+- Every authenticated **`POST /v1/chat/completions`** emits **`INFO`** structured log line(s) that include **token count** for the extracted message text plus **tenant** / **model** / **stream** context.
+- Embedding-bound code paths (when present) use the **same** counter **before** calling the embed API.

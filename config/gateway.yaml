@@ -1,4 +1,5 @@
 # Main gateway process configuration (reload on mtime — touch to apply).
+
 # Paths below are relative to this file’s directory unless absolute.
 
 gateway:
@@ -6,26 +7,25 @@ gateway:
   listen_port: 3000
   listen_host: "0.0.0.0"
   log_level: "info"
-
 upstream:
   # OpenAI-compatible upstream root (BiFrost on loopback for local `claudia` / `claudia serve`).
   base_url: "http://127.0.0.1:8080"
   # Bearer sent on /v1/* to the upstream. BiFrost ignores this unless governance keys are enabled.
+
   # If `api_key` is omitted and CLAUDIA_UPSTREAM_API_KEY is unset, a random api_key is generated and written here on startup.
   api_key_env: "CLAUDIA_UPSTREAM_API_KEY"
-
+  api_key: "7087a54b28809debc95dfb7f46ce580fa59db5b385c25d4ff18aaea7869c8af4"
 health:
   # Defaults to {upstream.base_url}/health when omitted
   timeout_ms: 5000
   chat_timeout_ms: 300000
-
 paths:
   tokens: "./tokens.yaml"
   routing_policy: "./routing-policy.yaml"
   provider_free_tier: "./provider-free-tier.yaml"
-
 routing:
   # When true, merged GET /v1/models lists only ids allowed by provider-free-tier.yaml (intersected with upstream).
   filter_free_tier_models: true
   # When the routing policy is not able to determine a model, the fallback chain is used.
+
   fallback_chain: []

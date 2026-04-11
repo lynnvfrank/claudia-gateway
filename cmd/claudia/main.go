@@ -28,7 +28,7 @@ func main() {
 		return
 	}
 
-	if len(args) == 0 || (args[0] != "serve" && args[0] != "supervise" && args[0] != "desktop" && args[0] != "gateway") {
+	if len(args) == 0 || (args[0] != "serve" && args[0] != "supervise" && args[0] != "desktop" && args[0] != "gateway" && args[0] != "tokencount") {
 		for _, a := range args {
 			if a == "-h" || a == "--help" {
 				printHelp()
@@ -43,6 +43,8 @@ func main() {
 	}
 
 	switch args[0] {
+	case "tokencount":
+		runTokenCount(args[1:])
 	case "serve", "supervise":
 		runServe(args[1:], false)
 	case "desktop":
@@ -82,6 +84,7 @@ Usage:
   claudia serve [flags]       Supervisor without webview (explicit).
   claudia desktop [flags]     Supervisor; webview unless combined with leading --headless.
   claudia help
+  claudia tokencount [flags] [arg ...]   Count tokens (cl100k_base); file, URL, string, stdin, or pipe — see claudia tokencount -h
   claudia -version            Print build version (release builds embed tag/commit via GoReleaser)
 
 Obtain the BiFrost binary from upstream releases or build from source (see docs/supervisor.md).
