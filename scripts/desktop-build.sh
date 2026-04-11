@@ -10,11 +10,11 @@ cd "$root"
 export CGO_ENABLED=1
 # Windows: GUI subsystem so double-click / Explorer launch does not open a console host (logs → /ui/logs).
 target_os="${GOOS:-$(go env GOOS)}"
-ldflags=()
+args=("-tags" "desktop" "-o" "$root/$bin" "./cmd/claudia")
 if [[ "$target_os" == "windows" ]]; then
-	ldflags=(-ldflags=-H=windowsgui)
+	args+=(-ldflags "-H=windowsgui")
 fi
-if ! go build -tags desktop "${ldflags[@]}" -o "$root/$bin" ./cmd/claudia; then
+if ! go build "${args[@]}"; then
   echo "" >&2
   echo "desktop-build: needs CGO and native WebView deps (WebKitGTK on Linux, WebView2 on Windows)." >&2
   echo "  Run:  make desktop-install" >&2
