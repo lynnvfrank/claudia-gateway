@@ -8,15 +8,15 @@ Design notes for the root [Makefile](../Makefile) and bash-driven scripts. **The
 
 | Area | Status |
 |------|--------|
-| **`make up`** (`install` → `configure` → `claudia-build` → `claudia-start`) | **Done** |
-| **`make install`** / **`configure`** / **`clean`** / **`clean-all`** / **`clean-data`** | **Done** |
+| **`make up`** (`install` → `claudia-build` → `desktop-build` → `desktop-run`) | **Done** |
+| **`make install`** (`claudia-install` + `desktop-install`) / **`claudia-install`** / **`configure`** / **`clean`** / **`clean-all`** / **`clean-data`** | **Done** |
 | Foreground **`claudia-serve`**, background **`claudia-start`** / **`stop`** / **`logs`** / **`claudia-status`** | **Done** |
 | **`UP_STACK=0`** (BiFrost only, no Qdrant) | **Done** |
 | Desktop: **`desktop-install`** / **`desktop-build`** / **`desktop-run`**, **`vet-desktop`** | **Done** |
-| Quality gate **`precommit`** (`fmt-check`, **`vet-gateway`**, **`test-gateway`**, **`vet-desktop`** unless **`SKIP_DESKTOP=1`**) | **Done** |
-| Catalog tools **`catalog-write-free`** / **`catalog-write-available`** | **Done** |
-| Release **`release-install`** / **`release-snapshot`** / **`release-package`** | **Done** |
-| No **`make doctor`**; no duplicate meta-targets (**`ci`**, **`test`** alias, etc.) | **Done** |
+| Quality gate **`precommit`** (`fmt-check`, **`vet`**, **`test`**; desktop slice omitted with **`SKIP_DESKTOP=1`**) | **Done** |
+| Catalog tools **`catalog-free`** / **`catalog-available`** / **`config-provider-free-tier`** | **Done** |
+| Release **`release-install`** / **`release-snapshot`** / **`package`** | **Done** |
+| No **`make doctor`**; no duplicate meta-targets (**`ci`**, etc.) | **Done** |
 | PowerShell twin for every **`scripts/*.sh`** | **Optional / not important** — install uses bash; **`install-make.ps1`** exists for make only |
 | Separate **`gui/`** module targets (**`vet-gui`**, **`test-gui`**, **`SKIP_GUI`**) | **Superseded** — webview lives in **`cmd/claudia`** with **`vet-desktop`** / **`SKIP_DESKTOP`** |
 | Richer **`claudia-status`** (read ports from **`gateway.yaml`**) | **Optional follow-up** |
@@ -27,11 +27,11 @@ Design notes for the root [Makefile](../Makefile) and bash-driven scripts. **The
 
 ### No standalone “doctor”
 
-Do not add **`make doctor`**. **`make install`** should stay **idempotent** and report what it checked, what it skipped, and what failed. Deeper diagnostics stay in docs or optional scripts, not a competing Make entry point.
+Do not add **`make doctor`**. **`make claudia-install`** (BiFrost/Qdrant bootstrap via **`scripts/install.sh`**) should stay **idempotent** and report what it checked, what it skipped, and what failed. **`make install`** chains **`claudia-install`** then **`desktop-install`**. Deeper diagnostics stay in docs or optional scripts, not a competing Make entry point.
 
 ### Single canonical names
 
-One target per behavior: e.g. **`precommit`** (not **`ci`**), **`test-gateway`** (not **`test`**), **`claudia-serve`** (not local/stack aliases). Avoid parallel aliases for the same workflow.
+One target per behavior: e.g. **`precommit`** (not **`ci`**), **`test`** (aggregates **`test-*`** slices), **`claudia-serve`** (not local/stack aliases). Avoid parallel aliases for the same workflow.
 
 ### Bootstrap from **`deps.lock`** only
 
@@ -52,7 +52,7 @@ BiFrost and Qdrant come from **`scripts/install-bootstrap.sh`** / pinned **`deps
 
 These appeared in older versions of this plan; the product moved to **webview + `cmd/claudia`** and the names below are **not** Makefile targets today.
 
-- **`vet-gui`**, **`test-gui`**, **`SKIP_GUI`** — replaced by **`vet-desktop`** and **`SKIP_DESKTOP=1`** for precommit when CGO/WebView is unavailable.
+- **`vet-gui`**, **`test-gui`**, **`SKIP_GUI`** — replaced by **`vet-desktop`** / **`test-desktop`** and **`SKIP_DESKTOP=1`** for precommit when CGO/WebView is unavailable.
 - **`fmt`** over a top-level **`gui/`** module — obsolete; Fyne **`gui/`** is not the shipping desktop path.
 - “All-in-one entry point name TBD” — settled on **`make up`**.
 - PID under **`.run/`** — repo uses **`run/claudia.pid`**; no need to migrate.
@@ -71,8 +71,8 @@ These appeared in older versions of this plan; the product moved to **webview + 
 
 | Concern | Makefile role |
 |--------|----------------|
-| Toolchain + BiFrost/Qdrant pins | **`make install`** |
-| **`.env`**, tokens, config files | **`make configure`** (+ UI / manual for **`tokens.yaml`**) |
+| Toolchain + BiFrost/Qdrant pins | **`make claudia-install`** (or **`make install`** for desktop OS deps too) |
+| **`config/gateway.yaml`**, **`.env`**, **`tokens.yaml`** | **`make configure`** copies **`gateway.example.yaml`** → **`gateway.yaml`** if missing; copy **`env.example`** → **`.env`** yourself; **`tokens.yaml`** via **`/ui/setup`** or manual copy |
 | Run stack | **`claudia-run`**, **`claudia-serve`**, **`claudia-start`** / **`stop`** / **`status`**, **`logs`** |
 | Local gate before commit | **`make precommit`** |
 

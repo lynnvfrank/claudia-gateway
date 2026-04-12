@@ -164,9 +164,9 @@ func runServe(args []string, openWebview bool) {
 			if errors.Is(berr, exec.ErrNotFound) || strings.Contains(berr.Error(), "executable file not found") {
 				fmt.Fprintln(os.Stderr, "")
 				fmt.Fprintln(os.Stderr, "No BiFrost HTTP binary found (place bifrost-http next to claudia, PATH, or pass -bifrost-bin). From repo root:")
-				fmt.Fprintln(os.Stderr, "  make install")
+				fmt.Fprintln(os.Stderr, "  make claudia-install")
 				fmt.Fprintln(os.Stderr, "  ./claudia serve -bifrost-bin ./bin/bifrost-http")
-				fmt.Fprintln(os.Stderr, "Or: make release-package  (full folder with bifrost-http + qdrant + config)")
+				fmt.Fprintln(os.Stderr, "Or: make package  (full folder with bifrost-http + qdrant + config)")
 				fmt.Fprintln(os.Stderr, "See docs/supervisor.md — Obtaining the BiFrost binary.")
 			}
 			os.Exit(1)

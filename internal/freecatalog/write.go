@@ -41,9 +41,9 @@ func WriteCatalogYAML(path string, generatedAt time.Time, groqURL, geminiURL str
 	sort.Strings(keys)
 
 	var b strings.Builder
-	b.WriteString("# catalog-write-free — models inferred from public provider documentation.\n")
+	b.WriteString("# catalog-free — models inferred from public provider documentation.\n")
 	b.WriteString("# BiFrost ids are best-effort; compare comments to the source page if a model 404s.\n")
-	b.WriteString("# Re-run: make catalog-write-free (requires network).\n\n")
+	b.WriteString("# Re-run: make catalog-free (requires network).\n\n")
 	fmt.Fprintf(&b, "format_version: 1\n")
 	fmt.Fprintf(&b, "generated_at: %q\n", generatedAt.UTC().Format(time.RFC3339))
 	b.WriteString("sources:\n")

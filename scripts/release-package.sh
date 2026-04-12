@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full local bundle: desktop claudia + bifrost-http + qdrant + config (make release-package).
+# Full local bundle: desktop claudia + bifrost-http + qdrant + config (make package).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -26,18 +26,18 @@ if [[ -z "$DESKTOP_BIN" ]]; then
 fi
 
 if [[ ! -f "$ROOT/$DESKTOP_BIN" ]]; then
-	echo "release-package: building $DESKTOP_BIN (CGO + -tags desktop)..."
+	echo "package: building $DESKTOP_BIN (CGO + -tags desktop)..."
 	bash "$ROOT/scripts/desktop-build.sh" "$DESKTOP_BIN"
 fi
 
 BIF="bifrost-http${ext}"
 QDR="qdrant${ext}"
 if [[ ! -f "$ROOT/bin/$BIF" ]]; then
-	echo "release-package: missing bin/$BIF — run: make install" >&2
+	echo "package: missing bin/$BIF — run: make claudia-install" >&2
 	exit 1
 fi
 if [[ ! -f "$ROOT/bin/$QDR" ]]; then
-	echo "release-package: missing bin/$QDR — run: make install" >&2
+	echo "package: missing bin/$QDR — run: make claudia-install" >&2
 	exit 1
 fi
 
@@ -53,7 +53,7 @@ cp "$ROOT/config/provider-free-tier.yaml" "$OUT/config/provider-free-tier.yaml"
 cp "$ROOT/env.example" "$OUT/env.example"
 
 cat > "$OUT/README.txt" <<'EOF'
-Personal bundle (make release-package)
+Personal bundle (make package)
 
 1. Copy env.example to .env in this folder and add provider keys.
 2. First run: start claudia (double-click or run ./claudia.exe / ./claudia) — setup opens in the browser to create config/tokens.yaml (or copy config/tokens.example.yaml to config/tokens.yaml yourself).
@@ -61,4 +61,4 @@ Personal bundle (make release-package)
 
 EOF
 
-echo "release-package: wrote $OUT"
+echo "package: wrote $OUT"

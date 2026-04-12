@@ -13,8 +13,8 @@ import (
 type Spec struct {
 	FormatVersion int      `yaml:"format_version"`
 	EffectiveDate string   `yaml:"effective_date"`
-	Models        []string `yaml:"models"`
-	Patterns      []string `yaml:"patterns"`
+	Models        []string `yaml:"models"`   // exact ids and/or globs (see Match)
+	Patterns      []string `yaml:"patterns"` // shell-style globs; provider/* = whole provider
 }
 
 // Load reads and parses provider-free-tier YAML. An empty or missing models/patterns list is valid.
@@ -41,7 +41,13 @@ func (s *Spec) Empty() bool {
 	return len(s.Models) == 0 && len(s.Patterns) == 0
 }
 
-// Match returns true if id is allowed by exact list or shell-style patterns (* matches any segment within one path element for path.Match).
+// Match returns true if id is allowed by models (exact or glob) or patterns.
+//
+// Entries in models are normally full catalog ids. An entry containing *, ?, or [
+// is matched with the same rules as patterns. Additionally, a pattern of the form
+// "provider/*" where provider contains no "/" matches any id with prefix "provider/"
+// (all catalog models for that BiFrost provider), including nested paths such as
+// ollama/library/llama3.
 func (s *Spec) Match(id string) bool {
 	if s == nil {
 		return false
@@ -51,21 +57,50 @@ func (s *Spec) Match(id string) bool {
 		return false
 	}
 	for _, m := range s.Models {
-		if strings.TrimSpace(m) == id {
+		if matchListedModel(strings.TrimSpace(m), id) {
 			return true
 		}
 	}
 	for _, p := range s.Patterns {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		ok, err := path.Match(p, id)
-		if err == nil && ok {
+		if matchPattern(strings.TrimSpace(p), id) {
 			return true
 		}
 	}
 	return false
+}
+
+func matchListedModel(m, id string) bool {
+	if m == "" {
+		return false
+	}
+	if !strings.ContainsAny(m, "*?[") {
+		return m == id
+	}
+	return matchPattern(m, id)
+}
+
+func matchPattern(p, id string) bool {
+	if p == "" {
+		return false
+	}
+	if prefix, ok := providerWildcardPrefix(p); ok {
+		return strings.HasPrefix(id, prefix)
+	}
+	ok, err := path.Match(p, id)
+	return err == nil && ok
+}
+
+// providerWildcardPrefix reports whether p is "provider/*" with a single path
+// segment before the slash; the match prefix is "provider/".
+func providerWildcardPrefix(p string) (prefix string, ok bool) {
+	if !strings.HasSuffix(p, "/*") {
+		return "", false
+	}
+	base := strings.TrimSuffix(p, "/*")
+	if base == "" || strings.Contains(base, "/") {
+		return "", false
+	}
+	return base + "/", true
 }
 
 // Filter returns ids that match the spec, preserving input order.

@@ -31,7 +31,7 @@ fi
 BF=bin/bifrost-http
 [[ -f bin/bifrost-http.exe ]] && BF=bin/bifrost-http.exe
 if [[ ! -f "$BF" ]]; then
-	echo "claudia-start: missing $BF — run: make install" >&2
+	echo "claudia-start: missing $BF — run: make claudia-install" >&2
 	exit 1
 fi
 
@@ -42,7 +42,7 @@ if [[ "$STACK" -eq 1 ]]; then
 	if [[ -f "$QT" ]]; then
 		ARGS+=(-qdrant-bin "$QT")
 	else
-		echo "claudia-start: --stack requested but no $QT — run: make install" >&2
+		echo "claudia-start: --stack requested but no $QT — run: make claudia-install" >&2
 		exit 1
 	fi
 fi

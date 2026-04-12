@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 if ! command -v go >/dev/null 2>&1; then
-	echo "release-install: go not on PATH — run: make install" >&2
+	echo "release-install: go not on PATH — run: make claudia-install" >&2
 	exit 1
 fi
 

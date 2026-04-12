@@ -79,7 +79,7 @@ func main() {
 
 	var out bytes.Buffer
 	out.WriteString("# catalog-available — BiFrost GET /v1/models (OpenAI-style list).\n")
-	out.WriteString("# Re-run: make catalog-write-available (BiFrost must be reachable).\n")
+	out.WriteString("# Re-run: make catalog-available (BiFrost must be reachable).\n")
 	out.WriteString("# Env: BIFROST_BASE_URL, CLAUDIA_UPSTREAM_API_KEY (optional).\n\n")
 	out.Write(encBuf.Bytes())
 

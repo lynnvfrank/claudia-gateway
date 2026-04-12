@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Invoked by install.sh (make install). Clone BiFrost at deps.lock ref, build bifrost-http, run qdrant-from-release.sh.
+# Invoked by install.sh (make claudia-install). Clone BiFrost at deps.lock ref, build bifrost-http, run qdrant-from-release.sh.
 # Requires: git, curl, tar, make (or mingw32-make), unzip on Windows, Node.js 20+ (BiFrost UI),
 # Go + CGO C compiler (gcc or clang on PATH). On Windows use Git Bash + MinGW-w64/MSYS2 gcc, or WSL.
 set -euo pipefail
@@ -84,7 +84,7 @@ elif [[ -f "$BF_ART" ]]; then
 	fi
 else
 	echo "install-bootstrap: no $BF_ART or ${BF_ART}.exe after BiFrost build (CGO often needs gcc on PATH)." >&2
-	echo "install-bootstrap: install gcc/clang, then: make install   (see docs/installation.md#c-compiler-cgo)" >&2
+	echo "install-bootstrap: install gcc/clang, then: make claudia-install   (see docs/installation.md#c-compiler-cgo)" >&2
 	ls -la "$BIFROST_DIR/tmp" 2>/dev/null || echo "    (tmp/ missing or empty)" >&2
 	exit 1
 fi
@@ -100,4 +100,4 @@ echo "Done. Binaries: $BF_INSTALLED  $QD_INSTALLED"
 if [[ "$BF_INSTALLED" == *.exe ]] || [[ "$QD_INSTALLED" == *.exe ]]; then
 	echo "On Windows, run claudia with e.g. -bifrost-bin ./bin/bifrost-http.exe -qdrant-bin ./bin/qdrant.exe"
 fi
-echo "BiFrost checkout: $BIFROST_DIR (bump BIFROST_GIT_REF in deps.lock and re-run: make install)"
+echo "BiFrost checkout: $BIFROST_DIR (bump BIFROST_GIT_REF in deps.lock and re-run: make claudia-install)"

@@ -78,14 +78,10 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Format
-        run: test -z "$(gofmt -l cmd internal)"
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./... -race -count=1
+      - name: fmt-check, vet, test
+        env:
+          SKIP_DESKTOP: "1"
+        run: make fmt-check vet test
 
   # Validates .goreleaser.yaml and produces snapshot artifacts; smoke-run linux amd64 binary.
   package:
@@ -132,10 +128,10 @@ jobs:
           test -n "$wk41_pc" && test -f "$wk41_pc"
           sudo ln -sf "$wk41_pc" /usr/local/lib/pkgconfig/webkit2gtk-4.0.pc
 
-      - name: Vet (desktop tag)
+      - name: Vet and test (desktop tag)
         env:
           CGO_ENABLED: "1"
-        run: go vet -tags desktop ./cmd/claudia
+        run: make vet-desktop test-desktop
 
       - name: Build desktop binary
         env:

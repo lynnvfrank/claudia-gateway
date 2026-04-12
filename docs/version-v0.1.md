@@ -28,7 +28,7 @@ The gateway is a **small Go** service in front of **BiFrost** (OpenAI-compatible
 - **Desktop shell** (optional build): `**go build -tags desktop`** produces a binary whose **default no-subcommand** path runs **supervisor + gateway + webview** (`cmd/claudia/default_mode_desktop.go`, `webview_desktop.go`). `**claudia desktop`**, `**claudia serve**`, `**--headless**`, and `**claudia gateway**` behave as documented in `**claudia help**`. The webview **opens the panel URL** derived from the listen address (`cmd/claudia/serve.go` → `panelURLFromListenAddr`); unauthenticated users are **redirected** to `**/ui/login`**.
 - **Supervisor children** (BiFrost, Qdrant): subprocess **stdout/stderr** are wired to `**os.Stdout` / `os.Stderr`** (`internal/supervisor/bifrost.go`, `qdrant.go`), so all service logs go to the **same console** as the gateway. On **Windows**, a **desktop** build can still show a **console window** (and users report an extra command window alongside the webview); hiding that console and surfacing logs only in-app is **not** done yet (see below).
 
-**Default local stack:** `**make up`** or `**go run ./cmd/claudia serve**` with `**./bin/bifrost-http**` after `**make install**`, plus provider env keys for `**config/bifrost.config.json**`. Desktop: `**make desktop-build**` / `**make desktop-run**` per `[docs/gui-testing.md](gui-testing.md)`.
+**Default local stack:** `**make up`** or `**go run ./cmd/claudia serve**` with `**./bin/bifrost-http**` after `**make claudia-install**` (or `**make install**` for desktop OS deps too), plus provider env keys for `**config/bifrost.config.json**`. Desktop: `**make desktop-build**` / `**make desktop-run**` per `[docs/gui-testing.md](gui-testing.md)`.
 
 ---
 
@@ -179,7 +179,7 @@ This aligns with **§ Portable “first run”** but narrows v0.1 to **bootstrap
 #### Implemented in the tree today
 
 - **Authenticated HTTP API:** **`POST /api/ui/routing/generate`** (session after **`POST /api/ui/login`**) fetches upstream **`GET /v1/models`**, optionally intersects with **`provider-free-tier.yaml`** when **`routing.filter_free_tier_models`** is **true**, orders models deterministically (**`internal/routinggen`**), writes **`routing-policy.yaml`** and patches **`routing.fallback_chain`** via **`config.WriteGatewayFallbackChain`**, and **rejects** invalid output **before** leaving inconsistent files. See **`internal/server/ui_routing_generate.go`**.
-- **Free-tier catalog reference (offline / CI-friendly):** **`make catalog-write-free`** (**`go run ./cmd/catalog-write-free`**) fetches public Groq + Gemini docs and emits a **reference** YAML snapshot (optional **`INTERSECT=`** against a local models export); operators may **manually** merge into **`provider-free-tier.yaml`** — the gateway does **not** load that snapshot automatically. See **`docs/configuration.md`**, **`internal/freecatalog/`**, **`cmd/catalog-write-free/`**.
+- **Free-tier catalog reference (offline / CI-friendly):** **`make catalog-free`** (**`go run ./cmd/catalog-write-free`**) fetches public Groq + Gemini docs and emits a **reference** YAML snapshot (optional **`INTERSECT=`** against a local models export); operators may **manually** merge into **`provider-free-tier.yaml`** — the gateway does **not** load that snapshot automatically. See **`docs/configuration.md`**, **`internal/freecatalog/`**, **`cmd/catalog-write-free/`**.
 - **Catalog visibility:** When **`routing.filter_free_tier_models`** is on and the allowlist loads, merged **`GET /v1/models`** lists only allowlisted upstream ids (virtual model still first).
 
 #### Not implemented yet (track against v0.1 admin experience)
@@ -246,7 +246,7 @@ Instead of hand-authoring `routing-policy.yaml` and fallback chains from scratch
 | BiFrost bootstrap                 | `config/bifrost.config.json`                                 |
 | Routing rules                     | `config/routing-policy.yaml`                                 |
 | Free-tier allowlist (optional)    | `config/provider-free-tier.yaml`                             |
-| Catalog snapshot tool (reference) | `make catalog-write-free`, `cmd/catalog-write-free/`, `internal/freecatalog/` |
+| Catalog snapshot tool (reference) | `make catalog-free`, `cmd/catalog-write-free/`, `internal/freecatalog/` |
 | Regenerate routing (API)          | `POST /api/ui/routing/generate` (`internal/server/ui_routing_generate.go`) |
 | Operator UI (embed)               | `internal/server/embedui/`, `internal/server/ui_handlers.go` |
 | Product / locked decisions        | `docs/claudia-gateway.plan.md`                               |

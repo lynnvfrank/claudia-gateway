@@ -79,4 +79,5 @@ rules:
     when: {}
     models:
       # Fast default for typical short/medium chats (BiFrost unified id).
-      - "groq/llama-3.1-8b-instant"
+      - "groq/llama-3.3-70b-versatile"
+
