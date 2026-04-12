@@ -10,7 +10,7 @@ This document records **Phase 0** of [go-bifrost-migration-plan.md](go-bifrost-m
 
 | Item | Value |
 |------|--------|
-| **Binary** | **`bifrost-http`** — e.g. **`make install`** → **`./bin/bifrost-http`**; pins in **`deps.lock`**, or **`claudia serve`** supervises it |
+| **Binary** | **`bifrost-http`** — e.g. **`make claudia-install`** → **`./bin/bifrost-http`**; pins in **`deps.lock`**, or **`claudia serve`** supervises it |
 | **Listen** | Default **`127.0.0.1:8080`** (`claudia serve` flags: **`-bifrost-bind`**, **`-bifrost-port`**) |
 | **Health** | `GET http://127.0.0.1:8080/health` |
 | **Bootstrap config** | Repo **`config/bifrost.config.json`** — copied into BiFrost data dir as **`config.json`** when using **`claudia serve`** |
@@ -20,7 +20,7 @@ This document records **Phase 0** of [go-bifrost-migration-plan.md](go-bifrost-m
 ```bash
 export CLAUDIA_UPSTREAM_API_KEY=bifrost-local-dummy
 export GROQ_API_KEY=...   # per bifrost.config.json
-make install              # once — versions from deps.lock
+make claudia-install      # once — versions from deps.lock
 make claudia-serve        # or: make up
 ```
 

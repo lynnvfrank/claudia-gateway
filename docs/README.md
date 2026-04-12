@@ -4,7 +4,7 @@
 |----------|-------------|
 | [overview.md](overview.md) | What the gateway and BiFrost do; v0.1 vs later versions |
 | [network.md](network.md) | Local process layout, ports, traffic flow |
-| [installation.md](installation.md) | Toolchains, `make install`, BiFrost/Qdrant binaries, `claudia` build |
+| [installation.md](installation.md) | Toolchains, `make claudia-install` / `make install`, BiFrost/Qdrant binaries, `claudia` build |
 | [configuration.md](configuration.md) | Gateway config files, env vars, reload semantics |
 | [go-bifrost-migration-plan.md](go-bifrost-migration-plan.md) | Phased plan history: Go, BiFrost, packaging, GUI |
 | [supervisor.md](supervisor.md) | `claudia serve`: BiFrost subprocess + Go gateway |

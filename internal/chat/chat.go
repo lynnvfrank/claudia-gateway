@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lynn/claudia-gateway/internal/routing"
+	"github.com/lynn/claudia-gateway/internal/tokencount"
 )
 
 var retryStatuses = map[int]struct{}{
@@ -41,7 +42,22 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 	}
 
 	if log != nil {
-		log.Debug("upstream chat relay", "upstreamModel", upstreamModel, "stream", stream, "target", url)
+		n, errTok := tokencount.Count(string(out))
+		if errTok == nil {
+			log.Info("upstream chat relay",
+				"upstreamModel", upstreamModel,
+				"stream", stream,
+				"target", url,
+				"outgoingTokens", n,
+			)
+		} else {
+			log.Info("upstream chat relay",
+				"upstreamModel", upstreamModel,
+				"stream", stream,
+				"target", url,
+			)
+			log.Debug("outgoing token count failed", "err", errTok)
+		}
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)

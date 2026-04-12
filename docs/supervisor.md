@@ -24,10 +24,10 @@ The repository does **not** vendor BiFrost. Install per [BiFrost documentation](
 **Install from `deps.lock`** (clone under **`.deps/`**, build BiFrost, fetch Qdrant → **`./bin/`**):
 
 ```bash
-make install
+make claudia-install
 ```
 
-**Full onboarding** (install, seed config if missing, build **`claudia`**, start supervisor in background with Qdrant):
+Use **`make install`** when you also want **`make desktop-install`** (desktop WebView/CGO OS deps). **Full onboarding** (install, build **`claudia`** + desktop, run desktop UI with supervisor):
 
 ```bash
 make up
@@ -35,7 +35,7 @@ make up
 
 Foreground stack: **`make claudia-serve`** (gateway + BiFrost + Qdrant). Background: **`make claudia-start`** (after **`make claudia-build`**); logs in **`logs/claudia.log`**, PID in **`run/claudia.pid`**; stop with **`make claudia-stop`**, status with **`make claudia-status`**. For BiFrost only in the foreground, run **`./claudia serve -bifrost-bin ./bin/bifrost-http`** (no Qdrant).
 
-Upstream BiFrost **`make build`** includes the UI (**`build-ui`**) and needs **Node.js 20+** and a matching **npm** (not only Go). **`make install`** checks Node before building.
+Upstream BiFrost **`make build`** includes the UI (**`build-ui`**) and needs **Node.js 20+** and a matching **npm** (not only Go). **`make claudia-install`** checks Node before building.
 
 Otherwise put **`bifrost-http`** (or a compatible binary) on **`PATH`** as **`bifrost`**, or pass **`-bifrost-bin /full/path`**.
 
@@ -45,7 +45,7 @@ The kernel resolves a **relative** **`-bifrost-bin`** path against the **process
 
 ### Troubleshooting **`npm ci`** / **`Cannot read property '@base-ui/react' of undefined`**
 
-That error usually means **`npm`** is too old (e.g. **npm 6** with **Node 10**). On Ubuntu, **snap**’s **`node`** package is often **v10**; BiFrost’s UI expects a current **Node** (see BiFrost **`ui/package.json`** / Next 15). Fix by installing **Node 20+** (nvm, fnm, [nodejs.org](https://nodejs.org/), or your distro’s **`nodejs`** package) and ensuring **`which node`** points at it **before** snap’s **`/snap/bin/node`**. Then run **`make install`** again.
+That error usually means **`npm`** is too old (e.g. **npm 6** with **Node 10**). On Ubuntu, **snap**’s **`node`** package is often **v10**; BiFrost’s UI expects a current **Node** (see BiFrost **`ui/package.json`** / Next 15). Fix by installing **Node 20+** (nvm, fnm, [nodejs.org](https://nodejs.org/), or your distro’s **`nodejs`** package) and ensuring **`which node`** points at it **before** snap’s **`/snap/bin/node`**. Then run **`make claudia-install`** again.
 
 Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the **environment** of the `claudia serve` process and inherited by the BiFrost child. Qdrant inherits the same environment (optional **`QDRANT__*`** overrides).
 
@@ -54,7 +54,7 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the
 The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG** and a full local stack.
 
 - **Pinned version:** **`QDRANT_RELEASE`** in repo-root **`deps.lock`** (used by **`scripts/qdrant-from-release.sh`**, **`scripts/release-snapshot-qdrant.sh`**, and GoReleaser).
-- **Local install:** **`make install`** (includes Qdrant) or **`bash scripts/qdrant-from-release.sh`** alone → **`./bin/qdrant`** or **`qdrant.exe`** (see **`scripts/qdrant-from-release.sh`**).
+- **Local install:** **`make claudia-install`** (includes Qdrant) or **`bash scripts/qdrant-from-release.sh`** alone → **`./bin/qdrant`** or **`qdrant.exe`** (see **`scripts/qdrant-from-release.sh`**).
 - **Full local stack (Qdrant + BiFrost + gateway):** **`make up`** or **`make claudia-serve`** (foreground).
 
 ### Qdrant startup log warnings (optional YAML and `./static`)
@@ -84,7 +84,7 @@ Common flags:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| **`-bifrost-bin`** | `bifrost` | **`bifrost-http`** (or name on PATH); use **`./bin/bifrost-http`** (or **`bifrost-http.exe`**) after **`make install`** |
+| **`-bifrost-bin`** | `bifrost` | **`bifrost-http`** (or name on PATH); use **`./bin/bifrost-http`** (or **`bifrost-http.exe`**) after **`make claudia-install`** |
 | **`-bifrost-config`** | `config/bifrost.config.json` | Source JSON copied into data dir |
 | **`-bifrost-data-dir`** | `data/bifrost` | Writable BiFrost state directory |
 | **`-bifrost-bind`** | `127.0.0.1` | **`-host`** (and **`APP_HOST`**) |
@@ -107,15 +107,16 @@ Gateway flags **`‑config`** and **`‑listen`** apply as in gateway-only mode.
 
 ## Make targets
 
-- **`make install`** → toolchain check + BiFrost + Qdrant per **`deps.lock`**
-- **`make up`** → **`install`**, **`configure`**, **`claudia-build`**, **`claudia-start`** (background; **`UP_STACK=0`** to omit Qdrant)
+- **`make claudia-install`** → toolchain check + BiFrost + Qdrant per **`deps.lock`**
+- **`make install`** → **`claudia-install`** then **`desktop-install`**
+- **`make up`** → **`install`**, **`claudia-build`**, **`desktop-build`**, **`desktop-run`**
 - **`make claudia-serve`** → foreground **`go run … serve`** with **`./bin/qdrant`** and **`./bin/bifrost-http`**
 - **`make claudia-start`** / **`make claudia-stop`** / **`make claudia-status`** / **`make logs`** → background supervisor lifecycle (**`scripts/claudia-start.sh`**, etc.)
-- **`scripts/qdrant-from-release.sh`** → Qdrant binary only → **`./bin/`** (invoked by **`make install`**; run by hand to refresh Qdrant without full install)
+- **`scripts/qdrant-from-release.sh`** → Qdrant binary only → **`./bin/`** (invoked by **`make claudia-install`**; run by hand to refresh Qdrant without full install)
 
 ## Manual checklist (Linux)
 
-1. Run **`make install`** (or ensure **`./bin/bifrost-http`** exists) or pass **`-bifrost-bin`**.
+1. Run **`make claudia-install`** (or ensure **`./bin/bifrost-http`** exists) or pass **`-bifrost-bin`**.
 2. Run **`claudia serve`**; confirm **`GET http://127.0.0.1:3000/health`** (or your listen port) returns **`ok`** when BiFrost is up.
 3. Send **SIGINT** to the parent; confirm child processes exit (no orphan **`bifrost`** / **`qdrant`** in **`ps`**).
 

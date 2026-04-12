@@ -36,6 +36,50 @@ patterns:
 	}
 }
 
+func TestMatch_ollamaProviderWildcard(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "p.yaml")
+	raw := `format_version: 1
+effective_date: "2026-01-01"
+models:
+  - ollama/*
+`
+	if err := os.WriteFile(p, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"ollama/llama3", "ollama/library/llama3", "ollama/foo/bar"} {
+		if !s.Match(id) {
+			t.Fatalf("expected match %q", id)
+		}
+	}
+	if s.Match("ollama") || s.Match("groq/llama3") {
+		t.Fatal("unexpected match")
+	}
+}
+
+func TestMatch_globInModelsList(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "p.yaml")
+	raw := `format_version: 1
+models:
+  - "groq/llama*"
+`
+	if err := os.WriteFile(p, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Match("groq/llama-3") || s.Match("groq/other") {
+		t.Fatalf("glob in models list: unexpected match result")
+	}
+}
+
 func TestLoad_badVersion(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "p.yaml")

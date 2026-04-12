@@ -274,10 +274,13 @@ This document also carries a **future** local **vectordb-cli** stack (§ **Futur
 
 - **Unit tests** for the message parser: string content, array content, empty messages, malformed JSON (expect graceful behavior).
 - **Unit test** for known fixed strings if the library publishes golden token lengths for a given encoding.
-- Run **`make precommit`** (or at least **`test-gateway`**, **`vet-gateway`**, **`fmt-check`**) after touching **`go.mod`**.
+- Run **`make precommit`** (or at least **`test`**, **`vet`**, **`fmt-check`**) after touching **`go.mod`**.
 
 ### 5. Done criteria
 
 - **`go list -m all`** includes the new tokenizer module; builds are clean on supported platforms.
 - Every authenticated **`POST /v1/chat/completions`** emits **`INFO`** structured log line(s) that include **token count** for the extracted message text plus **tenant** / **model** / **stream** context.
 - Embedding-bound code paths (when present) use the **same** counter **before** calling the embed API.
+
+
+## Path Before

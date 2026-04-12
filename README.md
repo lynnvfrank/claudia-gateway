@@ -36,6 +36,8 @@ Install all the dependencies and build the dependent projects.
 make install
 ```
 
+**`make install`** runs **`make claudia-install`** (toolchain check, BiFrost, Qdrant) and then **`make desktop-install`** (native WebView/CGO deps). For a **headless** machine or CI-style setup where you only need **`./bin/bifrost-http`** and **`./bin/qdrant`**, use **`make claudia-install`** only.
+
 **Dependencies**
 
 - **Go (1.22+)** — builds the gateway and BiFrost’s Go code.
@@ -73,7 +75,7 @@ make configure
 3. **`config/gateway.yaml`** — starter in repo; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed.
 4. **`config/bifrost.config.json`** — align provider blocks and `env.*` with your **`.env`**.
 5. **`config/routing-policy.yaml`** — committed default; edit or point `gateway.yaml` at another file.
-6. **`config/provider-free-tier.yaml`** — optional operator allowlist; shipped default; tune `models` / `patterns` and set `routing.filter_free_tier_models` in `gateway.yaml` if you want catalog filtering. To refresh a **reference** list from [Groq](https://console.groq.com/docs/rate-limits) + [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) docs (network required), run **`make catalog-write-free`** (optional **`INTERSECT=`** path to JSON or YAML `data[].id`, e.g. **`config/catalog-available.snapshot.yaml`**). To snapshot models from a running BiFrost, run **`make catalog-write-available`**. See [docs/configuration.md](docs/configuration.md).
+6. **`config/provider-free-tier.yaml`** — optional operator allowlist; shipped default; tune `models` / `patterns` and set `routing.filter_free_tier_models` in `gateway.yaml` if you want catalog filtering. To refresh a **reference** list from [Groq](https://console.groq.com/docs/rate-limits) + [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) docs (network required), run **`make catalog-free`** (optional **`INTERSECT=`** path to JSON or YAML `data[].id`, e.g. **`config/catalog-available.snapshot.yaml`**). To snapshot models from a running BiFrost, run **`make catalog-available`**. See [docs/configuration.md](docs/configuration.md).
 
 Full reference: [docs/configuration.md](docs/configuration.md).
 
@@ -143,7 +145,7 @@ Operator UI is served by the gateway at **`/ui/login`** and **`/ui/panel`** (bro
 | **`make desktop-run`** | **`desktop-build`** if missing, then **`claudia-desktop desktop`** with the same **Qdrant/BiFrost** flags as **`make claudia-serve`**. |
 | **`make vet-desktop`** | **`go vet -tags desktop ./cmd/claudia`** with **CGO** (same toolchain as **`desktop-build`**). |
 
-**`make precommit`** runs **`vet-desktop`** unless **`SKIP_DESKTOP=1`**; see **Testing and Linting** below.
+**`make vet`** includes **`vet-desktop`** unless **`SKIP_DESKTOP=1`**; see **Testing and Linting** below.
 
 ## Testing and Linting
 
@@ -151,10 +153,12 @@ Operator UI is served by the gateway at **`/ui/login`** and **`/ui/panel`** (bro
 | ------ | ------------ |
 | **`make fmt`** | **`gofmt -w`** on **`cmd`** and **`internal`**. |
 | **`make fmt-check`** | Fails if **`gofmt`** would change any file (same check as CI). Used by **`precommit`**. |
-| **`make vet-gateway`** | **`go vet ./...`** on the main module. Used by **`precommit`**. |
-| **`make vet-desktop`** | **`go vet -tags desktop ./cmd/claudia`** with **CGO**. Used by **`precommit`** unless **`SKIP_DESKTOP=1`**. |
-| **`make test-gateway`** | **`go test ./...`** on the main module with **`-race`** on Unix. |
-| **`make precommit`** | Runs **`fmt-check`**, **`vet-gateway`**, **`test-gateway`**, and **`vet-desktop`** unless **`SKIP_DESKTOP=1`**. On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** uses **`SKIP_DESKTOP=1`** by default; set **`FULL_DESKTOP=1`** to include **`vet-desktop`**. |
+| **`make vet`** | **`vet-module`** (**`go vet ./...`**) plus **`vet-desktop`** unless **`SKIP_DESKTOP=1`**. Used by **`precommit`**. |
+| **`make vet-module`** | **`go vet ./...`** on the main module. |
+| **`make vet-desktop`** | **`go vet -tags desktop ./cmd/claudia`** with **CGO**. |
+| **`make test`** | Runs **`test-internal`**, **`test-catalog-free`**, **`test-catalog-available`**, **`test-claudia`**, and **`test-desktop`** unless **`SKIP_DESKTOP=1`**. **`-race`** on Unix (same as before). |
+| **`make test-internal`** / **`test-claudia`** / **`test-desktop`** / **`test-catalog-free`** / **`test-catalog-available`** | **`go test`** on that subtree; use **`test-desktop`** for the desktop-tagged **`claudia`** binary (CGO). |
+| **`make precommit`** | Runs **`fmt-check`**, **`vet`**, and **`test`**. On Windows/Git Bash, **`./scripts/precommit-smoke.sh`** uses **`SKIP_DESKTOP=1`** by default; set **`FULL_DESKTOP=1`** to include desktop vet/test. |
 
 ## Repo Management and Packaging
 

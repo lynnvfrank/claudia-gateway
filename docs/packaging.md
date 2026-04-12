@@ -1,6 +1,6 @@
 # Packaging and releases (Phase 4)
 
-The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (**`QDRANT_RELEASE`** in repo-root **`deps.lock`**, fetched by **`scripts/release-snapshot-qdrant.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); operators use **`make install`** — see [supervisor.md](supervisor.md).
+The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/)** v2. Each release archive also includes the **Qdrant** binary for the matching OS/arch (**`QDRANT_RELEASE`** in repo-root **`deps.lock`**, fetched by **`scripts/release-snapshot-qdrant.sh`** before packaging). **BiFrost** is **not** bundled (license, size, CGO); operators use **`make claudia-install`** (or **`make install`** to include desktop OS deps) — see [supervisor.md](supervisor.md).
 
 ## GitHub releases vs local snapshot
 
@@ -9,7 +9,7 @@ The **Go `claudia`** binary is built with **[GoReleaser](https://goreleaser.com/
 
 ## Personal full bundle (BiFrost + desktop UI)
 
-**`make release-package`** writes **`dist/personal/claudia-bundle_<os>_<arch>/`** with **desktop `claudia`**, **`bifrost-http`**, **`qdrant`**, and **`config/`** + **`env.example`**. Requires **`make install`** first and a working **CGO / WebView** toolchain (**`make desktop-install`** on first use).
+**`make package`** writes **`dist/personal/claudia-bundle_<os>_<arch>/`** with **desktop `claudia`**, **`bifrost-http`**, **`qdrant`**, and **`config/`** + **`env.example`**. Requires **`./bin/bifrost-http`** and **`./bin/qdrant`** from **`make claudia-install`**, plus a **CGO / WebView** toolchain — use **`make install`** (runs **`claudia-install`** then **`desktop-install`**) or run those two targets by hand.
 
 ## Artifact layout
 
@@ -43,7 +43,7 @@ cd claudia_<version>_linux_amd64   # or matching folder name inside the archive
 
 **Windows**
 
-Extract the **`.zip`**, copy **`env.example`** to **`.env`**, install **BiFrost** separately or use **`make release-package`** for a full folder. The public zip’s **`claudia.exe`** is built **without** **`-tags desktop`** (no native webview); use **`claudia serve`** / **`claudia --headless`** for the supervisor, or **`claudia gateway`** for gateway-only. SmartScreen may warn on first run for unsigned binaries; **code signing** is a documented follow-up.
+Extract the **`.zip`**, copy **`env.example`** to **`.env`**, install **BiFrost** separately or use **`make package`** for a full folder. The public zip’s **`claudia.exe`** is built **without** **`-tags desktop`** (no native webview); use **`claudia serve`** / **`claudia --headless`** for the supervisor, or **`claudia gateway`** for gateway-only. SmartScreen may warn on first run for unsigned binaries; **code signing** is a documented follow-up.
 
 ## Cutting a release (maintainers)
 
@@ -82,7 +82,7 @@ Releases version **`claudia`** and bundle **Qdrant** as above. Record the **BiFr
 
 ## Desktop UI (WebView)
 
-Native panel UI is **`go build -tags desktop`** (**`make desktop-build`** → **`claudia-desktop`**). GoReleaser archives use **CGO_ENABLED=0**, so they do **not** include WebView; use **`make release-package`** for a double-clickable desktop stack on your machine. See [gui-testing.md](gui-testing.md).
+Native panel UI is **`go build -tags desktop`** (**`make desktop-build`** → **`claudia-desktop`**). GoReleaser archives use **CGO_ENABLED=0**, so they do **not** include WebView; use **`make package`** for a double-clickable desktop stack on your machine. See [gui-testing.md](gui-testing.md).
 
 ## Follow-ups (not in Phase 4)
 

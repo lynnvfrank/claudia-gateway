@@ -18,4 +18,4 @@ Quick start:
 
 Full detail: PACKAGING.md in this archive (and the project repository for deeper docs).
 
-Maintainers / full local stack (BiFrost + desktop UI): build from a git checkout with make release-package (not included here).
+Maintainers / full local stack (BiFrost + desktop UI): build from a git checkout with make package (not included here).

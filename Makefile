@@ -33,11 +33,14 @@ else
   DESKTOP_BIN := claudia-desktop
 endif
 
+# Desktop vet/test need CGO + WebKit (see desktop-install). Set SKIP_DESKTOP=1 to omit claudia desktop tag.
 SKIP_DESKTOP ?=
 ifeq ($(SKIP_DESKTOP),1)
-  _DESKTOP_PRECOMMIT_TARGETS :=
+  _DESKTOP_VET :=
+  _DESKTOP_TEST :=
 else
-  _DESKTOP_PRECOMMIT_TARGETS := vet-desktop
+  _DESKTOP_VET := vet-desktop
+  _DESKTOP_TEST := test-desktop
 endif
 
 # UP_STACK=0 starts background supervisor without Qdrant; default is full stack.
@@ -47,31 +50,32 @@ else
   _BG_FLAGS := --stack
 endif
 
-.PHONY: help up install configure clean clean-all clean-data fmt fmt-check logs \
+.PHONY: help up install claudia-install clean clean-all clean-data fmt fmt-check logs \
 	bash \
-	claudia-build desktop-install desktop-build desktop-run \
+	build claudia-build desktop-install desktop-build desktop-run run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
-	catalog-write-free catalog-write-available \
-	release-install release-snapshot release-package \
-	vet-gateway vet-desktop test-gateway precommit
+	catalog-free catalog-available config-provider-free-tier \
+	release-install release-snapshot package \
+	vet vet-module vet-desktop \
+	test test-internal test-catalog-free test-catalog-available test-claudia test-desktop \
+	precommit
 
 # One bash process (same as scripts/*.sh) so Win32 Make does not run cmd `echo`/printf per line (quotes + CreateProcess failures).
 help:
 	@$(GITBASH) scripts/print-make-help.sh
 
 # --- Full stack onboarding (see docs/makefile-plan.md) ---
-up: install configure claudia-build claudia-start
+up: install build desktop-run
 
 bash:
 	$(GITBASH) -il
 
 install:
+	$(MAKE) claudia-install desktop-install
+
+claudia-install:
 	$(GITBASH) scripts/install.sh
 
-configure:
-	$(GITBASH) scripts/configure.sh
-
-# claudia-start: pass --stack (Qdrant + bifrost) unless UP_STACK=0 (BiFrost only, same as make up).
 claudia-start:
 	$(GITBASH) scripts/claudia-start.sh $(_BG_FLAGS)
 
@@ -95,41 +99,69 @@ clean-all:
 clean-data:
 	$(GITBASH) scripts/clean-data.sh $(CONFIRM)
 
-# --- CI / pre-commit (fmt-check, vet-gateway, test-gateway; vet-desktop unless SKIP_DESKTOP=1) ---
 fmt:
 	gofmt -w cmd internal
 
 fmt-check:
 	$(GITBASH) scripts/fmt-check.sh
 
-vet-gateway:
+vet: vet-module $(_DESKTOP_VET)
+
+vet-module:
 	go vet ./...
 
 vet-desktop: export CGO_ENABLED := 1
 vet-desktop:
 	go vet -tags desktop ./cmd/claudia
 
-test-gateway:
-	go test ./... $(RACE_GATEWAY) -count=1
+test: test-internal test-catalog-free test-catalog-available test-claudia $(_DESKTOP_TEST)
 
-precommit: fmt-check vet-gateway test-gateway $(_DESKTOP_PRECOMMIT_TARGETS)
+test-internal:
+	go test ./internal/... $(RACE_GATEWAY) -count=1
+
+test-catalog-free:
+	go test ./cmd/catalog-write-free $(RACE_GATEWAY) -count=1
+
+test-catalog-available:
+	go test ./cmd/catalog-write-available $(RACE_GATEWAY) -count=1
+
+test-claudia:
+	go test ./cmd/claudia $(RACE_GATEWAY) -count=1
+
+test-desktop: export CGO_ENABLED := 1
+test-desktop:
+	go test -tags desktop ./cmd/claudia $(RACE_GATEWAY) -count=1
+
+precommit: fmt-check vet test
+
+build:
+	$(MAKE) claudia-build desktop-build
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
 
 # Fetch Groq rate-limits + Gemini pricing pages and write BiFrost-style model ids (requires network).
 # Optional: INTERSECT=path to JSON or YAML (OpenAI-style data[].id, e.g. catalog-available.snapshot.yaml).
-# Override OUT=path for snapshot file (default config/free-tier-catalog.snapshot.yaml).
-catalog-write-free:
+# Override OUT=path for snapshot file (default config/catalog-free-tier.snapshot.yaml).
+catalog-free:
 	go run ./cmd/catalog-write-free \
-		-out "$(if $(OUT),$(OUT),config/free-tier-catalog.snapshot.yaml)" \
+		-out "$(if $(OUT),$(OUT),config/catalog-free-tier.snapshot.yaml)" \
 		$(if $(INTERSECT),-intersect $(INTERSECT),)
 
 # GET BiFrost /v1/models and write YAML (running BiFrost; env BIFROST_BASE_URL, CLAUDIA_UPSTREAM_API_KEY).
 # Override OUT=path (default config/catalog-available.snapshot.yaml).
-catalog-write-available:
+catalog-available:
 	go run ./cmd/catalog-write-available \
 		-out "$(if $(OUT),$(OUT),config/catalog-available.snapshot.yaml)"
+
+# Runs catalog-available first, then catalog-free: provider-free-tier YAML (groq/gemini ∩ catalog + patterns ollama/*).
+# BiFrost must be up for the snapshot step. Network for doc fetches. Optional OUT= for catalog snapshot path (match INTERSECT= if overridden).
+# Default PROVIDER_FT_OUT=config/provider-free-tier.generated.yaml (copy/merge into provider-free-tier.yaml if desired).
+config-provider-free-tier: catalog-available
+	go run ./cmd/catalog-write-free \
+		-intersect "$(if $(INTERSECT),$(INTERSECT),config/catalog-available.snapshot.yaml)" \
+		-out "$(if $(FREE_OUT),$(FREE_OUT),config/catalog-free-tier.snapshot.yaml)" \
+		-provider-free-tier-out "$(if $(PROVIDER_FT_OUT),$(PROVIDER_FT_OUT),config/provider-free-tier.generated.yaml)"
 
 desktop-install:
 	$(GITBASH) scripts/desktop-install.sh
@@ -140,10 +172,12 @@ desktop-build:
 desktop-run:
 	$(GITBASH) scripts/desktop-run.sh $(DESKTOP_BIN) "$(MAKE)" desktop -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
+run: desktop-run
+
 claudia-run:
 	go run ./cmd/claudia
 
-# Foreground supervisor: same bin paths as claudia-start --stack (requires make install).
+# Foreground supervisor: same bin paths as claudia-start --stack (requires make claudia-install).
 claudia-serve:
 	go run ./cmd/claudia serve -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
 
@@ -154,5 +188,5 @@ release-snapshot:
 	$(GITBASH) scripts/release-snapshot.sh
 
 # Desktop claudia + bifrost-http + qdrant + config → dist/personal/ (needs make install; CGO for desktop build).
-release-package:
+package:
 	$(GITBASH) scripts/release-package.sh "$(DESKTOP_BIN)"

@@ -42,7 +42,7 @@ fi
 
 if [ "$missing" -ne 0 ]; then
 	echo "" >&2
-	echo "install: install missing tools, then re-run: make install" >&2
+	echo "install: install missing tools, then re-run: make claudia-install" >&2
 	exit 1
 fi
 

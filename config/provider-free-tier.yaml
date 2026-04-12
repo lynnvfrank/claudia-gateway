@@ -29,6 +29,9 @@
 #   Example: gemini/gemini-2.0-flash* matches any catalog id with that prefix.
 #   Metacharacters follow Go path.Match: * matches within one path segment
 #   (characters other than /); use separate patterns for multiple segments.
+#   Exception: a single-segment provider wildcard "provider/*" (no "/" before
+#   the star) matches every upstream id under that provider, including nested
+#   paths (e.g. ollama/* matches ollama/library/llama3).
 #
 # Empty models and patterns:
 #   Valid but matches nothing — with the gateway filter enabled, upstream models
@@ -37,10 +40,7 @@
 # =============================================================================
 
 format_version: 1
-generated_at: "2026-04-10T01:13:17Z"
-sources:
-  groq: "https://console.groq.com/docs/rate-limits"
-  gemini: "https://ai.google.dev/gemini-api/docs/pricing"
+effective_date: "2026-04-12"
 models:
   - gemini/gemini-2.0-flash  # gemini-2.0-flash
   - gemini/gemini-2.0-flash-lite  # gemini-2.0-flash-lite
@@ -73,3 +73,5 @@ models:
   - groq/qwen/qwen3-32b  # qwen/qwen3-32b | 60 | 1K | 6K | 500K | - | -
   - groq/whisper-large-v3  # whisper-large-v3 | 20 | 2K | - | - | 7.2K | 28.8K
   - groq/whisper-large-v3-turbo  # whisper-large-v3-turbo | 20 | 2K | - | - | 7.2K | 28.8K
+patterns:
+  - ollama/*
