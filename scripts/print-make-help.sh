@@ -3,8 +3,9 @@
 set -euo pipefail
 echo "Claudia (Go) - README order (primary flow: make up = install -> build -> background stack)"
 echo
-echo "  make up                 install + build + run"
+echo "  make up                 configure + install + build + run"
 echo
+echo "  make configure          copy config/gateway.example.yaml -> config/gateway.yaml if missing"
 echo "  make install            claudia-install + desktop-install"
 echo "  make build              claudia-build + desktop-build"
 echo "  make run                Starts Claudia + BiFrost + Qdrant + Desktop"

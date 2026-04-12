@@ -57,7 +57,7 @@ Create local config files from the shipped examples when they are missing.
 make configure
 ```
 
-**Creates (only if absent):** **`.env`** from **`env.example`**. It does **not** create **`config/tokens.yaml`** anymore: on first run, **`claudia serve`** (or **`claudia gateway`**) enters **bootstrap** on localhost and **`/ui/setup`** creates **`tokens.yaml`**; then **restart** for the full stack. You can still copy [config/tokens.example.yaml](config/tokens.example.yaml) to **`config/tokens.yaml`** manually if you prefer.
+**Creates (only if absent):** **`config/gateway.yaml`** from [config/gateway.example.yaml](config/gateway.example.yaml). Copy [env.example](env.example) to **`.env`** yourself when you want local env vars. It does **not** create **`config/tokens.yaml`**: on first run, **`claudia serve`** (or **`claudia gateway`**) enters **bootstrap** on localhost and **`/ui/setup`** creates **`tokens.yaml`**; then **restart** for the full stack. You can still copy [config/tokens.example.yaml](config/tokens.example.yaml) to **`config/tokens.yaml`** manually if you prefer.
 
 | Purpose | File | Role |
 | ------- | ---- | ---- |
@@ -72,7 +72,7 @@ make configure
 
 1. **`.env`:** set `CLAUDIA_UPSTREAM_API_KEY` to match `upstream.api_key_env` in `config/gateway.yaml`. Set `GROQ_API_KEY`, `GEMINI_API_KEY`, or other keys that `config/bifrost.config.json` references.
 2. **`config/tokens.yaml`:** create via first-run **`/ui/setup`** (see [docs/version-v0.1.md](docs/version-v0.1.md)) or copy from **`tokens.example.yaml`**; clients use `Authorization: Bearer <token>`.
-3. **`config/gateway.yaml`** — starter in repo; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed.
+3. **`config/gateway.yaml`** — run **`make configure`** once (or copy **`gateway.example.yaml`**) if missing; adjust `listen_host` / `listen_port`, `upstream.base_url`, `routing.fallback_chain`, paths if needed. Not committed.
 4. **`config/bifrost.config.json`** — align provider blocks and `env.*` with your **`.env`**.
 5. **`config/routing-policy.yaml`** — committed default; edit or point `gateway.yaml` at another file.
 6. **`config/provider-free-tier.yaml`** — optional operator allowlist; shipped default; tune `models` / `patterns` and set `routing.filter_free_tier_models` in `gateway.yaml` if you want catalog filtering. To refresh a **reference** list from [Groq](https://console.groq.com/docs/rate-limits) + [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) docs (network required), run **`make catalog-free`** (optional **`INTERSECT=`** path to JSON or YAML `data[].id`, e.g. **`config/catalog-available.snapshot.yaml`**). To snapshot models from a running BiFrost, run **`make catalog-available`**. See [docs/configuration.md](docs/configuration.md).

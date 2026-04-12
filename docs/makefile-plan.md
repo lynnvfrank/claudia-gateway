@@ -72,7 +72,7 @@ These appeared in older versions of this plan; the product moved to **webview + 
 | Concern | Makefile role |
 |--------|----------------|
 | Toolchain + BiFrost/Qdrant pins | **`make claudia-install`** (or **`make install`** for desktop OS deps too) |
-| **`.env`**, tokens, config files | **`make configure`** (+ UI / manual for **`tokens.yaml`**) |
+| **`config/gateway.yaml`**, **`.env`**, **`tokens.yaml`** | **`make configure`** copies **`gateway.example.yaml`** → **`gateway.yaml`** if missing; copy **`env.example`** → **`.env`** yourself; **`tokens.yaml`** via **`/ui/setup`** or manual copy |
 | Run stack | **`claudia-run`**, **`claudia-serve`**, **`claudia-start`** / **`stop`** / **`status`**, **`logs`** |
 | Local gate before commit | **`make precommit`** |
 

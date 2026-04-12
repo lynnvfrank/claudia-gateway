@@ -50,7 +50,7 @@ else
   _BG_FLAGS := --stack
 endif
 
-.PHONY: help up install claudia-install clean clean-all clean-data fmt fmt-check logs \
+.PHONY: help up configure install claudia-install clean clean-all clean-data fmt fmt-check logs \
 	bash \
 	build claudia-build desktop-install desktop-build desktop-run run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
@@ -65,7 +65,10 @@ help:
 	@$(GITBASH) scripts/print-make-help.sh
 
 # --- Full stack onboarding (see docs/makefile-plan.md) ---
-up: install build desktop-run
+up: configure install build desktop-run
+
+configure:
+	$(GITBASH) scripts/configure.sh
 
 bash:
 	$(GITBASH) -il
