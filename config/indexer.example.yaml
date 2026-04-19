@@ -1,0 +1,28 @@
+# claudia-index v0.2 example config.
+# Copy to .claudia/indexer.config.yaml at the workspace root and edit.
+# Sensitive values stay in the environment:
+#   CLAUDIA_GATEWAY_URL   (or set gateway_url below)
+#   CLAUDIA_GATEWAY_TOKEN (required; never put tokens in YAML for v0.2)
+
+gateway_url: "http://127.0.0.1:8080"
+
+roots:
+  - "."
+
+# Extra ignore patterns (in addition to defaults + .claudiaignore + .gitignore).
+ignore_extra:
+  - "tmp/"
+  - "*.snapshot"
+
+# Failure-handling tunables (defaults shown).
+retry_max_attempts: 5
+retry_base_delay_ms: 500
+retry_max_delay_ms: 30000
+recovery_poll_interval_ms: 30000
+
+# Operational tunables (defaults shown).
+debounce_ms: 750
+workers: 4
+queue_depth: 1024
+max_file_bytes: 8388608
+request_timeout_ms: 60000

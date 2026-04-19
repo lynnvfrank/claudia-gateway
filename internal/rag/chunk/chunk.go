@@ -12,10 +12,10 @@ import (
 
 // Chunk is a slice of the input text plus its character span.
 type Chunk struct {
-	Index    int
-	Text     string
-	StartCh  int // inclusive (rune index)
-	EndCh    int // exclusive (rune index)
+	Index   int
+	Text    string
+	StartCh int // inclusive (rune index)
+	EndCh   int // exclusive (rune index)
 }
 
 // Split returns chunks for s using rune-based size + overlap. When size <= 0

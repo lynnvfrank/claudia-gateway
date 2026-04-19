@@ -1,0 +1,264 @@
+package indexer
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// GatewayClient talks to the Claudia Gateway v0.2 indexer-facing surface:
+// GET /v1/indexer/config, POST /v1/ingest, GET /v1/indexer/storage/health.
+type GatewayClient struct {
+	BaseURL string
+	Token   string
+	HTTP    *http.Client
+}
+
+// NewGatewayClient constructs a client with a sane default timeout.
+func NewGatewayClient(baseURL, token string, timeout time.Duration) *GatewayClient {
+	if timeout <= 0 {
+		timeout = defaultRequestTimeout
+	}
+	return &GatewayClient{
+		BaseURL: strings.TrimRight(baseURL, "/"),
+		Token:   token,
+		HTTP:    &http.Client{Timeout: timeout},
+	}
+}
+
+// IndexerConfig mirrors the JSON returned by GET /v1/indexer/config. Only
+// fields the v0.2 indexer reads are typed; unknown fields are tolerated.
+type IndexerConfig struct {
+	GatewayVersion string `json:"gateway_version"`
+	IngestPath     string `json:"ingest_path"`
+	EmbeddingModel string `json:"embedding_model"`
+	EmbeddingDim   int    `json:"embedding_dim"`
+	ChunkSize      int    `json:"chunk_size"`
+	ChunkOverlap   int    `json:"chunk_overlap"`
+	MaxIngestBytes int64  `json:"max_ingest_bytes"`
+	Headers        struct {
+		Project string `json:"project"`
+		Flavor  string `json:"flavor"`
+	} `json:"headers"`
+}
+
+// FetchConfig calls GET /v1/indexer/config.
+func (c *GatewayClient) FetchConfig(ctx context.Context) (*IndexerConfig, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/indexer/config", "", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, classify(res, "/v1/indexer/config")
+	}
+	var out IndexerConfig
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode indexer config: %w", err)
+	}
+	return &out, nil
+}
+
+// HealthStatus mirrors GET /v1/indexer/storage/health. The "ok" boolean is
+// the only field the resume loop consults.
+type HealthStatus struct {
+	OK     bool   `json:"ok"`
+	Status string `json:"status"`
+	Error  string `json:"error"`
+}
+
+// CheckHealth calls GET /v1/indexer/storage/health and returns the parsed
+// payload. A 200 with `ok:false` is not an error; a non-200 is.
+func (c *GatewayClient) CheckHealth(ctx context.Context) (*HealthStatus, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/v1/indexer/storage/health", "", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusServiceUnavailable {
+		return nil, classify(res, "/v1/indexer/storage/health")
+	}
+	var out HealthStatus
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode health: %w", err)
+	}
+	return &out, nil
+}
+
+// IngestRequest is a single whole-file ingest sent as multipart/form-data per
+// the gateway v0.2 contract: a "file" part holds the bytes, plus form fields
+// for source (relative path) and content_hash.
+type IngestRequest struct {
+	Source      string // relative path; never absolute.
+	ContentHash string // "sha256:<hex>".
+	Project     string // optional X-Claudia-Project header.
+	Flavor      string // optional X-Claudia-Flavor-Id header.
+	Body        io.Reader
+}
+
+// IngestResponse is the gateway's ingest result (we read just enough to log
+// progress and reconcile counts).
+type IngestResponse struct {
+	Object      string `json:"object"`
+	TenantID    string `json:"tenant_id"`
+	ProjectID   string `json:"project_id"`
+	FlavorID    string `json:"flavor_id"`
+	Source      string `json:"source"`
+	ContentHash string `json:"content_hash"`
+	Chunks      int    `json:"chunks"`
+	Collection  string `json:"collection"`
+}
+
+// Ingest sends one whole file to POST /v1/ingest. The caller is responsible
+// for closing any io.ReadCloser they pass via req.Body.
+func (c *GatewayClient) Ingest(ctx context.Context, req IngestRequest) (*IngestResponse, error) {
+	if req.Source == "" || req.Body == nil {
+		return nil, errors.New("ingest: source and body are required")
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if err := mw.WriteField("source", req.Source); err != nil {
+		return nil, err
+	}
+	if req.ContentHash != "" {
+		if err := mw.WriteField("content_hash", req.ContentHash); err != nil {
+			return nil, err
+		}
+	}
+	fw, err := mw.CreateFormFile("file", filenameFromSource(req.Source))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := io.Copy(fw, req.Body); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+
+	headers := map[string]string{}
+	if req.Project != "" {
+		headers["X-Claudia-Project"] = req.Project
+	}
+	if req.Flavor != "" {
+		headers["X-Claudia-Flavor-Id"] = req.Flavor
+	}
+
+	httpReq, err := c.newRequest(ctx, http.MethodPost, "/v1/ingest", mw.FormDataContentType(), &buf, headers)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, classify(res, "/v1/ingest")
+	}
+	var out IngestResponse
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode ingest response: %w", err)
+	}
+	return &out, nil
+}
+
+func (c *GatewayClient) newRequest(ctx context.Context, method, path, contentType string, body io.Reader, hdrs map[string]string) (*http.Request, error) {
+	if c.BaseURL == "" {
+		return nil, errors.New("gateway base URL is empty")
+	}
+	full, err := url.JoinPath(c.BaseURL, path)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, full, body)
+	if err != nil {
+		return nil, err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for k, v := range hdrs {
+		req.Header.Set(k, v)
+	}
+	return req, nil
+}
+
+// HTTPError represents a non-2xx response. Retryable callers inspect Status.
+type HTTPError struct {
+	Path   string
+	Status int
+	Body   string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%s: status %d: %s", e.Path, e.Status, truncate(e.Body, 200))
+}
+
+// IsRetryable reports whether the error is a transient HTTP error per the
+// failure-handling section of indexer.plan.md (5xx, 408, 425, 429).
+func IsRetryable(err error) bool {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return err != nil // network errors are retryable.
+	}
+	switch he.Status {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
+		return true
+	}
+	return he.Status >= 500
+}
+
+// IsFatal reports whether the error indicates the indexer must stop or
+// require operator action (401/403). 4xx other than retryable codes are
+// also returned as fatal so we don't loop forever on a bad request.
+func IsFatal(err error) bool {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	if IsRetryable(err) {
+		return false
+	}
+	return he.Status >= 400 && he.Status < 500
+}
+
+func classify(res *http.Response, path string) error {
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	return &HTTPError{Path: path, Status: res.StatusCode, Body: string(b)}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+func filenameFromSource(source string) string {
+	// Filename is metadata-only; the gateway's ingest handler uses the
+	// "source" form field as the canonical relative path.
+	if i := strings.LastIndex(source, "/"); i >= 0 {
+		return source[i+1:]
+	}
+	return source
+}

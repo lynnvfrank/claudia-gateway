@@ -82,8 +82,8 @@ func setupRAGChatServer(t *testing.T) (string, *capturedReqs, *Runtime) {
 }
 
 type capturedReqs struct {
-	mu      sync.Mutex
-	bodies  [][]byte
+	mu     sync.Mutex
+	bodies [][]byte
 }
 
 func (c *capturedReqs) add(b []byte) {

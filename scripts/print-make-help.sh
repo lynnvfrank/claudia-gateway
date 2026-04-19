@@ -23,6 +23,10 @@ echo "  make desktop-install    native deps for WebView + CGO (Debian/Ubuntu, ma
 echo "  make desktop-build      go build -tags desktop -> ./claudia-desktop[.exe] (CGO required)"
 echo "  make desktop-run        desktop-build if missing, then claudia-desktop (supervisor + UI; --headless for no window)"
 echo
+echo "  make indexer-build      go build -o claudia-index[.exe] ./cmd/claudia-index (workspace file indexer; v0.2)"
+echo "  make indexer-run        go run ./cmd/claudia-index (pass flags via ARGS=...)"
+echo "  make indexer-install    go install ./cmd/claudia-index"
+echo
 echo "  make release-install    goreleaser v2 (go install) + curl/tar/unzip for Qdrant packaging hook"
 echo "  make release-snapshot   local goreleaser snapshot -> dist/ (GitHub uses .github/workflows/release.yml on v* tags)"
 echo

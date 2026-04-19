@@ -54,6 +54,7 @@ endif
 	bash \
 	build claudia-build tokencount-file desktop-install desktop-build desktop-run run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
+	indexer-build indexer-run indexer-install \
 	catalog-free catalog-available config-provider-free-tier \
 	release-install release-snapshot package \
 	vet vet-module vet-desktop \
@@ -142,6 +143,20 @@ build:
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
+
+# v0.2 workspace file indexer (see docs/indexer.plan.md). Builds claudia-index[.exe] in repo root.
+indexer-build:
+ifeq ($(OS),Windows_NT)
+	go build -o claudia-index.exe ./cmd/claudia-index
+else
+	go build -o claudia-index ./cmd/claudia-index
+endif
+
+indexer-run:
+	go run ./cmd/claudia-index $(ARGS)
+
+indexer-install:
+	go install ./cmd/claudia-index
 
 # Print bytes + cl100k_base + o200k_base token counts for a file (requires FILE=path).
 tokencount-file:

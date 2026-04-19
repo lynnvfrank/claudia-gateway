@@ -24,6 +24,8 @@ temp/
 /claudia.exe
 /claudia-desktop
 /claudia-desktop.exe
+/claudia-index
+/claudia-index.exe
 
 # Third-party binaries and sources (BiFrost, Qdrant)
 .deps/

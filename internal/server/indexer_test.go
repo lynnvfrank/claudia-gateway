@@ -192,4 +192,3 @@ func TestHealth_NoRAGProbeWhenDisabled(t *testing.T) {
 		t.Fatalf("qdrant check should not be present when RAG disabled: %+v", checks)
 	}
 }
-
