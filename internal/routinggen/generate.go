@@ -3,9 +3,11 @@ package routinggen
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
+	"github.com/lynn/claudia-gateway/internal/providerlimits"
 	"gopkg.in/yaml.v3"
 )
 
@@ -88,6 +90,53 @@ func OrderFallbackChain(ids []string) []string {
 		return out[i] < out[j]
 	})
 	return out
+}
+
+const maxRecommendedRouterModels = 8
+
+// OrderRouterModels sorts ids for the tool-router transformer: prefer **small / fast** models (so
+// each scoring call is cheap), then **higher RPM** and **higher TPM** from provider limits when
+// configured (more headroom for long tool JSON + router system prompt + user text).
+// Hosted models are ranked ahead of ollama/ at equal composite score (more predictable JSON).
+func OrderRouterModels(ids []string, limits *providerlimits.Config) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := append([]string(nil), ids...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := routerRank(out[i], limits), routerRank(out[j], limits)
+		if ri != rj {
+			return ri > rj
+		}
+		return out[i] < out[j]
+	})
+	if len(out) > maxRecommendedRouterModels {
+		out = out[:maxRecommendedRouterModels]
+	}
+	return out
+}
+
+func routerRank(id string, limits *providerlimits.Config) float64 {
+	ms := modelScore(id)
+	// Strong preference for smaller/faster models (lower modelScore → higher rank term).
+	sizeTerm := float64(5000 - ms)
+
+	rpmBonus, tpmBonus := 0.0, 0.0
+	if limits != nil {
+		e := limits.Resolve(id)
+		if e.RPM != nil {
+			rpmBonus = math.Log1p(float64(*e.RPM)) * 80
+		}
+		if e.TPM != nil {
+			tpmBonus = math.Log1p(float64(*e.TPM)) * 25
+		}
+	}
+	// Slight preference for hosted APIs over local ollama for structured JSON scoring.
+	hostedBonus := 0.0
+	if strings.HasPrefix(id, "ollama/") {
+		hostedBonus = -120
+	}
+	return sizeTerm + rpmBonus + tpmBonus + hostedBonus
 }
 
 // PickLongTurnModel chooses a rule target for long user messages (strongest hosted, else strongest overall).

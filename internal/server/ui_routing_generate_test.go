@@ -105,6 +105,9 @@ func TestUIRoutingGenerate_writesFiles(t *testing.T) {
 	if len(res2.FallbackChain) != 2 || res2.FallbackChain[0] != out.Chain[0] {
 		t.Fatalf("gateway reload: %#v", res2.FallbackChain)
 	}
+	if len(res2.RouterModels) < 1 || res2.RouterModels[0] != "groq/llama-3.1-8b-instant" {
+		t.Fatalf("expected co-generated router_models to prefer small/fast first, got %#v", res2.RouterModels)
+	}
 	rp, err := os.ReadFile(routePath)
 	if err != nil {
 		t.Fatal(err)

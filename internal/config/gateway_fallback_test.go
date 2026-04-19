@@ -55,6 +55,64 @@ func writeTempGateway(t *testing.T, raw []byte) string {
 	return p
 }
 
+func TestPatchGatewayYAMLBytesWithRouterModels_only(t *testing.T) {
+	raw := []byte(`gateway:
+  semver: "0.1.0"
+routing:
+  fallback_chain:
+    - "x"
+  tool_router:
+    enabled: false
+    confidence_threshold: 0.3
+`)
+	out, err := PatchGatewayYAMLBytesWithRouterModels(raw, []string{"groq/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte(`"groq/a"`)) {
+		t.Fatalf("%s", out)
+	}
+	// tool_router block should still be present (not stripped by encoder)
+	p := writeTempGateway(t, out)
+	res, err := LoadGatewayYAML(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.RouterModels) != 1 || res.RouterModels[0] != "groq/a" {
+		t.Fatalf("%#v", res.RouterModels)
+	}
+	if res.ToolRouterEnabled {
+		t.Fatal("router_models alone should not force tool_router on when list non-empty and yaml said enabled false")
+	}
+}
+
+func TestPatchGatewayYAMLBytesWithRouterTooling(t *testing.T) {
+	raw := []byte(`gateway:
+  semver: "0.1.0"
+routing:
+  fallback_chain:
+    - "x"
+`)
+	out, err := PatchGatewayYAMLBytesWithRouterTooling(raw, []string{"groq/a", "gemini/b"}, true, 0.42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := writeTempGateway(t, out)
+	res, err := LoadGatewayYAML(p, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.RouterModels) != 2 || res.RouterModels[0] != "groq/a" {
+		t.Fatalf("%#v", res.RouterModels)
+	}
+	if !res.ToolRouterEnabled {
+		t.Fatal("expected tool router on")
+	}
+	if res.ToolRouterConfidenceThreshold < 0.41 || res.ToolRouterConfidenceThreshold > 0.43 {
+		t.Fatalf("threshold %v", res.ToolRouterConfidenceThreshold)
+	}
+}
+
 func TestPatchGatewayYAMLBytesWithFallbackChain(t *testing.T) {
 	raw := []byte(`gateway:
   semver: "0.1.0"

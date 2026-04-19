@@ -5,15 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Claudia — Logs</title>
   <style>
-    body { font-family: ui-monospace, monospace; margin: 0; padding: 0.75rem; background: #1a1a1a; color: #e8e8e8; min-height: 100vh; box-sizing: border-box; }
-    #toolbar { margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    #toolbar a { color: #7cb8ff; }
-    #toolbar .hint { font-size: 0.75rem; color: #888; }
-    #status { font-size: 0.75rem; color: #888; }
-    #out { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; line-height: 1.35; margin: 0; }
-    .line { border-bottom: 1px solid #2a2a2a; padding: 0.15rem 0; }
-    .src { color: #9cdcfe; margin-right: 0.5rem; }
-    .err { color: #f88; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0.75rem; background: #fff; color: #1a1a1a; min-height: 100vh; box-sizing: border-box; font-size: 0.85rem; }
+    #toolbar { margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap; }
+    #toolbar a { color: #0b57d0; }
+    #toolbar .hint { font-size: 0.75rem; color: #555; }
+    #filters-bar { margin-top: 0.85rem; margin-bottom: 1rem; padding-top: 0.65rem; border-top: 1px solid #ccc; display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1.25rem; }
+    #filters-bar .filters-heading { font-size: 0.8rem; font-weight: 600; color: #444; margin-right: 0.25rem; }
+    #filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
+    #filters label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: #333; }
+    #filters select { background: #fff; color: #1a1a1a; border: 1px solid #ccc; border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
+    #status { font-size: 0.75rem; color: #555; }
+    #status.err { color: #c00; }
+    .table-wrap { overflow-x: auto; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+    #log-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    #log-table thead th { position: sticky; top: 0; z-index: 1; background: #e8e8e8; color: #222; text-align: left; font-weight: 600; padding: 0.45rem 0.5rem; border-bottom: 1px solid #bbb; white-space: nowrap; }
+    #log-table tbody td { vertical-align: middle; padding: 0.45rem 0.5rem; border-bottom: 1px solid #ddd; }
+    #log-table tbody tr:nth-child(odd) { background: #fff; }
+    #log-table tbody tr:nth-child(even) { background: #f0f0f0; }
+    #log-table tbody tr:hover { background: #e0e8f0; }
+    .col-app { font-family: ui-monospace, monospace; color: #0b57d0; white-space: nowrap; }
+    .col-dt { font-family: ui-monospace, monospace; color: #5c4033; white-space: nowrap; }
+    .col-lvl { font-family: ui-monospace, monospace; white-space: nowrap; }
+    .lvl-DEBUG { color: #666; }
+    .lvl-INFO { color: #1b5e20; }
+    .lvl-WARN { color: #b45309; }
+    .lvl-ERROR { color: #b71c1c; }
+    .lvl-TRACE { color: #666; }
+    .lvl-none { color: #888; }
+    .col-details { min-width: 24rem; }
+    /* Inner tables: one pair → 2 cols; two+ pairs per row → key1 | val1 | key2 | val2 */
+    .props-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 0; }
+    .props-table td { border: 1px solid #ccc; padding: 0.25rem 0.45rem; vertical-align: top; }
+    .props-table .prop-name {
+      font-family: ui-monospace, monospace; font-weight: 600; color: #0b57d0; background: #f4f6fa; text-align: left;
+      max-width: 32rem; box-sizing: border-box;
+      overflow-wrap: anywhere; word-break: break-word;
+    }
+    .props-quad .prop-name { min-width: 16rem; }
+    .props-table .prop-val { color: #222; word-break: break-word; white-space: pre-wrap; background: #fff; }
+    /* Single key|value: key on one horizontal line, column width = full key text */
+    .props-table.props-pair {
+      table-layout: auto;
+      width: 100%;
+      max-width: 100%;
+    }
+    .props-table.props-pair .prop-name {
+      min-width: 0;
+      width: max-content;
+      max-width: none;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+    .props-pair .prop-val {
+      width: 100%;
+      min-width: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .props-table.props-quad { table-layout: fixed; }
+    .props-quad col.col-k { width: 24%; }
+    .props-quad col.col-v { width: 26%; }
+    .props-quad td:nth-child(3) { border-left: 2px solid #bbb; }
+    .props-table .prop-empty { background: #fafafa; }
+    .muted { color: #888; }
   </style>
 </head>
 <body>
@@ -21,14 +76,48 @@
     <span id="toolbar-extra"></span>
     <span id="status">Starting…</span>
   </div>
-  <pre id="out"></pre>
+  <div class="table-wrap">
+    <table id="log-table">
+      <thead>
+        <tr>
+          <th scope="col">Application</th>
+          <th scope="col">Date / time (UTC)</th>
+          <th scope="col">Level</th>
+          <th scope="col">Details</th>
+        </tr>
+      </thead>
+      <tbody id="log-body"></tbody>
+    </table>
+  </div>
+  <div id="filters-bar">
+    <span class="filters-heading">Filters</span>
+    <div id="filters">
+      <label>Application
+        <select id="flt-app" title="Filter by process / writer name">
+          <option value="">All</option>
+        </select>
+      </label>
+      <label>Level
+        <select id="flt-level" title="Filter by log level when present">
+          <option value="">All</option>
+          <option value="(none)">(no level)</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+      </label>
+    </div>
+  </div>
   <script>
 (function () {
   var params = new URLSearchParams(window.location.search);
   var embedded = params.get("embed") === "1" || window.self !== window.top;
-  var out = document.getElementById("out");
+  var tbody = document.getElementById("log-body");
   var statusEl = document.getElementById("status");
   var extra = document.getElementById("toolbar-extra");
+  var fltApp = document.getElementById("flt-app");
+  var fltLevel = document.getElementById("flt-level");
   if (embedded) {
     extra.innerHTML = '<span class="hint">Embedded in desktop shell — switch views with the tabs above.</span>';
   } else {
@@ -36,10 +125,11 @@
   }
 
   var maxSeq = 0;
-  var stickPx = 120;
+  var stickPx = 160;
   var es = null;
   var pollTimer = null;
   var started = false;
+  var levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
 
   function nearBottom() {
     var el = document.documentElement;
@@ -47,20 +137,308 @@
     var y = window.scrollY + window.innerHeight;
     return sh - y <= stickPx;
   }
+
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return "";
+    var d = document.createElement("div");
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function formatHumanDateTimeUTC(tsOrDate) {
+    if (tsOrDate === null || tsOrDate === undefined || tsOrDate === "") return "";
+    var d = tsOrDate instanceof Date ? tsOrDate : new Date(tsOrDate);
+    if (isNaN(d.getTime())) return String(tsOrDate).replace("T", " ");
+    try {
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "UTC",
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true
+      }).format(d) + " UTC";
+    } catch (err) {
+      return d.toUTCString();
+    }
+  }
+
+  function parseKeyValueLine(line) {
+    var out = {};
+    var i = 0;
+    var len = line.length;
+    while (i < len) {
+      while (i < len && line[i] === " ") i++;
+      if (i >= len) break;
+      var eq = line.indexOf("=", i);
+      if (eq < 0) break;
+      var key = line.slice(i, eq);
+      if (!key) break;
+      i = eq + 1;
+      var val = "";
+      if (i < len && line[i] === "\"") {
+        i++;
+        while (i < len) {
+          if (line[i] === "\\") {
+            i++;
+            if (i < len) val += line[i++];
+            continue;
+          }
+          if (line[i] === "\"") {
+            i++;
+            break;
+          }
+          val += line[i++];
+        }
+      } else {
+        while (i < len && line[i] !== " ") val += line[i++];
+      }
+      out[key] = val;
+    }
+    return out;
+  }
+
+  function tryParseJSONObject(text) {
+    var t = text.trim();
+    if (!t || t[0] !== "{") return null;
+    try {
+      return JSON.parse(t);
+    } catch (x) {
+      return null;
+    }
+  }
+
+  function flattenObject(obj, prefix, acc) {
+    acc = acc || {};
+    if (obj === null || obj === undefined) return acc;
+    if (typeof obj !== "object" || Array.isArray(obj)) {
+      acc[prefix || "_"] = obj;
+      return acc;
+    }
+    var keys = Object.keys(obj);
+    if (keys.length === 0) {
+      acc[prefix || "empty"] = {};
+      return acc;
+    }
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      var path = prefix ? prefix + "." + key : key;
+      var v = obj[key];
+      if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+        flattenObject(v, path, acc);
+      } else {
+        acc[path] = v;
+      }
+    }
+    return acc;
+  }
+
+  function formatExtraValue(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    try {
+      return JSON.stringify(v);
+    } catch (x) {
+      return String(v);
+    }
+  }
+
+  var reservedForColumns = { time: true, ts: true, timestamp: true, "@timestamp": true, level: true };
+
+  function canonicalLevel(raw) {
+    if (raw === null || raw === undefined) return null;
+    var s0 = String(raw).trim();
+    if (s0 === "") return null;
+    var n = parseInt(s0, 10);
+    /* Go slog JSON uses small integers (-4 DEBUG … 8 ERROR). Skip larger ints (e.g. Zap). */
+    if (!isNaN(n) && String(n) === s0 && n >= -8 && n <= 12) {
+      if (n <= -4) return "DEBUG";
+      if (n < 4) return "INFO";
+      if (n < 8) return "WARN";
+      return "ERROR";
+    }
+    var s = s0.toUpperCase();
+    if (s === "WARNING") return "WARN";
+    if (s === "ERR") return "ERROR";
+    if (s === "DEBUG" || s === "INFO" || s === "WARN" || s === "ERROR" || s === "TRACE" || s === "FATAL") {
+      if (s === "FATAL") return "ERROR";
+      return s;
+    }
+    return s0;
+  }
+
+  function displayLevelLabel(can) {
+    if (!can) return "—";
+    return can;
+  }
+
+  function sortExtraKeys(keys) {
+    var pri = ["msg", "message", "status", "err", "error", "code", "path", "method"];
+    keys.sort(function (a, b) {
+      var la = a.toLowerCase();
+      var lb = b.toLowerCase();
+      var ia = -1, ib = -1;
+      for (var p = 0; p < pri.length; p++) {
+        if (ia < 0 && la === pri[p]) ia = p;
+        if (ib < 0 && lb === pri[p]) ib = p;
+      }
+      if (ia >= 0 && ib >= 0) return ia - ib;
+      if (ia >= 0) return -1;
+      if (ib >= 0) return 1;
+      return a.localeCompare(b);
+    });
+  }
+
+  function parseLogText(source, text, entryTS) {
+    var flat = null;
+    var fromJSON = tryParseJSONObject(text);
+    if (fromJSON && typeof fromJSON === "object" && !Array.isArray(fromJSON)) {
+      flat = flattenObject(fromJSON, "", {});
+    } else {
+      var kv = parseKeyValueLine(text);
+      if (Object.keys(kv).length && (kv.time !== undefined || kv.level !== undefined)) {
+        flat = kv;
+      }
+    }
+
+    var dt = formatHumanDateTimeUTC(entryTS);
+    var levelCanon = null;
+    var extras = [];
+
+    if (flat) {
+      var tRaw = "";
+      if (flat.time !== undefined && flat.time !== null && flat.time !== "") tRaw = flat.time;
+      else if (flat.ts !== undefined && flat.ts !== null && flat.ts !== "") tRaw = flat.ts;
+      else if (flat.timestamp !== undefined && flat.timestamp !== null && flat.timestamp !== "") tRaw = flat.timestamp;
+      else if (flat["@timestamp"] !== undefined && flat["@timestamp"] !== null && flat["@timestamp"] !== "") tRaw = flat["@timestamp"];
+      if (tRaw !== "" && tRaw !== undefined && tRaw !== null) {
+        var tryDt = new Date(String(tRaw));
+        if (!isNaN(tryDt.getTime())) dt = formatHumanDateTimeUTC(tryDt);
+      }
+      if (flat.level !== undefined && flat.level !== null && flat.level !== "") {
+        levelCanon = canonicalLevel(flat.level);
+      }
+      var keys = Object.keys(flat);
+      sortExtraKeys(keys);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var lk = k.toLowerCase();
+        if (reservedForColumns[lk]) continue;
+        if (lk === "time" || lk === "timestamp" || lk === "@timestamp") continue;
+        extras.push({ k: k, v: formatExtraValue(flat[k]) });
+      }
+    } else {
+      extras.push({ k: "text", v: text });
+    }
+
+    return { app: source || "—", dt: dt, levelCanon: levelCanon, levelLabel: displayLevelLabel(levelCanon), extras: extras };
+  }
+
+  function ensureAppOption(app) {
+    if (!app) return;
+    for (var i = 0; i < fltApp.options.length; i++) {
+      if (fltApp.options[i].value === app) return;
+    }
+    var opt = document.createElement("option");
+    opt.value = app;
+    opt.textContent = app;
+    fltApp.appendChild(opt);
+  }
+
+  function ensureLevelOption(lvl) {
+    if (!lvl) return;
+    if (levelOptionSet[lvl]) return;
+    levelOptionSet[lvl] = true;
+    var opt = document.createElement("option");
+    opt.value = lvl;
+    opt.textContent = lvl;
+    fltLevel.appendChild(opt);
+  }
+
+  function rowMatchesFilter(tr) {
+    var fa = fltApp.value;
+    var fl = fltLevel.value;
+    if (fa && tr.dataset.app !== fa) return false;
+    if (!fl) return true;
+    if (fl === "(none)") return !tr.dataset.level || tr.dataset.level === "";
+    return tr.dataset.level === fl;
+  }
+
+  function applyFilters() {
+    var rows = tbody.querySelectorAll("tr");
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].style.display = rowMatchesFilter(rows[i]) ? "" : "none";
+    }
+  }
+
+  fltApp.addEventListener("change", applyFilters);
+  fltLevel.addEventListener("change", applyFilters);
+
+  function buildDetailsCell(extras) {
+    if (!extras.length) return '<span class="muted">—</span>';
+    if (extras.length === 1) {
+      return (
+        '<table class="props-table props-pair"><tbody><tr>' +
+        '<td class="prop-name">' + escapeHtml(extras[0].k) + "</td>" +
+        '<td class="prop-val">' + escapeHtml(extras[0].v) + "</td>" +
+        "</tr></tbody></table>"
+      );
+    }
+    var s = '<table class="props-table props-quad"><colgroup>' +
+      '<col class="col-k" /><col class="col-v" /><col class="col-k" /><col class="col-v" />' +
+      "</colgroup><tbody>";
+    for (var i = 0; i < extras.length; i += 2) {
+      s += "<tr>";
+      s += '<td class="prop-name">' + escapeHtml(extras[i].k) + "</td>";
+      s += '<td class="prop-val">' + escapeHtml(extras[i].v) + "</td>";
+      if (i + 1 < extras.length) {
+        s += '<td class="prop-name">' + escapeHtml(extras[i + 1].k) + "</td>";
+        s += '<td class="prop-val">' + escapeHtml(extras[i + 1].v) + "</td>";
+      } else {
+        s += '<td class="prop-name prop-empty" aria-hidden="true"></td>';
+        s += '<td class="prop-val prop-empty" aria-hidden="true"></td>';
+      }
+      s += "</tr>";
+    }
+    s += "</tbody></table>";
+    return s;
+  }
+
   function appendLine(e) {
     if (e.seq <= maxSeq) return;
     maxSeq = e.seq;
     var follow = nearBottom();
-    var row = document.createElement("div");
-    row.className = "line";
-    var ts = (e.ts && e.ts.replace("T", " ").replace("Z", "")) || "";
-    row.innerHTML = '<span class="src">[' + escapeHtml(e.source) + "]</span> " +
-      '<span class="ts">' + escapeHtml(ts) + "</span> " + escapeHtml(e.text);
-    out.appendChild(row);
-    while (out.children.length > 5000) {
-      var first = out.firstChild;
+    var parsed = parseLogText(e.source, e.text || "", e.ts);
+    ensureAppOption(parsed.app);
+    if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
+
+    var tr = document.createElement("tr");
+    tr.dataset.app = parsed.app;
+    tr.dataset.level = parsed.levelCanon || "";
+
+    var lvlClass = "lvl-none";
+    if (parsed.levelCanon) {
+      var safe = String(parsed.levelCanon).replace(/[^A-Z0-9_-]/gi, "");
+      if (safe) lvlClass = "lvl-" + safe;
+    }
+
+    tr.innerHTML =
+      "<td class=\"col-app\">" + escapeHtml(parsed.app) + "</td>" +
+      "<td class=\"col-dt\">" + escapeHtml(parsed.dt) + "</td>" +
+      "<td class=\"col-lvl " + lvlClass + "\">" + escapeHtml(parsed.levelLabel) + "</td>" +
+      "<td class=\"col-details\">" + buildDetailsCell(parsed.extras) + "</td>";
+
+    if (!rowMatchesFilter(tr)) tr.style.display = "none";
+    tbody.appendChild(tr);
+
+    while (tbody.children.length > 5000) {
+      var first = tbody.firstChild;
       var removedH = first.offsetHeight;
-      out.removeChild(first);
+      tbody.removeChild(first);
       if (!follow && removedH) {
         window.scrollTo(0, Math.max(0, window.scrollY - removedH));
       }
@@ -68,12 +446,6 @@
     if (follow) {
       window.scrollTo(0, document.documentElement.scrollHeight);
     }
-  }
-  function escapeHtml(s) {
-    if (!s) return "";
-    var d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
   }
 
   function applyPollPayload(data) {
@@ -145,8 +517,8 @@
     };
     es.onmessage = function (ev) {
       try {
-        var e = JSON.parse(ev.data);
-        appendLine(e);
+        var row = JSON.parse(ev.data);
+        appendLine(row);
       } catch (x) {
         statusEl.textContent = "Bad frame";
         statusEl.className = "err";
@@ -182,7 +554,6 @@
       }
     });
     statusEl.textContent = "Open the Logs tab…";
-    /* Fallback if shell message is missed (e.g. older cache) */
     setTimeout(function () {
       if (!started) startStreaming();
     }, 4000);

@@ -22,3 +22,13 @@ func TestCount_empty(t *testing.T) {
 		t.Fatalf("got %d, want 0", n)
 	}
 }
+
+func TestCountEncoding_o200k_base_known(t *testing.T) {
+	n, err := CountEncoding(EncodingO200kBase, "hello world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("got %d tokens, want 2", n)
+	}
+}

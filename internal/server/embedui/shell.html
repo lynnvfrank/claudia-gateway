@@ -36,11 +36,13 @@
   <nav id="tabs" role="tablist">
     <button type="button" role="tab" data-tab="main" class="active" aria-selected="true">Main</button>
     <button type="button" role="tab" data-tab="logs" aria-selected="false">Logs</button>
+    <button type="button" role="tab" data-tab="stats" aria-selected="false">Stats</button>
     <button type="button" role="tab" data-tab="admin" aria-selected="false">Admin</button>
   </nav>
   <div id="frame-wrap">
     <iframe id="f-main" class="visible" title="Gateway main" src="/"></iframe>
     <iframe id="f-logs" title="Logs" src="/ui/logs?embed=1"></iframe>
+    <iframe id="f-stats" title="Stats" src="/ui/metrics?embed=1"></iframe>
     <iframe id="f-admin" title="Admin" src="/ui/panel"></iframe>
   </div>
   <script>
@@ -50,6 +52,7 @@
   var frames = {
     main: document.getElementById("f-main"),
     logs: document.getElementById("f-logs"),
+    stats: document.getElementById("f-stats"),
     admin: document.getElementById("f-admin")
   };
   function notifyLogsActive() {

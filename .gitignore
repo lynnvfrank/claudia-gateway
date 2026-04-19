@@ -30,5 +30,6 @@ temp/
 /bin/
 /data/bifrost/
 /data/qdrant/
+/data/gateway/
 /packaging/qdrant-bundles/
 /run/

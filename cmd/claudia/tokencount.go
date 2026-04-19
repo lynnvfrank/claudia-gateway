@@ -31,7 +31,7 @@ func runTokenCount(args []string) {
   claudia tokencount -                     read from stdin
   echo "hello" | claudia tokencount
 
-Counts tokens using cl100k_base (tiktoken-compatible).
+Prints byte size of the input, then token counts for cl100k_base and o200k_base (tiktoken-compatible).
 
 Input (first match wins among explicit flags, then positionals, then stdin):
 
@@ -111,12 +111,20 @@ Input (first match wins among explicit flags, then positionals, then stdin):
 		os.Exit(1)
 	}
 
-	n, err := tokencount.Count(string(input))
+	s := string(input)
+	cl, err := tokencount.Count(s)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "claudia tokencount: count: %v\n", err)
+		fmt.Fprintf(os.Stderr, "claudia tokencount: cl100k_base: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println(n)
+	o2, err := tokencount.CountEncoding(tokencount.EncodingO200kBase, s)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claudia tokencount: o200k_base: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("bytes\t%d\n", len(input))
+	fmt.Printf("cl100k_base\t%d\n", cl)
+	fmt.Printf("o200k_base\t%d\n", o2)
 }
 
 func stdinLooksRedirected() bool {

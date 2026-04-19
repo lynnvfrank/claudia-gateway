@@ -7,11 +7,13 @@ import (
 	"html"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lynn/claudia-gateway/internal/chat"
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/transform"
 	"github.com/lynn/claudia-gateway/internal/upstream"
 )
 
@@ -61,6 +63,7 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
   <h1>Claudia Gateway</h1>
   <p class="ok">Up and operational.</p>
   <p>Version <code>%s</code> · Virtual model <code>%s</code></p>
+  <p class="muted"><a href="/ui/metrics">Stats</a> — gateway usage metrics (session required)</p>
   <h2>OpenAI-compatible API</h2>
   <p class="muted">Send <code>Authorization: Bearer &lt;gateway token&gt;</code> on these routes.</p>
   <ul>
@@ -78,7 +81,8 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
     <li><a href="/ui/login"><code>GET /ui/login</code></a> — operator admin login (when UI is enabled)</li>
     <li><a href="/ui/panel"><code>GET /ui/panel</code></a> — operator admin (session required)</li>
     <li><a href="/ui/logs"><code>GET /ui/logs</code></a> — live service logs (session required)</li>
-    <li><a href="/ui/desktop"><code>GET /ui/desktop</code></a> — tabbed shell: main, logs, admin (session required)</li>
+    <li><a href="/ui/metrics"><code>GET /ui/metrics</code></a> — gateway upstream usage metrics (session required)</li>
+    <li><a href="/ui/desktop"><code>GET /ui/desktop</code></a> — tabbed shell: main, logs, stats, admin (session required)</li>
   </ul>
   <h2>Claudia's Models</h2>
   <p id="models-status" class="muted">Loading models…</p>
@@ -371,6 +375,33 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 	}
 
 	ctx := r.Context()
+	skipToolRouter := strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Claudia-Tool-Router")), "skip")
+	th := res.ToolRouterConfidenceThreshold
+	if h := strings.TrimSpace(r.Header.Get("X-Claudia-Tool-Confidence-Threshold")); h != "" {
+		if v, err := strconv.ParseFloat(h, 64); err == nil {
+			th = v
+		}
+	}
+	rtDur := time.Duration(res.ChatTimeoutMs) * time.Millisecond
+	if rtDur > 60*time.Second {
+		rtDur = 60 * time.Second
+	}
+	if rtDur < 5*time.Second {
+		rtDur = 5 * time.Second
+	}
+	raw = transform.ApplyToolRouter(ctx, raw, transform.Config{
+		Enabled:      res.ToolRouterEnabled && !skipToolRouter,
+		RouterModels: res.RouterModels,
+		Threshold:    th,
+		BaseURL:      res.UpstreamBaseURL,
+		APIKey:       apiKey,
+		HTTPTimeout:  rtDur,
+		Log:          log,
+		OnAttempt: func(model string, err error) {
+			rt.NoteToolRouterAttempt(model, err)
+		},
+	})
+
 	if clientModel == res.VirtualModelID {
 		initial, _ := pol.PickInitialModel(raw, res.FallbackChain, res.VirtualModelID)
 		if initial == "" {
@@ -384,7 +415,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 			})
 			return
 		}
-		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.UpstreamBaseURL, apiKey, stream, raw, chatTimeout(res), log)
+		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.UpstreamBaseURL, apiKey, stream, raw, chatTimeout(res), log, rt.Metrics(), rt.LimitsGuard())
 		return
 	}
 
@@ -397,7 +428,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		return
 	}
 
-	pr := chat.ProxyChatCompletion(ctx, w, res.UpstreamBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), log)
+	pr := chat.ProxyChatCompletion(ctx, w, res.UpstreamBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), log, rt.Metrics(), rt.LimitsGuard())
 	if pr.Stream {
 		return
 	}

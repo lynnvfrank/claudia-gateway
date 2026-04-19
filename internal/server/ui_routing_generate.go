@@ -21,6 +21,7 @@ type routingDraft struct {
 	IDs                []string
 	Pool               []string
 	Chain              []string
+	RouterModels       []string
 	RouteYAML          []byte
 	FilterFreeTierFlag bool
 }
@@ -105,6 +106,7 @@ func (a *adminUI) computeRoutingDraft(ctx context.Context, res *config.Resolved)
 		}
 	}
 	chain := routinggen.OrderFallbackChain(pool)
+	routerModels := routinggen.OrderRouterModels(pool, res.ProviderLimitsSpec)
 	routeYAML, err := routinggen.BuildRoutingPolicyYAML(chain)
 	if err != nil {
 		return nil, http.StatusInternalServerError, map[string]any{
@@ -120,7 +122,7 @@ func (a *adminUI) computeRoutingDraft(ctx context.Context, res *config.Resolved)
 		}
 	}
 	return &routingDraft{
-		IDs: ids, Pool: pool, Chain: chain, RouteYAML: routeYAML,
+		IDs: ids, Pool: pool, Chain: chain, RouterModels: routerModels, RouteYAML: routeYAML,
 		FilterFreeTierFlag: res.FilterFreeTierModels,
 	}, 0, nil
 }
@@ -130,6 +132,7 @@ func (a *adminUI) routingDraftResponse(d *routingDraft, saved bool) map[string]a
 		"ok":                           true,
 		"saved":                        saved,
 		"fallback_chain":               d.Chain,
+		"router_models":                d.RouterModels,
 		"models_upstream":              len(d.IDs),
 		"models_used":                  len(d.Pool),
 		"routing_policy_yaml":          string(d.RouteYAML),
@@ -188,6 +191,11 @@ func (a *adminUI) handleRoutingGeneratePOST(w http.ResponseWriter, r *http.Reque
 	gwPatched, err := config.PatchGatewayYAMLBytesWithFallbackChain(gwRaw, draft.Chain)
 	if err != nil {
 		writeRoutingGenJSONError(w, http.StatusBadRequest, "gateway.yaml patch validation failed: "+err.Error())
+		return
+	}
+	gwPatched, err = config.PatchGatewayYAMLBytesWithRouterModels(gwPatched, draft.RouterModels)
+	if err != nil {
+		writeRoutingGenJSONError(w, http.StatusBadRequest, "gateway.yaml router_models patch failed: "+err.Error())
 		return
 	}
 	tmpValidate, err := os.CreateTemp(filepath.Dir(res.GatewayYAMLPath), "claudia-gw-validate-*.yaml")
@@ -348,6 +356,79 @@ func (a *adminUI) handleRoutingEvaluatePOST(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (a *adminUI) handleRoutingRouterToolingPOST(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		RouterModels        []string `json:"router_models"`
+		ToolRouterEnabled   bool     `json:"tool_router_enabled"`
+		ConfidenceThreshold float64  `json:"confidence_threshold"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
+	if err := dec.Decode(&body); err != nil {
+		writeRoutingGenJSONError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if body.ConfidenceThreshold < 0 || body.ConfidenceThreshold > 1 {
+		writeRoutingGenJSONError(w, http.StatusBadRequest, "confidence_threshold must be between 0 and 1")
+		return
+	}
+	a.rt.Sync()
+	res, _, _ := a.rt.Snapshot()
+	if res == nil {
+		writeRoutingGenJSONError(w, http.StatusInternalServerError, "gateway not configured")
+		return
+	}
+	ch := make([]string, 0, len(body.RouterModels))
+	for _, id := range body.RouterModels {
+		if s := strings.TrimSpace(id); s != "" {
+			ch = append(ch, s)
+		}
+	}
+	if err := config.WriteGatewayRouterTooling(res.GatewayYAMLPath, ch, body.ToolRouterEnabled, body.ConfidenceThreshold); err != nil {
+		writeRoutingGenJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.rt.Sync()
+	res2, _, _ := a.rt.Snapshot()
+
+	missing := []string(nil)
+	if len(ch) > 0 {
+		apiKey := a.rt.UpstreamAPIKey()
+		if apiKey != "" {
+			to := healthTimeout(res2)
+			ctx, cancel := context.WithTimeout(r.Context(), to+2*time.Second)
+			defer cancel()
+			st, catBody, ok := upstream.FetchOpenAIModels(ctx, res2.UpstreamBaseURL, apiKey, to, a.log)
+			if ok && st >= 200 && st < 300 {
+				ids, err := routinggen.ExtractCatalogModelIDs(catBody, res2.VirtualModelID)
+				if err == nil {
+					set := make(map[string]struct{}, len(ids))
+					for _, id := range ids {
+						set[id] = struct{}{}
+					}
+					for _, m := range ch {
+						if _, ok := set[m]; !ok {
+							missing = append(missing, m)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":                            true,
+		"router_models":                 res2.RouterModels,
+		"tool_router_enabled":           res2.ToolRouterEnabled,
+		"confidence_threshold":          res2.ToolRouterConfidenceThreshold,
+		"router_models_missing_catalog": missing,
+	})
 }
 
 func (a *adminUI) handleRoutingFilterFreeTierPOST(w http.ResponseWriter, r *http.Request) {

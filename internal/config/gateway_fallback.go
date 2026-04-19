@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +49,23 @@ func PatchGatewayYAMLBytesWithFallbackChain(raw []byte, chain []string) ([]byte,
 func PatchGatewayYAMLBytesWithFilterFreeTierModels(raw []byte, enabled bool) ([]byte, error) {
 	return patchGatewayYAMLApply(raw, func(rtNode *yaml.Node) {
 		setOrReplaceMappingBool(rtNode, "filter_free_tier_models", enabled)
+	})
+}
+
+// PatchGatewayYAMLBytesWithRouterModels sets routing.router_models only (does not change tool_router).
+func PatchGatewayYAMLBytesWithRouterModels(raw []byte, routerModels []string) ([]byte, error) {
+	return patchGatewayYAMLApply(raw, func(rtNode *yaml.Node) {
+		setOrReplaceMappingSequence(rtNode, "router_models", routerModels)
+	})
+}
+
+// PatchGatewayYAMLBytesWithRouterTooling sets routing.router_models and routing.tool_router.
+func PatchGatewayYAMLBytesWithRouterTooling(raw []byte, routerModels []string, toolRouterEnabled bool, confidenceThreshold float64) ([]byte, error) {
+	return patchGatewayYAMLApply(raw, func(rtNode *yaml.Node) {
+		setOrReplaceMappingSequence(rtNode, "router_models", routerModels)
+		tr := mappingGetOrCreateChildMapping(rtNode, "tool_router")
+		setOrReplaceMappingBool(tr, "enabled", toolRouterEnabled)
+		setOrReplaceMappingFloat(tr, "confidence_threshold", confidenceThreshold)
 	})
 }
 
@@ -103,6 +121,37 @@ func WriteGatewayFilterFreeTierModels(gatewayPath string, enabled bool) error {
 	return ReplaceFile(gatewayPath, out, mode)
 }
 
+// WriteGatewayRouterTooling updates router_models and tool_router in gateway.yaml and validates load.
+func WriteGatewayRouterTooling(gatewayPath string, routerModels []string, toolRouterEnabled bool, confidenceThreshold float64) error {
+	raw, err := os.ReadFile(gatewayPath)
+	if err != nil {
+		return fmt.Errorf("read gateway yaml: %w", err)
+	}
+	out, err := PatchGatewayYAMLBytesWithRouterTooling(raw, routerModels, toolRouterEnabled, confidenceThreshold)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(gatewayPath)
+	tmp, err := os.CreateTemp(dir, "claudia-gw-router-*.yaml")
+	if err != nil {
+		return fmt.Errorf("temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := os.WriteFile(tmpPath, out, 0o600); err != nil {
+		return err
+	}
+	if _, err := LoadGatewayYAML(tmpPath, nil); err != nil {
+		return fmt.Errorf("gateway yaml after patch failed to load: %w", err)
+	}
+	mode := fs.FileMode(0o644)
+	if st, err := os.Stat(gatewayPath); err == nil {
+		mode = st.Mode() & fs.ModePerm
+	}
+	return ReplaceFile(gatewayPath, out, mode)
+}
+
 func setOrReplaceMappingSequence(m *yaml.Node, key string, values []string) {
 	if m.Kind != yaml.MappingNode {
 		return
@@ -134,6 +183,21 @@ func setOrReplaceMappingBool(m *yaml.Node, key string, v bool) {
 		val = "true"
 	}
 	scalar := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: val}
+	idx := mappingIndex(m, key)
+	if idx >= 0 {
+		m.Content[idx+1] = scalar
+		return
+	}
+	kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	m.Content = append(m.Content, kn, scalar)
+}
+
+func setOrReplaceMappingFloat(m *yaml.Node, key string, v float64) {
+	if m.Kind != yaml.MappingNode {
+		return
+	}
+	s := strconv.FormatFloat(v, 'f', -1, 64)
+	scalar := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float", Value: s}
 	idx := mappingIndex(m, key)
 	if idx >= 0 {
 		m.Content[idx+1] = scalar

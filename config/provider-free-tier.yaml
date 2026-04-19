@@ -42,13 +42,10 @@
 format_version: 1
 effective_date: "2026-04-12"
 models:
-  - gemini/gemini-2.0-flash  # gemini-2.0-flash
-  - gemini/gemini-2.0-flash-lite  # gemini-2.0-flash-lite
   - gemini/gemini-2.5-flash  # gemini-2.5-flash
   - gemini/gemini-2.5-flash-lite  # gemini-2.5-flash-lite
   - gemini/gemini-2.5-flash-native-audio-preview-12-2025  # gemini-2.5-flash-native-audio-preview-12-2025
   - gemini/gemini-2.5-flash-preview-tts  # gemini-2.5-flash-preview-tts
-  - gemini/gemini-2.5-pro  # gemini-2.5-pro
   - gemini/gemini-3-flash-preview  # gemini-3-flash-preview
   - gemini/gemini-3.1-flash-lite-preview  # gemini-3.1-flash-lite-preview
   - gemini/gemini-3.1-flash-live-preview  # gemini-3.1-flash-live-preview
@@ -66,7 +63,6 @@ models:
   - groq/meta-llama/llama-prompt-guard-2-22m  # meta-llama/llama-prompt-guard-2-22m | 30 | 14.4K | 15K | 500K | - | -
   - groq/meta-llama/llama-prompt-guard-2-86m  # meta-llama/llama-prompt-guard-2-86m | 30 | 14.4K | 15K | 500K | - | -
   - groq/moonshotai/kimi-k2-instruct  # moonshotai/kimi-k2-instruct | 60 | 1K | 10K | 300K | - | -
-  - groq/moonshotai/kimi-k2-instruct-0905  # moonshotai/kimi-k2-instruct-0905 | 60 | 1K | 10K | 300K | - | -
   - groq/openai/gpt-oss-120b  # openai/gpt-oss-120b | 30 | 1K | 8K | 200K | - | -
   - groq/openai/gpt-oss-20b  # openai/gpt-oss-20b | 30 | 1K | 8K | 200K | - | -
   - groq/openai/gpt-oss-safeguard-20b  # openai/gpt-oss-safeguard-20b | 30 | 1K | 8K | 200K | - | -

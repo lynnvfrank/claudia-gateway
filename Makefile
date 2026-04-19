@@ -2,7 +2,7 @@
 #
 # clean:      removes ./claudia[.exe], claudia-desktop[.exe], dist/ only.
 # clean-all:  also removes bin/, packaging/qdrant-bundles/, packages/, node_modules/, .deps/, run/, logs/ (requires CONFIRM=1; runs clean first).
-# clean-data: removes data/bifrost/, data/qdrant/ — fresh BiFrost + Qdrant state (requires CONFIRM=1).
+# clean-data: removes data/bifrost/, data/qdrant/, data/gateway/ — fresh BiFrost + Qdrant + gateway metrics state (requires CONFIRM=1).
 
 ifeq ($(OS),Windows_NT)
   # Same bash as scripts/*.sh (Git for Windows). MSYS2-only: set GITBASH, e.g.
@@ -52,7 +52,7 @@ endif
 
 .PHONY: help up configure install claudia-install clean clean-all clean-data fmt fmt-check logs \
 	bash \
-	build claudia-build desktop-install desktop-build desktop-run run \
+	build claudia-build tokencount-file desktop-install desktop-build desktop-run run \
 	claudia-run claudia-serve claudia-start claudia-stop claudia-status \
 	catalog-free catalog-available config-provider-free-tier \
 	release-install release-snapshot package \
@@ -142,6 +142,13 @@ build:
 
 claudia-build:
 	go build -o claudia ./cmd/claudia
+
+# Print bytes + cl100k_base + o200k_base token counts for a file (requires FILE=path).
+tokencount-file:
+ifeq ($(FILE),)
+	$(error FILE is required, e.g. make tokencount-file FILE=temp/groq-request.json)
+endif
+	go run ./cmd/claudia tokencount -f "$(FILE)"
 
 # Fetch Groq rate-limits + Gemini pricing pages and write BiFrost-style model ids (requires network).
 # Optional: INTERSECT=path to JSON or YAML (OpenAI-style data[].id, e.g. catalog-available.snapshot.yaml).

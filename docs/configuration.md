@@ -1,6 +1,6 @@
 # Configuration reference
 
-The gateway reads **YAML files** and **environment variables**. **`gateway.yaml`**, **`tokens.yaml`**, **`routing-policy.yaml`**, and **`provider-free-tier.yaml`** (when configured) are picked up when their file **modification time** changes (**`gateway.yaml`** reload also runs when **`provider-free-tier.yaml`** alone changes).
+The gateway reads **YAML files** and **environment variables**. **`gateway.yaml`**, **`tokens.yaml`**, **`routing-policy.yaml`**, and **`provider-free-tier.yaml`** (when configured) are picked up when their file **modification time** changes (**`gateway.yaml`** reload also runs when **`provider-free-tier.yaml`** alone changes). **Gateway metrics** (the **`metrics`** block in **`gateway.yaml`**) are applied **at process start** only (changing paths requires a **restart**).
 
 ## Go gateway binary
 
@@ -43,8 +43,12 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, **`OPENAI_API_KEY`**, e
 | **`paths.tokens`** | Path to **`tokens.yaml`** (relative to **`gateway.yaml`**’s directory unless absolute). |
 | **`paths.routing_policy`** | Path to **`routing-policy.yaml`**. |
 | **`paths.provider_free_tier`** | Path to **`provider-free-tier.yaml`** (default **`./provider-free-tier.yaml`** next to **`gateway.yaml`**). |
+| **`paths.provider_model_limits`** | Path to **`provider-model-limits.yaml`** (default **`./provider-model-limits.yaml`** next to **`gateway.yaml`**). Missing or empty file means **no enforcement**; invalid file is logged and the gateway starts with an empty spec. See **`docs/version-v0.1.1.md`** §3.7. **Quota enforcement on chat** compares limits to live usage in the metrics DB — keep **`metrics.enabled: true`** (default) or limits are not applied even when the YAML is populated. |
 | **`routing.filter_free_tier_models`** | When **true** and the allowlist file loads successfully, merged **`GET /v1/models`** lists only ids in both the upstream catalog and the allowlist; **`POST /api/ui/routing/generate`** (operator UI session) uses the same intersection. |
 | **`routing.fallback_chain`** | Ordered upstream **model ids** for **`Claudia-<semver>`** requests (BiFrost: **`provider/model`**). On **429** / selected **5xx**, the gateway tries the next entry. |
+| **`metrics.enabled`** | Default **true**. When **false**, the gateway does **not** open SQLite metrics or record upstream chat outcomes. |
+| **`metrics.sqlite_path`** | SQLite database file for gateway metrics (relative to **`gateway.yaml`’s directory** unless absolute). Default **`../data/gateway/metrics.sqlite`**. |
+| **`metrics.migrations_dir`** | Directory containing **`NNNNNN_description.sql`** migration files (default **`../migrations/gateway`**). Migrations run **once at startup**; see **`docs/version-v0.1.1.md`** §3.6. |
 
 Reload: change file and **save** (mtime update). On reload, if token or policy **paths** change, those stores are re-opened.
 
@@ -59,6 +63,30 @@ tokens:
 
 - **`token`** — must match the client’s `Authorization: Bearer` value exactly.
 - **`tenant_id`** — carried in logs today; **v0.2+** RAG scopes by tenant.
+
+## `config/provider-model-limits.yaml`
+
+Operator-maintained ceilings (**`rpm`**, **`rpd`**, **`tpm`**, **`tpd`**) compared against live metrics by the gateway's admission guard (**`internal/providerlimits`**). See **`docs/version-v0.1.1.md`** §3.7 for the full schema; short version:
+
+```yaml
+schema_version: 1
+defaults:
+  usage_day_timezone: UTC
+providers:
+  groq:
+    usage_day_timezone: UTC  # IANA tz for rpd/tpd day boundaries (e.g. America/Los_Angeles for Gemini)
+    rpm: 30
+    rpd: 14400
+    tpm: 6000
+    models:
+      groq/llama-3.3-70b-versatile:
+        tpm: 12000
+```
+
+- Merge: **model > provider > defaults**. Unset fields mean **no enforcement** for that dimension at that layer; if every layer leaves a field unset, the gateway does not cap it.
+- When a provider (or any of its models) sets **`rpd`** or **`tpd`**, the provider must be able to resolve an **`usage_day_timezone`** from its own block or **`defaults`** — otherwise startup rejects the file.
+- Unknown fields are rejected at parse time; negative numbers and invalid IANA names are rejected.
+- Config-only: **reloading requires a restart** today. A copy-paste starter lives at **`config/provider-model-limits.example.yaml`**.
 
 ## `config/provider-free-tier.yaml`
 

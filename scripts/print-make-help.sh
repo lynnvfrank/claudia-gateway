@@ -47,7 +47,8 @@ echo "  make vet-desktop        go vet -tags desktop ./cmd/claudia (CGO)"
 echo
 echo "  make clean              remove claudia[.exe], claudia-desktop[.exe], dist/"
 echo "  make clean-all          remove clean + bin/ + packaging/qdrant-bundles + packages + node_modules + .deps + run + logs (CONFIRM=1)"
-echo "  make clean-data         remove data/bifrost + data/qdrant (fresh BiFrost/Qdrant; needs CONFIRM=1)"
+echo "  make clean-data         remove data/bifrost + data/qdrant + data/gateway (fresh BiFrost/Qdrant/metrics; needs CONFIRM=1)"
 echo
 echo "  make precommit          fmt-check, vet, test (SKIP_DESKTOP=1 skips desktop vet/test)"
 echo "  make bash               interactive bash (-il); Windows: Git for Windows bash"
+echo "  make tokencount-file    bytes + cl100k_base + o200k_base for FILE=path (go run tokencount -f)"

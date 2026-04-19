@@ -89,6 +89,7 @@ Usage:
 
 Obtain the BiFrost binary from upstream releases or build from source (see docs/supervisor.md).
 Default gateway config: $CLAUDIA_GATEWAY_CONFIG or ./config/gateway.yaml
+Optional admin UI auto sign-in: $CLAUDIA_LOGIN_TOKEN (same value as a row in tokens.yaml; GET /ui/login sets the session cookie when unset in the browser).
 
 `)
 }

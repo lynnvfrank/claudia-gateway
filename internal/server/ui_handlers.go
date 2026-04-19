@@ -15,7 +15,23 @@ import (
 	"github.com/lynn/claudia-gateway/internal/bifrostadmin"
 )
 
-//go:embed embedui/login.html embedui/panel.html embedui/logs.html embedui/shell.html embedui/setup.html
+// envLoginTokenName is a gateway token (same as tokens.yaml) used to skip the /ui/login form when set in the process environment.
+const envLoginTokenName = "CLAUDIA_LOGIN_TOKEN"
+
+func envLoginToken() string {
+	return strings.TrimSpace(os.Getenv(envLoginTokenName))
+}
+
+// sanitizeLoginNext mirrors embedui/login.html: only same-origin /ui/* paths are allowed after sign-in.
+func sanitizeLoginNext(next string) string {
+	next = strings.TrimSpace(next)
+	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || !strings.HasPrefix(next, "/ui/") {
+		return "/ui/panel"
+	}
+	return next
+}
+
+//go:embed embedui/login.html embedui/panel.html embedui/logs.html embedui/metrics.html embedui/shell.html embedui/setup.html
 var adminEmbedUI embed.FS
 
 func bifrostAdminClient(rt *Runtime) *bifrostadmin.Client {
@@ -33,6 +49,13 @@ func bifrostAdminClient(rt *Runtime) *bifrostadmin.Client {
 		BearerToken: tok,
 		HTTPClient:  &http.Client{Timeout: 8 * time.Second},
 	}
+}
+
+func formatRFC3339OrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func publicGatewayBase(r *http.Request) string {
@@ -95,6 +118,59 @@ func (a *adminUI) serveEmbed(name string) http.HandlerFunc {
 	}
 }
 
+// setUISessionCookie validates a gateway token and sets the admin UI session cookie.
+// Returns ok false with serverErr false when the token is missing or invalid; serverErr true when session storage failed.
+func (a *adminUI) setUISessionCookie(w http.ResponseWriter, token string) (ok bool, serverErr bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return false, false
+	}
+	a.rt.Sync()
+	_, tokStore, _ := a.rt.Snapshot()
+	if tokStore == nil || tokStore.Validate(token) == nil {
+		return false, false
+	}
+	sid, err := a.opts.Sessions.issue(token)
+	if err != nil {
+		if a.log != nil {
+			a.log.Error("ui session issue", "err", err)
+		}
+		return false, true
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cookieName(),
+		Value:    sid,
+		Path:     "/",
+		MaxAge:   int((24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return true, false
+}
+
+func (a *adminUI) handleLoginGET(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if a.sessionOK(r) {
+		http.Redirect(w, r, sanitizeLoginNext(r.URL.Query().Get("next")), http.StatusFound)
+		return
+	}
+	if tok := envLoginToken(); tok != "" {
+		ok, srvErr := a.setUISessionCookie(w, tok)
+		if srvErr {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if ok {
+			http.Redirect(w, r, sanitizeLoginNext(r.URL.Query().Get("next")), http.StatusFound)
+			return
+		}
+	}
+	a.serveEmbed("embedui/login.html")(w, r)
+}
+
 func (a *adminUI) handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -111,30 +187,17 @@ func (a *adminUI) handleLoginPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := strings.TrimSpace(body.Token)
-	a.rt.Sync()
-	_, tokStore, _ := a.rt.Snapshot()
-	if tokStore == nil || tokStore.Validate(token) == nil {
+	ok, srvErr := a.setUISessionCookie(w, token)
+	if srvErr {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid token"})
 		return
 	}
-	sid, err := a.opts.Sessions.issue(token)
-	if err != nil {
-		if a.log != nil {
-			a.log.Error("ui session issue", "err", err)
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     a.cookieName(),
-		Value:    sid,
-		Path:     "/",
-		MaxAge:   int((24 * time.Hour).Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
@@ -208,14 +271,21 @@ func (a *adminUI) handleState(w http.ResponseWriter, r *http.Request) {
 	if p := strings.TrimSpace(res.RoutingPolicyPath); p != "" {
 		routeBase = filepath.Base(p)
 	}
+	rm, trAt, trErr := a.rt.ToolRouterLast()
 	gwOut := map[string]any{
-		"semver":                  res.Semver,
-		"virtual_model_id":        res.VirtualModelID,
-		"public_base_url":         publicGatewayBase(r),
-		"token_hint":              "Paste the same gateway token you used to sign in (stored only in Continue on your machine).",
-		"filter_free_tier_models": res.FilterFreeTierModels,
-		"fallback_chain":          res.FallbackChain,
-		"routing_policy_basename": routeBase,
+		"semver":                           res.Semver,
+		"virtual_model_id":                 res.VirtualModelID,
+		"public_base_url":                  publicGatewayBase(r),
+		"token_hint":                       "Paste the same gateway token you used to sign in (stored only in Continue on your machine).",
+		"filter_free_tier_models":          res.FilterFreeTierModels,
+		"fallback_chain":                   res.FallbackChain,
+		"routing_policy_basename":          routeBase,
+		"router_models":                    res.RouterModels,
+		"tool_router_enabled":              res.ToolRouterEnabled,
+		"tool_router_confidence_threshold": res.ToolRouterConfidenceThreshold,
+		"tool_router_last_model":           rm,
+		"tool_router_last_error":           trErr,
+		"tool_router_last_at":              formatRFC3339OrEmpty(trAt),
 	}
 	if c, err := r.Cookie(a.cookieName()); err == nil && c.Value != "" {
 		if tok := a.opts.Sessions.GatewayToken(c.Value); tok != "" {
@@ -248,8 +318,9 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 		http.Redirect(w, r, "/ui/login", http.StatusFound)
 	})
 
-	mux.HandleFunc("GET /ui/login", a.serveEmbed("embedui/login.html"))
+	mux.HandleFunc("GET /ui/login", a.handleLoginGET)
 	mux.HandleFunc("GET /ui/panel", a.requireAuthPage(a.serveEmbed("embedui/panel.html")))
+	mux.HandleFunc("GET /ui/metrics", a.requireAuthPage(a.serveEmbed("embedui/metrics.html")))
 	if a.opts.LogStore != nil {
 		mux.HandleFunc("GET /ui/logs", a.requireAuthPage(a.serveEmbed("embedui/logs.html")))
 		mux.HandleFunc("GET /ui/desktop", a.requireAuthPage(a.serveEmbed("embedui/shell.html")))
@@ -258,6 +329,7 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("POST /api/ui/login", a.handleLoginPOST)
 	mux.HandleFunc("POST /api/ui/logout", a.handleLogoutPOST)
 	mux.HandleFunc("GET /api/ui/state", a.requireAuthJSON(a.handleState))
+	mux.HandleFunc("GET /api/ui/metrics", a.requireAuthJSON(a.handleMetricsGET))
 
 	for _, p := range []string{"groq", "gemini"} {
 		prov := p
@@ -273,6 +345,7 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("POST /api/ui/routing/generate", a.requireAuthJSON(a.handleRoutingGeneratePOST))
 	mux.HandleFunc("POST /api/ui/routing/evaluate", a.requireAuthJSON(a.handleRoutingEvaluatePOST))
 	mux.HandleFunc("POST /api/ui/routing/filter_free_tier_models", a.requireAuthJSON(a.handleRoutingFilterFreeTierPOST))
+	mux.HandleFunc("POST /api/ui/routing/router_tooling", a.requireAuthJSON(a.handleRoutingRouterToolingPOST))
 
 	registerUILogs(mux, a)
 }

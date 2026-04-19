@@ -337,4 +337,7 @@ func TestUIDesktopPage_servesShellWhenAuthed(t *testing.T) {
 	if !strings.Contains(page, "f-logs") || !strings.Contains(page, "/ui/logs") {
 		t.Fatal("expected tabbed shell markup")
 	}
+	if !strings.Contains(page, "f-stats") || !strings.Contains(page, "/ui/metrics") {
+		t.Fatal("expected stats tab / metrics iframe")
+	}
 }

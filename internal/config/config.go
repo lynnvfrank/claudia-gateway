@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lynn/claudia-gateway/internal/providerfreetier"
+	"github.com/lynn/claudia-gateway/internal/providerlimits"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,6 +35,22 @@ type Resolved struct {
 	// FilterFreeTierModels requests intersecting merged /v1/models with the allowlist when spec loaded.
 	FilterFreeTierModels bool
 	ProviderFreeTierSpec *providerfreetier.Spec
+	// Metrics (G6): SQLite under data/gateway; see docs/version-v0.1.1.md §3.6.
+	MetricsEnabled       bool
+	MetricsSQLitePath    string // absolute path to metrics.sqlite
+	MetricsMigrationsDir string // absolute path to migrations/gateway directory
+	// Provider/model limits (G5 / §3.7). Path is always resolved; Spec is non-nil (empty when
+	// file is missing or blank).
+	ProviderLimitsPath string
+	ProviderLimitsSpec *providerlimits.Config
+	// RouterModels is an ordered list of upstream model ids used for the tool-router transformer
+	// (see docs/version-v0.1.1.md). Empty disables router calls.
+	RouterModels []string
+	// ToolRouterEnabled gates the tool-slimming transformer when RouterModels is non-empty.
+	// When RouterModels is empty, the transformer never runs regardless of this flag.
+	ToolRouterEnabled bool
+	// ToolRouterConfidenceThreshold keeps tools with confidence >= threshold (0–1).
+	ToolRouterConfidenceThreshold float64
 }
 
 type upstreamBlock struct {
@@ -58,14 +75,25 @@ type gatewayDoc struct {
 		ChatMs      int    `yaml:"chat_timeout_ms"`
 	} `yaml:"health"`
 	Paths struct {
-		Tokens           string `yaml:"tokens"`
-		RoutingPolicy    string `yaml:"routing_policy"`
-		ProviderFreeTier string `yaml:"provider_free_tier"`
+		Tokens              string `yaml:"tokens"`
+		RoutingPolicy       string `yaml:"routing_policy"`
+		ProviderFreeTier    string `yaml:"provider_free_tier"`
+		ProviderModelLimits string `yaml:"provider_model_limits"`
 	} `yaml:"paths"`
 	Routing struct {
 		FallbackChain        []string `yaml:"fallback_chain"`
 		FilterFreeTierModels *bool    `yaml:"filter_free_tier_models"`
+		RouterModels         []string `yaml:"router_models"`
+		ToolRouter           struct {
+			Enabled             *bool    `yaml:"enabled"`
+			ConfidenceThreshold *float64 `yaml:"confidence_threshold"`
+		} `yaml:"tool_router"`
 	} `yaml:"routing"`
+	Metrics struct {
+		Enabled       *bool  `yaml:"enabled"`
+		SQLitePath    string `yaml:"sqlite_path"`
+		MigrationsDir string `yaml:"migrations_dir"`
+	} `yaml:"metrics"`
 }
 
 const (
@@ -164,6 +192,22 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		log.Warn("provider free tier path not stat-able", "path", ftPath, "err", err)
 	}
 
+	limitsRel := strings.TrimSpace(doc.Paths.ProviderModelLimits)
+	if limitsRel == "" {
+		limitsRel = "./provider-model-limits.yaml"
+	}
+	limitsPath := filepath.Join(baseDir, limitsRel)
+	if filepath.IsAbs(limitsRel) {
+		limitsPath = limitsRel
+	}
+	limitsSpec, err := providerlimits.LoadOrEmpty(limitsPath)
+	if err != nil {
+		if log != nil {
+			log.Error("provider-model-limits.yaml invalid; using empty spec (no enforcement)", "path", limitsPath, "err", err)
+		}
+		limitsSpec = &providerlimits.Config{}
+	}
+
 	filterFT := true
 	if doc.Routing.FilterFreeTierModels != nil {
 		filterFT = *doc.Routing.FilterFreeTierModels
@@ -198,6 +242,40 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		log.Warn("routing.fallback_chain is empty or missing; virtual model requests will fail until configured")
 	}
 
+	routerModels := doc.Routing.RouterModels
+	if routerModels == nil {
+		routerModels = []string{}
+	}
+	toolRouterOn := len(routerModels) > 0
+	if doc.Routing.ToolRouter.Enabled != nil {
+		toolRouterOn = *doc.Routing.ToolRouter.Enabled && len(routerModels) > 0
+	}
+	toolThresh := 0.5
+	if doc.Routing.ToolRouter.ConfidenceThreshold != nil {
+		toolThresh = *doc.Routing.ToolRouter.ConfidenceThreshold
+	}
+
+	metricsEnabled := true
+	if doc.Metrics.Enabled != nil {
+		metricsEnabled = *doc.Metrics.Enabled
+	}
+	sqliteRel := strings.TrimSpace(doc.Metrics.SQLitePath)
+	if sqliteRel == "" {
+		sqliteRel = filepath.Join("..", "data", "gateway", "metrics.sqlite")
+	}
+	metricsSQLite := filepath.Join(baseDir, sqliteRel)
+	if filepath.IsAbs(sqliteRel) {
+		metricsSQLite = sqliteRel
+	}
+	migRel := strings.TrimSpace(doc.Metrics.MigrationsDir)
+	if migRel == "" {
+		migRel = filepath.Join("..", "migrations", "gateway")
+	}
+	metricsMig := filepath.Join(baseDir, migRel)
+	if filepath.IsAbs(migRel) {
+		metricsMig = migRel
+	}
+
 	logLevel := doc.Gateway.LogLevel
 	if logLevel == "" {
 		logLevel = defaultLogLevel
@@ -208,24 +286,32 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 	}
 
 	return &Resolved{
-		Semver:               semver,
-		VirtualModelID:       "Claudia-" + semver,
-		ListenPort:           listenPort,
-		ListenHost:           listenHost,
-		LogLevel:             logLevel,
-		UpstreamBaseURL:      upBase,
-		UpstreamAPIKeyEnv:    apiKeyEnv,
-		UpstreamAPIKey:       apiKey,
-		HealthUpstreamURL:    healthURL,
-		HealthTimeoutMs:      ht,
-		ChatTimeoutMs:        ct,
-		TokensPath:           tokensPath,
-		RoutingPolicyPath:    routingPath,
-		FallbackChain:        chain,
-		GatewayYAMLPath:      filePath,
-		ProviderFreeTierPath: ftPath,
-		FilterFreeTierModels: filterFT,
-		ProviderFreeTierSpec: ftSpec,
+		Semver:                        semver,
+		VirtualModelID:                "Claudia-" + semver,
+		ListenPort:                    listenPort,
+		ListenHost:                    listenHost,
+		LogLevel:                      logLevel,
+		UpstreamBaseURL:               upBase,
+		UpstreamAPIKeyEnv:             apiKeyEnv,
+		UpstreamAPIKey:                apiKey,
+		HealthUpstreamURL:             healthURL,
+		HealthTimeoutMs:               ht,
+		ChatTimeoutMs:                 ct,
+		TokensPath:                    tokensPath,
+		RoutingPolicyPath:             routingPath,
+		FallbackChain:                 chain,
+		GatewayYAMLPath:               filePath,
+		ProviderFreeTierPath:          ftPath,
+		FilterFreeTierModels:          filterFT,
+		ProviderFreeTierSpec:          ftSpec,
+		MetricsEnabled:                metricsEnabled,
+		MetricsSQLitePath:             metricsSQLite,
+		MetricsMigrationsDir:          metricsMig,
+		ProviderLimitsPath:            limitsPath,
+		ProviderLimitsSpec:            limitsSpec,
+		RouterModels:                  routerModels,
+		ToolRouterEnabled:             toolRouterOn,
+		ToolRouterConfidenceThreshold: toolThresh,
 	}, nil
 }
 

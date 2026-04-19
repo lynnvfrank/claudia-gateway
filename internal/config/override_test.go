@@ -14,10 +14,17 @@ func TestPatchResolvedUpstream(t *testing.T) {
 }
 
 func TestCloneResolved_Slice(t *testing.T) {
-	a := &Resolved{FallbackChain: []string{"x", "y"}}
+	a := &Resolved{
+		FallbackChain: []string{"x", "y"},
+		RouterModels:  []string{"groq/a"},
+	}
 	b := CloneResolved(a)
 	b.FallbackChain[0] = "z"
+	b.RouterModels[0] = "gemini/b"
 	if a.FallbackChain[0] != "x" {
 		t.Fatal("aliased slice")
+	}
+	if a.RouterModels[0] != "groq/a" {
+		t.Fatal("aliased router_models slice")
 	}
 }

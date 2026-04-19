@@ -20,9 +20,25 @@ paths:
   tokens: "./tokens.yaml"
   routing_policy: "./routing-policy.yaml"
   provider_free_tier: "./provider-free-tier.yaml"
+  # Vendor quota ceilings for admission/guards; see docs/version-v0.1.1.md §3.7.
+  # Omitting the file entirely or shipping it empty means no enforcement.
+  provider_model_limits: "./provider-model-limits.yaml"
 
 routing:
   filter_free_tier_models: true
   fallback_chain:
     - "groq/llama-3.1-8b-instant"
     - "gemini/gemini-3-flash-preview"
+  # Ordered list of upstream models used for the tool-router transformer (try in order; see docs/version-v0.1.1.md).
+  # Leave empty to skip router calls. When non-empty, POST /v1/chat/completions may call the first working model
+  # to score tools before the main upstream completion.
+  router_models: []
+  tool_router:
+    enabled: true
+    confidence_threshold: 0.5
+
+# Gateway metrics (SQLite under ../data/gateway/ relative to this file; see docs/version-v0.1.1.md §3.6).
+metrics:
+  enabled: true
+  # sqlite_path: "../data/gateway/metrics.sqlite"
+  # migrations_dir: "../migrations/gateway"

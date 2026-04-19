@@ -81,14 +81,14 @@
 
   <section class="row" id="row-routing">
     <h3>Routing &amp; fallback</h3>
-    <p class="meta">The virtual model (<code id="rt-vm">—</code>) uses <code id="rt-policy">routing-policy.yaml</code> to pick the first upstream model, then <strong>routing.fallback_chain</strong> in <code>gateway.yaml</code> for 429/5xx failover. Hosted models are ordered ahead of <code>ollama/</code> when you regenerate.</p>
+    <p class="meta">The virtual model (<code id="rt-vm">—</code>) uses <code id="rt-policy">routing-policy.yaml</code> to pick the first upstream model, then <strong>routing.fallback_chain</strong> in <code>gateway.yaml</code> for 429/5xx failover. <strong>Save routing</strong> also rewrites <strong>routing.router_models</strong> (small/fast-first order, boosted by RPM/TPM from <code>provider-model-limits.yaml</code> when present). Hosted models are ordered ahead of <code>ollama/</code> in the fallback chain when you regenerate.</p>
     <p class="meta">Saved <code>fallback_chain</code>: <code id="rt-chain-hint">—</code></p>
     <label class="meta" style="display:block;margin-top:0.5rem;font-weight:normal;">
       <input type="checkbox" id="rt-ft-toggle"/>
       <strong>Filter catalog with provider-free-tier allowlist</strong> — merged <code>GET /v1/models</code> and routing preview/generate use <code>provider-free-tier.yaml</code> (<code>routing.filter_free_tier_models</code> in <code>gateway.yaml</code>). Default is on when the key is omitted.
     </label>
     <button type="button" id="rt-preview">Preview from live catalog</button>
-    <button type="button" id="rt-generate">Save routing (write policy + gateway)</button>
+    <button type="button" id="rt-generate">Save routing (policy + fallback + router models)</button>
     <div id="rt-err" class="err"></div>
     <div id="rt-ok" class="warn" hidden></div>
     <label for="rt-yaml">Routing policy YAML (preview or paste)</label>
@@ -97,6 +97,18 @@
     <h4 style="font-size:1rem;margin:1.25rem 0 0.35rem 0;">Fallback Chain</h4>
     <p class="meta" style="margin-top:0;">Model ids for dry-run (<code>routing.fallback_chain</code>). One YAML list item per line (e.g. <code>- groq/llama-3.1-8b-instant</code>). A JSON array is also accepted if pasted.</p>
     <textarea id="rt-fallback-yaml" style="width:100%;min-height:6.5rem;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:0.78rem;" placeholder="- groq/model-a&#10;- gemini/gemini-3-flash-preview"></textarea>
+    <h4 style="font-size:1rem;margin:1.25rem 0 0.35rem 0;">Router models (tool slimming)</h4>
+    <p class="meta">Before each <code>POST /v1/chat/completions</code>, the gateway may call these upstream models <strong>in order</strong> (same BiFrost base URL as chat) to score how likely each client <code>tools[]</code> entry is needed for the user&rsquo;s latest message. Tools at or above the confidence threshold are kept; router failures keep the full tool list.</p>
+    <p class="meta">Configured: <code id="rt-router-hint">—</code> · threshold <code id="rt-router-thresh-hint">—</code> · transformer <span id="rt-router-on-hint">—</span></p>
+    <p class="meta" id="rt-router-last-wrap">Last router call: <span id="rt-router-last-txt" class="meta">—</span></p>
+    <p class="meta" style="margin-top:0.35rem">One model id per line (same format as fallback chain). <strong>Preview / Save routing</strong> fills this list from the catalog (you can edit before <strong>Save router tool settings</strong>). Optional headers on chat requests: <code>X-Claudia-Tool-Router: skip</code> to disable for one call; <code>X-Claudia-Tool-Confidence-Threshold: 0.4</code> to override threshold.</p>
+    <textarea id="rt-router-yaml" style="width:100%;min-height:5rem;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:0.78rem;" placeholder="- groq/llama-3.1-8b-instant"></textarea>
+    <label style="display:block;margin-top:0.5rem;font-weight:normal;"><input type="checkbox" id="rt-router-enabled"/> <strong>Enable</strong> tool-router transformer (off when the list is empty)</label>
+    <label for="rt-router-threshold">Confidence threshold (0–1)</label>
+    <input id="rt-router-threshold" type="number" step="0.05" min="0" max="1" value="0.5" style="max-width:10rem;box-sizing:border-box;padding:0.35rem;margin-top:0.2rem;"/>
+    <button type="button" id="rt-router-save">Save router tool settings</button>
+    <div id="rt-router-err" class="err"></div>
+    <div id="rt-router-ok" class="warn" hidden></div>
     <label for="rt-msg">Sample user message (length affects <code>min_message_chars</code> rules)</label>
     <input id="rt-msg" type="text" style="width:100%;max-width:100%;box-sizing:border-box;" placeholder="Short or long text…"/>
     <label><input type="checkbox" id="rt-smoke"/> Optional: smoke <code>POST /v1/chat/completions</code> (1 token) with picked model</label>
@@ -267,6 +279,35 @@
     if (rtFb && !rtFb.dataset.touched) {
       rtFb.value = Array.isArray(fc) && fc.length ? fallbackChainToYAML(fc) : "";
     }
+    var rtr = gw.router_models || [];
+    var rth = document.getElementById("rt-router-hint");
+    if (rth) rth.textContent = rtr.length ? JSON.stringify(rtr) : "(empty)";
+    var rttHint = document.getElementById("rt-router-thresh-hint");
+    if (rttHint) rttHint.textContent = gw.tool_router_confidence_threshold != null ? String(gw.tool_router_confidence_threshold) : "0.5";
+    var rton = document.getElementById("rt-router-on-hint");
+    if (rton) rton.textContent = gw.tool_router_enabled ? "on" : "off";
+    var rtl = document.getElementById("rt-router-last-txt");
+    if (rtl) {
+      var p = [];
+      if (gw.tool_router_last_at) p.push(gw.tool_router_last_at);
+      if (gw.tool_router_last_model) p.push("model " + gw.tool_router_last_model);
+      if (gw.tool_router_last_error) p.push("error: " + gw.tool_router_last_error);
+      rtl.textContent = p.length ? p.join(" · ") : "(none yet)";
+    }
+    var rtRy = document.getElementById("rt-router-yaml");
+    if (rtRy && !rtRy.dataset.touched) {
+      rtRy.value = rtr.length ? fallbackChainToYAML(rtr) : "";
+    }
+    var rte = document.getElementById("rt-router-enabled");
+    if (rte) {
+      rte.dataset.programmatic = "1";
+      rte.checked = !!gw.tool_router_enabled;
+      rte.dataset.programmatic = "";
+    }
+    var rtt = document.getElementById("rt-router-threshold");
+    if (rtt && !rtt.dataset.touched) {
+      rtt.value = gw.tool_router_confidence_threshold != null ? String(gw.tool_router_confidence_threshold) : "0.5";
+    }
     var ver = gw.semver != null && String(gw.semver) !== "" ? String(gw.semver) : "0.1.0";
     var tok = gw.continue_gateway_token != null ? String(gw.continue_gateway_token) : "";
     var yml = [
@@ -436,6 +477,14 @@
   if (rtFb) {
     rtFb.addEventListener("input", function () { rtFb.dataset.touched = "1"; });
   }
+  var rtRy = document.getElementById("rt-router-yaml");
+  if (rtRy) {
+    rtRy.addEventListener("input", function () { rtRy.dataset.touched = "1"; });
+  }
+  var rttIn = document.getElementById("rt-router-threshold");
+  if (rttIn) {
+    rttIn.addEventListener("input", function () { rttIn.dataset.touched = "1"; });
+  }
   var rtFtToggleEl = document.getElementById("rt-ft-toggle");
   if (rtFtToggleEl) {
     rtFtToggleEl.addEventListener("change", async function (ev) {
@@ -481,7 +530,11 @@
       rtFb.value = fallbackChainToYAML(j.fallback_chain || []);
       rtFb.dataset.touched = "";
     }
-    okEl.textContent = "Preview OK (not saved). " + (j.models_used || 0) + " model(s) in chain.";
+    if (rtRy && !rtRy.dataset.touched) {
+      rtRy.value = fallbackChainToYAML(j.router_models || []);
+      rtRy.dataset.touched = "";
+    }
+    okEl.textContent = "Preview OK (not saved). " + (j.models_used || 0) + " model(s) in fallback chain; router_models co-computed.";
     okEl.hidden = false;
   });
   document.getElementById("rt-generate").addEventListener("click", async function () {
@@ -489,7 +542,7 @@
     var okEl = document.getElementById("rt-ok");
     errEl.textContent = "";
     okEl.hidden = true;
-    if (!confirm("Overwrite routing-policy.yaml and routing.fallback_chain in gateway.yaml?")) return;
+    if (!confirm("Overwrite routing-policy.yaml, routing.fallback_chain, and routing.router_models in gateway.yaml?")) return;
     var r = await fetch("/api/ui/routing/generate", {
       method: "POST",
       credentials: "same-origin",
@@ -508,10 +561,57 @@
       rtFb.value = fallbackChainToYAML(j.fallback_chain || []);
       rtFb.dataset.touched = "";
     }
-    okEl.textContent = "Saved. " + (j.models_used || 0) + " model(s). Next requests use the new routing.";
+    if (rtRy && !rtRy.dataset.touched) {
+      rtRy.value = fallbackChainToYAML(j.router_models || []);
+      rtRy.dataset.touched = "";
+    }
+    okEl.textContent = "Saved. " + (j.models_used || 0) + " model(s). Routing + fallback + router_models written.";
     okEl.hidden = false;
     loadState();
   });
+  document.getElementById("rt-router-save").addEventListener("click", async function () {
+    var errEl = document.getElementById("rt-router-err");
+    var okEl = document.getElementById("rt-router-ok");
+    errEl.textContent = "";
+    okEl.hidden = true;
+    var fbRaw = rtRy && rtRy.value || "";
+    var models;
+    try {
+      models = parseFallbackChainInput(fbRaw);
+    } catch (e) {
+      errEl.textContent = "Router models: " + e.message;
+      return;
+    }
+    var enabled = document.getElementById("rt-router-enabled").checked;
+    var thr = parseFloat(String(document.getElementById("rt-router-threshold").value || ""), 10);
+    if (isNaN(thr) || thr < 0 || thr > 1) {
+      errEl.textContent = "Threshold must be a number between 0 and 1.";
+      return;
+    }
+    var r = await fetch("/api/ui/routing/router_tooling", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        router_models: models,
+        tool_router_enabled: enabled,
+        confidence_threshold: thr
+      })
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.status === 401) { window.location.href = "/ui/login"; return; }
+    if (!r.ok) {
+      errEl.textContent = (j.error && j.error.message) || ("HTTP " + r.status);
+      return;
+    }
+    if (rtRy) { rtRy.dataset.touched = ""; }
+    if (rttIn) { rttIn.dataset.touched = ""; }
+    var miss = j.router_models_missing_catalog || [];
+    okEl.textContent = "Saved." + (miss.length ? (" Not in upstream /v1/models: " + miss.join(", ") + ".") : "");
+    okEl.hidden = false;
+    loadState();
+  });
+
   document.getElementById("rt-eval").addEventListener("click", async function () {
     var errEl = document.getElementById("rt-err");
     errEl.textContent = "";

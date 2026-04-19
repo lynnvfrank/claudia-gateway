@@ -1,0 +1,39 @@
+# Example provider-model-limits.yaml for reference. Copy to provider-model-limits.yaml and edit.
+#
+# Merge semantics: model overrides provider overrides defaults. Unset fields mean "no limit
+# at that layer"; if every layer leaves a field unset, the gateway does not enforce it.
+
+schema_version: 1
+
+# defaults apply to every provider/model unless overridden below.
+defaults:
+  rpm: null
+  rpd: null
+  tpm: null
+  tpd: null
+  # Global tz is optional. When a provider sets rpd or tpd it must be able to resolve a tz
+  # from either its own block or these defaults.
+  usage_day_timezone: UTC
+
+providers:
+  groq:
+    # Groq resets the usage day at UTC midnight.
+    usage_day_timezone: UTC
+    rpm: 30
+    rpd: 14400
+    tpm: 6000
+    tpd: null
+    models:
+      groq/llama-3.3-70b-versatile:
+        tpm: 12000
+
+  google:
+    # Gemini resets the usage day at America/Los_Angeles midnight.
+    usage_day_timezone: America/Los_Angeles
+    rpm: null
+    rpd: 1500
+    tpm: null
+    tpd: null
+    models:
+      google/gemini-2.0-flash:
+        rpd: 250

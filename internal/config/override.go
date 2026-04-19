@@ -11,6 +11,11 @@ func CloneResolved(r *Resolved) *Resolved {
 	if r.FallbackChain != nil {
 		n.FallbackChain = append([]string(nil), r.FallbackChain...)
 	}
+	if r.RouterModels != nil {
+		n.RouterModels = append([]string(nil), r.RouterModels...)
+	}
+	n.ToolRouterEnabled = r.ToolRouterEnabled
+	n.ToolRouterConfidenceThreshold = r.ToolRouterConfidenceThreshold
 	n.FilterFreeTierModels = r.FilterFreeTierModels
 	n.ProviderFreeTierPath = r.ProviderFreeTierPath
 	n.ProviderFreeTierSpec = r.ProviderFreeTierSpec
