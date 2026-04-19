@@ -13,8 +13,10 @@ import (
 
 	"github.com/lynn/claudia-gateway/internal/chat"
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/transform"
 	"github.com/lynn/claudia-gateway/internal/upstream"
+	"github.com/lynn/claudia-gateway/internal/vectorstore"
 )
 
 const maxBodyBytes = 25 * 1024 * 1024
@@ -185,7 +187,17 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 		checks := map[string]any{
 			"upstream": upstreamCheck,
 		}
-		if !ok {
+		degraded := !ok
+		if res.RAG.Enabled && rt.RAG() != nil {
+			qErr := rt.RAG().StoreHealth(ctx)
+			qCheck := map[string]any{"ok": qErr == nil}
+			if qErr != nil {
+				qCheck["detail"] = qErr.Error()
+				degraded = true
+			}
+			checks["qdrant"] = qCheck
+		}
+		if degraded {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -238,6 +250,28 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 			return
 		}
 		handleV1Ingest(w, r, rt, log)
+	})
+
+	mux.HandleFunc("/v1/indexer/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleIndexerConfig(w, r, rt, log)
+	})
+	mux.HandleFunc("/v1/indexer/storage/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleIndexerHealth(w, r, rt, log)
+	})
+	mux.HandleFunc("/v1/indexer/storage/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleIndexerStats(w, r, rt, log)
 	})
 
 	registerAdminUI(mux, rt, log, ui)
@@ -411,6 +445,30 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 	})
 
 	if clientModel == res.VirtualModelID {
+		// v0.2: when RAG is enabled, retrieve top-k chunks for the last user
+		// message and inject them as a single system message before chat.
+		if res.RAG.Enabled && rt.RAG() != nil {
+			coords := vectorstore.Coords{
+				TenantID:  sess.TenantID,
+				ProjectID: resolveProject(r.Header.Get(headerProject), res.RAG.DefaultProject),
+				FlavorID:  resolveFlavor(r.Header.Get(headerFlavor), res.RAG.DefaultFlavor),
+			}
+			if q := rag.LastUserText(raw["messages"]); strings.TrimSpace(q) != "" {
+				hits, rerr := rt.RAG().Retrieve(ctx, rag.RetrieveRequest{Coords: coords, Query: q})
+				if rerr != nil {
+					if log != nil {
+						log.Warn("rag retrieve failed; proceeding without context", "err", rerr,
+							"tenant", coords.TenantID, "project", coords.ProjectID)
+					}
+				} else if ctxBlock := rag.FormatRetrievedContext(hits); ctxBlock != "" {
+					if log != nil {
+						log.Info("rag context injected", "tenant", coords.TenantID,
+							"project", coords.ProjectID, "flavor", coords.FlavorID, "hits", len(hits))
+					}
+					rag.InjectSystemMessage(raw, ctxBlock)
+				}
+			}
+		}
 		initial, _ := pol.PickInitialModel(raw, res.FallbackChain, res.VirtualModelID)
 		if initial == "" {
 			w.Header().Set("Content-Type", "application/json")
