@@ -1,0 +1,173 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+)
+
+// RAG holds resolved retrieval-augmented-generation settings (gateway v0.2).
+//
+// All fields are populated by LoadGatewayYAML from the optional "rag" block in
+// gateway.yaml. When RAG is disabled the rest of the gateway must continue to
+// behave exactly as v0.1; ingest, indexer REST, retrieval, and the /health
+// Qdrant probe are all gated on Enabled.
+type RAG struct {
+	Enabled bool
+
+	// Vector store (Qdrant HTTP REST in v0.2; one adapter per scheme).
+	QdrantURL    string
+	QdrantAPIKey string
+
+	// Embedding configuration. EmbeddingBaseURL falls back to upstream.base_url
+	// when empty; EmbeddingPath is appended (default "/v1/embeddings").
+	EmbeddingBaseURL string
+	EmbeddingPath    string
+	EmbeddingModel   string
+	EmbeddingDim     int
+
+	// Chunking knobs (UTF-8 code units; see indexer plan).
+	ChunkSize    int
+	ChunkOverlap int
+
+	// Retrieval knobs.
+	TopK            int
+	ScoreThreshold  float64
+	MaxIngestBytes  int64
+	DefaultProject  string
+	DefaultFlavor   string
+	CollectionScope string // reserved for future scope keys (currently always "tenant_project_flavor")
+}
+
+const (
+	defaultEmbeddingPath  = "/v1/embeddings"
+	defaultEmbeddingModel = "text-embedding-3-small"
+	defaultEmbeddingDim   = 1536
+	defaultChunkSize      = 512
+	defaultChunkOverlap   = 128
+	defaultTopK           = 8
+	defaultScoreThreshold = 0.72
+	defaultMaxIngestBytes = 10 * 1024 * 1024
+	defaultQdrantURL      = "http://127.0.0.1:6333"
+)
+
+// effective returns a RAG with defaults filled. When the doc block is nil this
+// returns RAG{Enabled: false}; when Enabled is true all defaults apply.
+func (d ragDoc) effective() RAG {
+	r := RAG{
+		Enabled:          d.Enabled != nil && *d.Enabled,
+		QdrantURL:        strings.TrimSpace(d.Qdrant.URL),
+		QdrantAPIKey:     strings.TrimSpace(d.Qdrant.APIKey),
+		EmbeddingBaseURL: strings.TrimSpace(d.Embedding.BaseURL),
+		EmbeddingPath:    strings.TrimSpace(d.Embedding.Path),
+		EmbeddingModel:   strings.TrimSpace(d.Embedding.Model),
+		EmbeddingDim:     d.Embedding.Dim,
+		ChunkSize:        d.Chunking.Size,
+		ChunkOverlap:     d.Chunking.Overlap,
+		TopK:             d.Retrieval.TopK,
+		ScoreThreshold:   d.Retrieval.ScoreThreshold,
+		MaxIngestBytes:   d.Ingest.MaxBytes,
+		DefaultProject:   strings.TrimSpace(d.Defaults.ProjectID),
+		DefaultFlavor:    strings.TrimSpace(d.Defaults.FlavorID),
+		CollectionScope:  "tenant_project_flavor",
+	}
+	if r.QdrantURL == "" {
+		r.QdrantURL = defaultQdrantURL
+	}
+	r.QdrantURL = strings.TrimSuffix(r.QdrantURL, "/")
+	if r.EmbeddingPath == "" {
+		r.EmbeddingPath = defaultEmbeddingPath
+	}
+	if !strings.HasPrefix(r.EmbeddingPath, "/") {
+		r.EmbeddingPath = "/" + r.EmbeddingPath
+	}
+	if r.EmbeddingModel == "" {
+		r.EmbeddingModel = defaultEmbeddingModel
+	}
+	if r.EmbeddingDim <= 0 {
+		r.EmbeddingDim = defaultEmbeddingDim
+	}
+	if r.ChunkSize <= 0 {
+		r.ChunkSize = defaultChunkSize
+	}
+	if r.ChunkOverlap <= 0 {
+		r.ChunkOverlap = defaultChunkOverlap
+	}
+	if r.ChunkOverlap >= r.ChunkSize {
+		r.ChunkOverlap = r.ChunkSize / 4
+	}
+	if r.TopK <= 0 {
+		r.TopK = defaultTopK
+	}
+	if r.ScoreThreshold <= 0 {
+		r.ScoreThreshold = defaultScoreThreshold
+	}
+	if r.MaxIngestBytes <= 0 {
+		r.MaxIngestBytes = defaultMaxIngestBytes
+	}
+	return r
+}
+
+// EmbeddingURL returns the absolute embedding endpoint for the resolved RAG
+// config. upstreamBaseURL is used as a fallback when EmbeddingBaseURL is empty.
+func (r RAG) EmbeddingURL(upstreamBaseURL string) string {
+	base := r.EmbeddingBaseURL
+	if base == "" {
+		base = upstreamBaseURL
+	}
+	base = strings.TrimSuffix(strings.TrimSpace(base), "/")
+	if base == "" {
+		return r.EmbeddingPath
+	}
+	return base + r.EmbeddingPath
+}
+
+// Validate returns an error when Enabled is true but settings are inconsistent
+// (e.g. invalid Qdrant URL). Disabled RAG always validates.
+func (r RAG) Validate() error {
+	if !r.Enabled {
+		return nil
+	}
+	if r.QdrantURL == "" {
+		return fmt.Errorf("rag.qdrant.url is required when rag.enabled=true")
+	}
+	if !strings.HasPrefix(r.QdrantURL, "http://") && !strings.HasPrefix(r.QdrantURL, "https://") {
+		return fmt.Errorf("rag.qdrant.url must be http:// or https://, got %q", r.QdrantURL)
+	}
+	if r.EmbeddingDim <= 0 {
+		return fmt.Errorf("rag.embedding.dim must be > 0")
+	}
+	if r.ChunkSize <= 0 || r.ChunkOverlap < 0 || r.ChunkOverlap >= r.ChunkSize {
+		return fmt.Errorf("rag.chunking: size=%d overlap=%d invalid", r.ChunkSize, r.ChunkOverlap)
+	}
+	return nil
+}
+
+// ragDoc is the YAML shape parsed out of gateway.yaml's "rag" block.
+type ragDoc struct {
+	Enabled *bool `yaml:"enabled"`
+	Qdrant  struct {
+		URL    string `yaml:"url"`
+		APIKey string `yaml:"api_key"`
+	} `yaml:"qdrant"`
+	Embedding struct {
+		BaseURL string `yaml:"base_url"`
+		Path    string `yaml:"path"`
+		Model   string `yaml:"model"`
+		Dim     int    `yaml:"dim"`
+	} `yaml:"embedding"`
+	Chunking struct {
+		Size    int `yaml:"size"`
+		Overlap int `yaml:"overlap"`
+	} `yaml:"chunking"`
+	Retrieval struct {
+		TopK           int     `yaml:"top_k"`
+		ScoreThreshold float64 `yaml:"score_threshold"`
+	} `yaml:"retrieval"`
+	Ingest struct {
+		MaxBytes int64 `yaml:"max_bytes"`
+	} `yaml:"ingest"`
+	Defaults struct {
+		ProjectID string `yaml:"project_id"`
+		FlavorID  string `yaml:"flavor_id"`
+	} `yaml:"defaults"`
+}

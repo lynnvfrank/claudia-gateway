@@ -11,8 +11,11 @@ import (
 	"github.com/lynn/claudia-gateway/internal/config"
 	"github.com/lynn/claudia-gateway/internal/gatewaymetrics"
 	"github.com/lynn/claudia-gateway/internal/providerlimits"
+	"github.com/lynn/claudia-gateway/internal/rag"
+	"github.com/lynn/claudia-gateway/internal/rag/embed"
 	"github.com/lynn/claudia-gateway/internal/routing"
 	"github.com/lynn/claudia-gateway/internal/tokens"
+	"github.com/lynn/claudia-gateway/internal/vectorstore/qdrant"
 )
 
 // Runtime mirrors src/runtime.ts RuntimeState.
@@ -32,6 +35,10 @@ type Runtime struct {
 	toolRouterModel   string
 	toolRouterAt      time.Time
 	toolRouterLastErr string
+
+	// rag is the resolved retrieval-augmented-generation service when
+	// res.RAG.Enabled is true. nil when RAG is disabled or init failed.
+	rag *rag.Service
 }
 
 func NewRuntime(gatewayPath string, log *slog.Logger) (*Runtime, error) {
@@ -69,6 +76,15 @@ func NewRuntimeWithUpstreamOverride(gatewayPath string, log *slog.Logger, upstre
 			}
 		} else {
 			rt.metrics = s
+		}
+	}
+	if res.RAG.Enabled {
+		if s, err := buildRAGService(res, log); err != nil {
+			if log != nil {
+				log.Error("rag init failed; continuing without RAG", "err", err)
+			}
+		} else {
+			rt.rag = s
 		}
 	}
 	if st, err := os.Stat(gatewayPath); err == nil {
@@ -223,6 +239,44 @@ func (rt *Runtime) CloseMetrics() {
 		_ = rt.metrics.Close()
 		rt.metrics = nil
 	}
+}
+
+// RAG returns the RAG service when enabled, else nil.
+func (rt *Runtime) RAG() *rag.Service {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.rag
+}
+
+// SetRAGForTest replaces the RAG service (tests only). Production code uses
+// buildRAGService via NewRuntime.
+func (rt *Runtime) SetRAGForTest(s *rag.Service) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.rag = s
+}
+
+// buildRAGService constructs a Qdrant + embedding-backed Service from resolved
+// config. The upstream API key (env-resolved at runtime) is used as the bearer
+// for embeddings since the gateway plan colocates embed under the upstream
+// LLM proxy in v0.2.
+func buildRAGService(res *config.Resolved, log *slog.Logger) (*rag.Service, error) {
+	apiKey := strings.TrimSpace(os.Getenv(res.UpstreamAPIKeyEnv))
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(res.UpstreamAPIKey)
+	}
+	emb := embed.New(res.RAG.EmbeddingURL(res.UpstreamBaseURL), apiKey, res.RAG.EmbeddingModel)
+	store := qdrant.New(res.RAG.QdrantURL, res.RAG.QdrantAPIKey)
+	return rag.New(rag.Options{
+		Store:          store,
+		Embedder:       emb,
+		ChunkSize:      res.RAG.ChunkSize,
+		ChunkOverlap:   res.RAG.ChunkOverlap,
+		TopK:           res.RAG.TopK,
+		ScoreThreshold: float32(res.RAG.ScoreThreshold),
+		EmbeddingDim:   res.RAG.EmbeddingDim,
+		Log:            log,
+	})
 }
 
 func (rt *Runtime) UpstreamAPIKey() string {

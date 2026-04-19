@@ -42,3 +42,29 @@ metrics:
   enabled: true
   # sqlite_path: "../data/gateway/metrics.sqlite"
   # migrations_dir: "../migrations/gateway"
+
+# v0.2 Retrieval-Augmented Generation. When enabled, the virtual Claudia model
+# performs Qdrant retrieval before chat; POST /v1/ingest, GET /v1/indexer/*,
+# and the /health Qdrant probe are activated. See docs/version-v0.2.md.
+rag:
+  enabled: false
+  qdrant:
+    url: "http://127.0.0.1:6333"
+    # api_key: "..."          # optional Qdrant API key
+  embedding:
+    # base_url defaults to upstream.base_url when empty.
+    # base_url: ""
+    path: "/v1/embeddings"
+    model: "text-embedding-3-small"
+    dim: 1536
+  chunking:
+    size: 512
+    overlap: 128
+  retrieval:
+    top_k: 8
+    score_threshold: 0.72
+  ingest:
+    max_bytes: 10485760       # 10 MiB; files larger are rejected (v0.4 streams)
+  defaults:
+    project_id: "default"
+    flavor_id: ""

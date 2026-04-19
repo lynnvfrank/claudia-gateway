@@ -51,6 +51,9 @@ type Resolved struct {
 	ToolRouterEnabled bool
 	// ToolRouterConfidenceThreshold keeps tools with confidence >= threshold (0–1).
 	ToolRouterConfidenceThreshold float64
+	// RAG holds gateway v0.2 retrieval-augmented-generation settings; RAG.Enabled
+	// gates ingest, indexer REST, retrieval, and the /health Qdrant probe.
+	RAG RAG
 }
 
 type upstreamBlock struct {
@@ -94,6 +97,7 @@ type gatewayDoc struct {
 		SQLitePath    string `yaml:"sqlite_path"`
 		MigrationsDir string `yaml:"migrations_dir"`
 	} `yaml:"metrics"`
+	RAG ragDoc `yaml:"rag"`
 }
 
 const (
@@ -281,6 +285,14 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		logLevel = defaultLogLevel
 	}
 
+	rag := doc.RAG.effective()
+	if err := rag.Validate(); err != nil {
+		if log != nil {
+			log.Error("rag config invalid; disabling RAG", "err", err)
+		}
+		rag = RAG{Enabled: false}
+	}
+
 	if log != nil {
 		log.Debug("resolved gateway config paths", "filePath", filePath, "tokensPath", tokensPath, "routingPolicyPath", routingPath)
 	}
@@ -312,6 +324,7 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		RouterModels:                  routerModels,
 		ToolRouterEnabled:             toolRouterOn,
 		ToolRouterConfidenceThreshold: toolThresh,
+		RAG:                           rag,
 	}, nil
 }
 

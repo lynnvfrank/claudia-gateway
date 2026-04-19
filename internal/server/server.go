@@ -232,6 +232,14 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 		handleV1Chat(w, r, rt, log)
 	})
 
+	mux.HandleFunc("/v1/ingest", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleV1Ingest(w, r, rt, log)
+	})
+
 	registerAdminUI(mux, rt, log, ui)
 
 	return loggingMiddleware(log, mux)
