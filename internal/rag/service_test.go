@@ -2,6 +2,8 @@ package rag
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -71,6 +73,45 @@ func (s *fakeStore) DeleteBySource(_ context.Context, c, src string) error {
 	return nil
 }
 
+func (s *fakeStore) ScrollPoints(_ context.Context, c string, filter *vectorstore.Coords, limit int, cursor string) (vectorstore.ScrollBatch, error) {
+	if limit <= 0 {
+		limit = 256
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var rows []vectorstore.PointPayload
+	for _, p := range s.points[c] {
+		if filter != nil {
+			if filter.TenantID != "" && p.Payload.TenantID != filter.TenantID {
+				continue
+			}
+			if filter.ProjectID != "" && p.Payload.ProjectID != filter.ProjectID {
+				continue
+			}
+			if filter.FlavorID != "" && p.Payload.FlavorID != filter.FlavorID {
+				continue
+			}
+		}
+		rows = append(rows, vectorstore.PointPayload{ID: p.ID, Payload: p.Payload})
+	}
+	start := 0
+	if cursor != "" {
+		_, _ = fmt.Sscanf(cursor, "%d", &start)
+	}
+	if start >= len(rows) {
+		return vectorstore.ScrollBatch{}, nil
+	}
+	end := start + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	next := ""
+	if end < len(rows) {
+		next = strconv.Itoa(end)
+	}
+	return vectorstore.ScrollBatch{Points: rows[start:end], NextCursor: next}, nil
+}
+
 // fakeEmbedder returns deterministic vectors of dim sized [i+1, 0, ..., 0].
 type fakeEmbedder struct {
 	dim   int
@@ -125,12 +166,18 @@ func TestService_Ingest_HappyPath(t *testing.T) {
 	if !strings.HasPrefix(res.ContentHash, "sha256:") {
 		t.Fatalf("expected sha256 hash, got %q", res.ContentHash)
 	}
+	if res.ContentSHA256 != res.ContentHash {
+		t.Fatalf("content_sha256 should match content_hash, got %q vs %q", res.ContentSHA256, res.ContentHash)
+	}
 	pts := st.points[res.Collection]
 	if len(pts) != res.Chunks {
 		t.Fatalf("upsert count mismatch: %d vs %d", len(pts), res.Chunks)
 	}
 	if pts[0].Payload.TenantID != "t1" || pts[0].Payload.Source != "docs/readme.md" {
 		t.Fatalf("payload missing fields: %+v", pts[0].Payload)
+	}
+	if pts[0].Payload.ContentSHA256 == "" {
+		t.Fatalf("expected content_sha256 on payload, got %+v", pts[0].Payload)
 	}
 	if em.calls != 1 {
 		t.Fatalf("embed should be batched once, got %d calls", em.calls)
@@ -199,6 +246,29 @@ func TestService_Retrieve_HappyPath(t *testing.T) {
 	}
 	if hits[0].Payload.Source != "doc.txt" {
 		t.Fatalf("payload: %+v", hits[0].Payload)
+	}
+}
+
+func TestService_CorpusInventory(t *testing.T) {
+	s, _, _ := newSvc(t)
+	_, err := s.Ingest(context.Background(), IngestRequest{
+		Coords:      vectorstore.Coords{TenantID: "t1", ProjectID: "proj"},
+		Source:      "x.go",
+		Text:        strings.Repeat("z", 200),
+		ContentHash: "sha256:abc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, next, err := s.CorpusInventory(context.Background(), vectorstore.Coords{TenantID: "t1", ProjectID: "proj"}, 50, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || next != "" {
+		t.Fatalf("entries=%v next=%q", entries, next)
+	}
+	if entries[0].Source != "x.go" || entries[0].ClientContentHash != "sha256:abc" || !strings.HasPrefix(entries[0].ContentSHA256, "sha256:") {
+		t.Fatalf("entry: %+v", entries[0])
 	}
 }
 

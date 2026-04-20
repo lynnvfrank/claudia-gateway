@@ -15,7 +15,7 @@ This document pulls together **everything scoped to product v0.2** from [`claudi
 **Release roadmap summary** (from [`claudia-gateway.plan.md`](claudia-gateway.plan.md)):
 
 - **`POST /v1/ingest`**
-- **Indexer REST:** **`GET /v1/indexer/config`**, **`GET /v1/indexer/storage/health`**, **`GET /v1/indexer/storage/stats`** (live Qdrant readings; no persisted metric history in-gateway)
+- **Indexer REST:** **`GET /v1/indexer/config`**, **`GET /v1/indexer/storage/health`**, **`GET /v1/indexer/storage/stats`**, **`GET /v1/indexer/corpus/inventory`** (live Qdrant readings + paginated source/hash inventory; no persisted metric history in-gateway)
 - **Chunking defaults:** **512** UTF-8 code units, **128** overlap (configurable; surfaced via indexer config)
 - **Qdrant adapter** + **query-time retrieval** + **prompt assembly**
 - **Collection** naming rules; **`X-Claudia-Project`** / **`X-Claudia-Flavor-Id`** headers
@@ -47,7 +47,7 @@ This document pulls together **everything scoped to product v0.2** from [`claudi
 - **`GET /v1/indexer/storage/stats`** — **live** per-collection **point counts**, **vector dimension**, safe Qdrant metrics (document response fields).
 - Optional additional **`GET`** under **`/v1/indexer/…`** as needed; document paths and keep stable within a **minor** release.
 
-**Joint delivery note:** [`indexer.plan.md`](indexer.plan.md) calls for a future **corpus inventory** contract (e.g. path + hash listing) for reconciliation; that is **not** a hard requirement for labeling “gateway v0.2” complete in the product plan, but gateway and indexer teams should track it as a **coordination** item when implementing startup reconciliation.
+**Corpus inventory:** [`indexer.plan.md`](indexer.plan.md) **`GET /v1/indexer/corpus/inventory`** is implemented (paginated **`source`** + **`content_sha256`** + optional **`client_content_hash`**) for indexer startup reconciliation; see [`indexer.md`](indexer.md).
 
 ### Chunking, embedding, and Qdrant
 

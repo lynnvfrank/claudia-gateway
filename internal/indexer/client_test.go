@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,7 +24,7 @@ func TestClient_FetchConfigAndHealth(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"gateway_version":"v0.2","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1024}`))
+		_, _ = w.Write([]byte(`{"gateway_version":"v0.2","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1024,"corpus_inventory_path":"/v1/indexer/corpus/inventory"}`))
 	})
 	mux.HandleFunc("/v1/indexer/storage/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -33,12 +35,15 @@ func TestClient_FetchConfigAndHealth(t *testing.T) {
 
 	c := NewGatewayClient(srv.URL, "tok", 5*time.Second)
 	ctx := context.Background()
-	cfg, err := c.FetchConfig(ctx)
+	cfg, err := c.FetchConfig(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.EmbeddingDim != 8 || cfg.ChunkSize != 512 {
 		t.Fatalf("cfg=%+v", cfg)
+	}
+	if cfg.CorpusInventoryPath != "/v1/indexer/corpus/inventory" {
+		t.Fatalf("corpus path: %q", cfg.CorpusInventoryPath)
 	}
 	h, err := c.CheckHealth(ctx)
 	if err != nil || !h.OK {
@@ -47,13 +52,15 @@ func TestClient_FetchConfigAndHealth(t *testing.T) {
 }
 
 func TestClient_Ingest_Multipart(t *testing.T) {
-	var seenSource, seenHash, seenFilename, seenBody string
+	var seenSource, seenHash, seenFilename, seenBody, seenProj, seenFlavor string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/ingest", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer tok" {
 			http.Error(w, "auth", http.StatusUnauthorized)
 			return
 		}
+		seenProj = r.Header.Get("X-Claudia-Project")
+		seenFlavor = r.Header.Get("X-Claudia-Flavor-Id")
 		mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || !strings.HasPrefix(mt, "multipart/") {
 			http.Error(w, "bad ct", http.StatusBadRequest)
@@ -81,7 +88,7 @@ func TestClient_Ingest_Multipart(t *testing.T) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"object":"ingest.result","tenant_id":"t","project_id":"p","flavor_id":"f","source":"src/main.go","content_hash":"sha256:abc","chunks":3,"collection":"c"}`))
+		_, _ = w.Write([]byte(`{"object":"ingest.result","tenant_id":"t","project_id":"p","flavor_id":"f","source":"src/main.go","content_hash":"sha256:abc","content_sha256":"sha256:abc","chunks":3,"collection":"c"}`))
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -101,6 +108,9 @@ func TestClient_Ingest_Multipart(t *testing.T) {
 	}
 	if seenSource != "src/main.go" || seenHash != "sha256:abc" || seenBody != "hello" || seenFilename != "main.go" {
 		t.Fatalf("multipart fields: source=%q hash=%q body=%q file=%q", seenSource, seenHash, seenBody, seenFilename)
+	}
+	if seenProj != "p" || seenFlavor != "f" {
+		t.Fatalf("scope headers: project=%q flavor=%q", seenProj, seenFlavor)
 	}
 }
 
@@ -208,6 +218,30 @@ func TestClient_CheckHealth_DegradedDetailShape(t *testing.T) {
 	}
 }
 
+func TestClient_FetchConfig_SendsOptionalScopeHeaders(t *testing.T) {
+	var gotProj, gotFlavor string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/indexer/config", func(w http.ResponseWriter, r *http.Request) {
+		gotProj = r.Header.Get("X-Claudia-Project")
+		gotFlavor = r.Header.Get("X-Claudia-Flavor-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"gateway_version":"v0.3","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1024}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewGatewayClient(srv.URL, "tok", 5*time.Second)
+	_, err := c.FetchConfig(context.Background(), map[string]string{
+		"X-Claudia-Project":   "acme",
+		"X-Claudia-Flavor-Id": "prod",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotProj != "acme" || gotFlavor != "prod" {
+		t.Fatalf("headers project=%q flavor=%q", gotProj, gotFlavor)
+	}
+}
+
 // Sanity: HTTPError formats and surfaces JSON status fields.
 func TestHTTPError_String(t *testing.T) {
 	e := &HTTPError{Path: "/v1/x", Status: 503, Body: `{"error":"busy"}`}
@@ -227,5 +261,71 @@ func TestIngestResponse_JSONShape(t *testing.T) {
 	}
 	if out.Chunks != 2 || out.Object != "ingest.result" {
 		t.Fatalf("round-trip mismatch: %+v", out)
+	}
+}
+
+func TestClient_CheckGatewayRootHealth(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewGatewayClient(srv.URL, "tok", time.Second)
+	h, err := c.CheckGatewayRootHealth(context.Background())
+	if err != nil || h == nil || !h.OK {
+		t.Fatalf("h=%+v err=%v", h, err)
+	}
+
+	mux2 := http.NewServeMux()
+	mux2.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"degraded":true,"status":"degraded"}`))
+	})
+	s2 := httptest.NewServer(mux2)
+	defer s2.Close()
+	c2 := NewGatewayClient(s2.URL, "tok", time.Second)
+	h2, err := c2.CheckGatewayRootHealth(context.Background())
+	if err != nil || h2 == nil || h2.OK {
+		t.Fatalf("h2=%+v err=%v", h2, err)
+	}
+}
+
+func TestClient_IngestChunked_RetriesChunkPUT(t *testing.T) {
+	var chunkCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/ingest/session", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"session_id":"s1","max_chunk_bytes":4,"max_total_bytes":9999}`))
+	})
+	mux.HandleFunc("/v1/ingest/session/s1/chunk", func(w http.ResponseWriter, r *http.Request) {
+		n := chunkCalls.Add(1)
+		if n == 1 {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/v1/ingest/session/s1/complete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"ingest.result","chunks":2,"content_sha256":"sha256:ab"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	gw := &IndexerConfig{IngestSessionPath: "/v1/ingest/session", MaxIngestBytes: 10000}
+	c := NewGatewayClient(srv.URL, "tok", 5*time.Second)
+	pol := SessionRetryPolicy{MaxAttempts: 5, BaseDelay: time.Millisecond, MaxDelay: 5 * time.Millisecond}
+	tmp := filepath.Join(t.TempDir(), "f.txt")
+	if err := os.WriteFile(tmp, []byte("abcdefgh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.IngestChunked(context.Background(), tmp, IngestRequest{Source: "f.txt", ContentHash: "sha256:deadbeef"}, gw, pol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := chunkCalls.Load(); n < 3 {
+		t.Fatalf("expected at least one retried chunk PUT, got %d calls", n)
 	}
 }

@@ -15,7 +15,7 @@ schema: v1
 
 models:
   - name: Cℓαudια
-    model: Claudia-0.1.0
+    model: Claudia-0.2.0
     provider: openai
     apiKey: <GATEWAY_TOKEN>
     apiBase: <CLAUDIA_GATEWAY_URL>

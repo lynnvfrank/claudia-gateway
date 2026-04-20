@@ -27,14 +27,46 @@ paths:
 routing:
   filter_free_tier_models: true
   fallback_chain:
+    - "groq/llama-3.3-70b-versatile"
+    - "groq/openai/gpt-oss-120b"
+    - "groq/qwen/qwen3-32b"
+    - "groq/meta-llama/llama-4-scout-17b-16e-instruct"
+    - "groq/openai/gpt-oss-20b"
+    - "groq/openai/gpt-oss-safeguard-20b"
     - "groq/llama-3.1-8b-instant"
+    - "groq/allam-2-7b"
+    - "groq/meta-llama/llama-prompt-guard-2-22m"
+    - "groq/meta-llama/llama-prompt-guard-2-86m"
+    - "gemini/gemini-2.5-flash"
+    - "gemini/gemini-2.5-flash-native-audio-preview-12-2025"
+    - "gemini/gemini-2.5-flash-preview-tts"
     - "gemini/gemini-3-flash-preview"
+    - "gemini/gemini-3.1-flash-live-preview"
+    - "groq/canopylabs/orpheus-arabic-saudi"
+    - "groq/canopylabs/orpheus-v1-english"
+    - "groq/groq/compound"
+    - "groq/whisper-large-v3"
+    - "groq/whisper-large-v3-turbo"
+    - "gemini/gemini-2.5-flash-lite"
+    - "gemini/gemini-3.1-flash-lite-preview"
+    - "gemini/gemini-embedding-001"
+    - "gemini/gemini-embedding-2-preview"
+    - "gemini/gemini-robotics-er-1.5-preview"
+    - "groq/groq/compound-mini"
+    - "ollama/llama3.2:3b"
+    - "ollama/qwen3.5:9b"
   # Ordered list of upstream models used for the tool-router transformer (try in order; see docs/version-v0.1.1.md).
   # Leave empty to skip router calls. When non-empty, POST /v1/chat/completions may call the first working model
   # to score tools before the main upstream completion.
   router_models: []
+    # - "ollama/llama3.2:3b"
+    # - "ollama/qwen3.5:9b"
+    # - "groq/groq/compound-mini"
+    # - "groq/groq/compound"
+    # - "gemini/gemini-3.1-flash-lite-preview"
+    # - "gemini/gemini-2.5-flash-lite"
   tool_router:
-    enabled: true
+    enabled: false
     confidence_threshold: 0.5
 
 # Gateway metrics (SQLite under ../data/gateway/ relative to this file; see docs/version-v0.1.1.md §3.6).
@@ -47,7 +79,7 @@ metrics:
 # performs Qdrant retrieval before chat; POST /v1/ingest, GET /v1/indexer/*,
 # and the /health Qdrant probe are activated. See docs/version-v0.2.md.
 rag:
-  enabled: false
+  enabled: true
   qdrant:
     url: "http://127.0.0.1:6333"
     # api_key: "..."          # optional Qdrant API key
@@ -55,8 +87,8 @@ rag:
     # base_url defaults to upstream.base_url when empty.
     # base_url: ""
     path: "/v1/embeddings"
-    model: "text-embedding-3-small"
-    dim: 1536
+    model: "ollama/nomic-embed-text:latest"
+    dim: 768
   chunking:
     size: 512
     overlap: 128
@@ -64,7 +96,9 @@ rag:
     top_k: 8
     score_threshold: 0.72
   ingest:
-    max_bytes: 10485760       # 10 MiB; files larger are rejected (v0.4 streams)
+    max_bytes: 10485760       # 10 MiB; total bytes per document (whole or chunked session)
+    # Largest body for a single POST /v1/ingest; larger files use /v1/ingest/session (default = max_bytes)
+    # max_whole_file_bytes: 2097152
   defaults:
     project_id: "default"
     flavor_id: ""

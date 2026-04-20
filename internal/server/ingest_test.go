@@ -3,13 +3,17 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +77,46 @@ func (s *inMemoryStore) DeleteBySource(_ context.Context, c, src string) error {
 	}
 	s.points[c] = keep
 	return nil
+}
+
+func (s *inMemoryStore) ScrollPoints(_ context.Context, c string, filter *vectorstore.Coords, limit int, cursor string) (vectorstore.ScrollBatch, error) {
+	if limit <= 0 {
+		limit = 256
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var rows []vectorstore.PointPayload
+	for _, p := range s.points[c] {
+		if filter != nil {
+			if filter.TenantID != "" && p.Payload.TenantID != filter.TenantID {
+				continue
+			}
+			if filter.ProjectID != "" && p.Payload.ProjectID != filter.ProjectID {
+				continue
+			}
+			if filter.FlavorID != "" && p.Payload.FlavorID != filter.FlavorID {
+				continue
+			}
+		}
+		rows = append(rows, vectorstore.PointPayload{ID: p.ID, Payload: p.Payload})
+	}
+	start := 0
+	if cursor != "" {
+		_, _ = fmt.Sscanf(cursor, "%d", &start)
+	}
+	if start >= len(rows) {
+		return vectorstore.ScrollBatch{}, nil
+	}
+	end := start + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	slice := rows[start:end]
+	next := ""
+	if end < len(rows) {
+		next = strconv.Itoa(end)
+	}
+	return vectorstore.ScrollBatch{Points: slice, NextCursor: next}, nil
 }
 
 // stubEmbedder yields deterministic dim-sized vectors.
@@ -234,8 +278,14 @@ func TestIngest_Multipart(t *testing.T) {
 	if doc["source"] != "src/main.go" {
 		t.Fatalf("source should be the explicit form field 'src/main.go', got: %+v", doc)
 	}
-	if doc["content_hash"] != "sha256:client-supplied" {
-		t.Fatalf("content_hash should be client-supplied: %+v", doc)
+	text := strings.Repeat("hello ", 100)
+	sum := sha256.Sum256([]byte(text))
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	if doc["content_hash"] != want || doc["content_sha256"] != want {
+		t.Fatalf("expected server sha for file bytes: content_hash=%v content_sha256=%v want %q", doc["content_hash"], doc["content_sha256"], want)
+	}
+	if doc["client_content_hash"] != "sha256:client-supplied" {
+		t.Fatalf("client_content_hash: %+v", doc["client_content_hash"])
 	}
 	coll, _ := doc["collection"].(string)
 	if len(store.points[coll]) == 0 {
@@ -315,5 +365,80 @@ func TestIngest_BadBody(t *testing.T) {
 				t.Fatalf("got %d want %d", res.StatusCode, tc.want)
 			}
 		})
+	}
+}
+
+func TestIngest_ChunkedSession(t *testing.T) {
+	_, _, srv := setupRAGServer(t)
+	payload := strings.Repeat("chunkline\n", 500)
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/ingest/session", strings.NewReader(`{"source":"docs/chunked.txt"}`))
+	req.Header.Set("Authorization", "Bearer ingest-tok")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("start status %d: %s", res.StatusCode, b)
+	}
+	var start struct {
+		SessionID     string  `json:"session_id"`
+		MaxChunkBytes float64 `json:"max_chunk_bytes"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if start.SessionID == "" || start.MaxChunkBytes <= 0 {
+		t.Fatalf("bad start: %+v", start)
+	}
+	maxChunk := int64(start.MaxChunkBytes)
+	sid := start.SessionID
+
+	off := 0
+	for idx := 0; off < len(payload); idx++ {
+		end := off + int(maxChunk)
+		if end > len(payload) {
+			end = len(payload)
+		}
+		chunk := payload[off:end]
+		preq, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/ingest/session/"+sid+"/chunk", strings.NewReader(chunk))
+		preq.Header.Set("Authorization", "Bearer ingest-tok")
+		preq.Header.Set("X-Claudia-Chunk-Index", strconv.Itoa(idx))
+		preq.ContentLength = int64(len(chunk))
+		pres, err := http.DefaultClient.Do(preq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(pres.Body)
+		pres.Body.Close()
+		if pres.StatusCode != http.StatusOK {
+			t.Fatalf("chunk %d status %d: %s", idx, pres.StatusCode, b)
+		}
+		off = end
+	}
+
+	creq, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/ingest/session/"+sid+"/complete", strings.NewReader("{}"))
+	creq.Header.Set("Authorization", "Bearer ingest-tok")
+	creq.Header.Set("Content-Type", "application/json")
+	cres, err := http.DefaultClient.Do(creq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cres.Body.Close()
+	if cres.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(cres.Body)
+		t.Fatalf("complete status %d: %s", cres.StatusCode, b)
+	}
+	var doc map[string]any
+	if err := json.NewDecoder(cres.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(payload))
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	if doc["content_sha256"] != want || doc["content_hash"] != want {
+		t.Fatalf("hashes: %+v want %s", doc, want)
 	}
 }

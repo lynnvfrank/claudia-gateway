@@ -1,4 +1,4 @@
-# claudia-index v0.2 example config.
+# claudia-index v0.4 example config (v0.2–v0.3 fields unchanged; v0.4 adds chunked ingest + sync state).
 # Copy to .claudia/indexer.config.yaml at the workspace root and edit.
 # Sensitive values stay in the environment:
 #   CLAUDIA_GATEWAY_URL   (or set gateway_url below)
@@ -11,6 +11,21 @@ gateway_url: "http://127.0.0.1:3000"
 roots:
   - "."
 
+# v0.3 — optional corpus scope (sent as X-Claudia-Project / X-Claudia-Flavor-Id).
+# Use the same values as Continue chat (config.yaml) so RAG hits the same collection.
+# defaults:
+#   project_id: "my-app"
+#   flavor_id: "default"
+# roots:
+#   - path: "./apps/web"
+#     project_id: "web"
+#   - path: "./legacy"
+#     flavor_id: "legacy-corpus"
+# overrides:
+#   - glob: "**/*.md"
+#     flavor_id: "docs"
+# workspace_id: alias for project when project_id is omitted (maps to X-Claudia-Project).
+
 # Extra ignore patterns (in addition to defaults + .claudiaignore + .gitignore).
 ignore_extra:
   - "tmp/"
@@ -21,6 +36,9 @@ retry_max_attempts: 5
 retry_base_delay_ms: 500
 retry_max_delay_ms: 30000
 recovery_poll_interval_ms: 30000
+# Also require GET /health (gateway readiness) before resuming after a pause.
+# Set false to only poll GET /v1/indexer/storage/health.
+# recovery_include_root_health: false
 
 # Operational tunables (defaults shown).
 debounce_ms: 750
@@ -28,3 +46,7 @@ workers: 4
 queue_depth: 1024
 max_file_bytes: 8388608
 request_timeout_ms: 60000
+
+# v0.4 — optional (defaults: sync state under .claudia/; whole-file limit from gateway only).
+# sync_state_path: ".claudia/indexer.sync-state.json"
+# max_whole_file_bytes: 2097152  # force chunked session when file is larger than this (must be < gateway max_ingest_bytes)

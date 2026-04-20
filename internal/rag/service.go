@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -97,10 +98,12 @@ type IngestRequest struct {
 
 // IngestResult summarizes what was written.
 type IngestResult struct {
-	Collection  string
-	Source      string
-	Chunks      int
-	ContentHash string // either client-supplied or server-computed
+	Collection        string
+	Source            string
+	Chunks            int
+	ContentHash       string // canonical server-side digest (same as ContentSHA256)
+	ContentSHA256     string // SHA-256 over UTF-8 bytes of ingested text (authoritative for v0.4+)
+	ClientContentHash string // optional echo of client-supplied hash (diagnostics only)
 }
 
 // Ingest chunks → embeds → upserts the document. It ensures the collection
@@ -151,6 +154,10 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 		s.log.Debug("delete-by-source pre-ingest failed (likely empty collection)", "source", res.Source, "err", err)
 	}
 
+	sum := sha256.Sum256([]byte(req.Text))
+	serverHash := "sha256:" + hex.EncodeToString(sum[:])
+	clientHash := strings.TrimSpace(req.ContentHash)
+
 	now := time.Now().Unix()
 	pts := make([]vectorstore.Point, 0, len(chunks))
 	for i, c := range chunks {
@@ -158,12 +165,14 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 			ID:     vectorstore.PointID(req.Coords, res.Source, i),
 			Vector: vectors[i],
 			Payload: vectorstore.Payload{
-				TenantID:  req.Coords.TenantID,
-				ProjectID: req.Coords.ProjectID,
-				FlavorID:  req.Coords.FlavorID,
-				Text:      c.Text,
-				Source:    res.Source,
-				CreatedAt: now,
+				TenantID:          req.Coords.TenantID,
+				ProjectID:         req.Coords.ProjectID,
+				FlavorID:          req.Coords.FlavorID,
+				Text:              c.Text,
+				Source:            res.Source,
+				CreatedAt:         now,
+				ContentSHA256:     serverHash,
+				ClientContentHash: clientHash,
 			},
 		})
 	}
@@ -171,11 +180,9 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 		return res, fmt.Errorf("upsert: %w", err)
 	}
 	res.Chunks = len(chunks)
-	res.ContentHash = strings.TrimSpace(req.ContentHash)
-	if res.ContentHash == "" {
-		sum := sha256.Sum256([]byte(req.Text))
-		res.ContentHash = "sha256:" + hex.EncodeToString(sum[:])
-	}
+	res.ClientContentHash = clientHash
+	res.ContentSHA256 = serverHash
+	res.ContentHash = serverHash
 	if s.log != nil {
 		s.log.Log(ctx, platform.LevelTrace, "rag ingest",
 			"tenant", req.Coords.TenantID,
@@ -296,6 +303,43 @@ func (s *Service) StoreHealth(ctx context.Context) error { return s.store.Health
 func (s *Service) StoreStats(ctx context.Context, c vectorstore.Coords) (vectorstore.Stats, error) {
 	collection := vectorstore.CollectionName(c)
 	return s.store.Stats(ctx, collection)
+}
+
+// CorpusInventoryEntry is one deduplicated source row for GET /v1/indexer/corpus/inventory.
+type CorpusInventoryEntry struct {
+	Source            string `json:"source"`
+	ContentSHA256     string `json:"content_sha256"`
+	ClientContentHash string `json:"client_content_hash,omitempty"`
+}
+
+// CorpusInventory returns unique sources from one scroll page of the corpus
+// (deduped within the page). nextCursor is empty when the store reports no more
+// points.
+func (s *Service) CorpusInventory(ctx context.Context, c vectorstore.Coords, limit int, cursor string) ([]CorpusInventoryEntry, string, error) {
+	collection := vectorstore.CollectionName(c)
+	batch, err := s.store.ScrollPoints(ctx, collection, &c, limit, cursor)
+	if err != nil {
+		return nil, "", err
+	}
+	seen := map[string]struct{}{}
+	out := make([]CorpusInventoryEntry, 0, len(batch.Points))
+	for _, p := range batch.Points {
+		src := strings.TrimSpace(p.Payload.Source)
+		if src == "" {
+			continue
+		}
+		if _, ok := seen[src]; ok {
+			continue
+		}
+		seen[src] = struct{}{}
+		out = append(out, CorpusInventoryEntry{
+			Source:            src,
+			ContentSHA256:     strings.TrimSpace(p.Payload.ContentSHA256),
+			ClientContentHash: strings.TrimSpace(p.Payload.ClientContentHash),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
+	return out, batch.NextCursor, nil
 }
 
 // EmbeddingModel returns the configured embedding model id.

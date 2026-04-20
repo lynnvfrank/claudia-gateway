@@ -1,4 +1,4 @@
-// claudia-index is the v0.2 workspace file indexer for the Claudia Gateway.
+// claudia-index is the v0.4 workspace file indexer for the Claudia Gateway.
 //
 // It walks configured roots, applies .claudiaignore + .gitignore + binary
 // detection, hashes whole files, and POSTs them to /v1/ingest. Watching uses
@@ -63,7 +63,7 @@ func run() error {
 		oneShot     bool
 		showVersion bool
 	)
-	flag.StringVar(&cfgPath, "config", "", "path to indexer YAML config")
+	flag.StringVar(&cfgPath, "config", "", "optional indexer YAML merged after ~/.claudia/indexer.config.yaml and ./.claudia/indexer.config.yaml")
 	flag.StringVar(&gatewayURL, "gateway-url", "", "override gateway URL (env "+indexer.EnvGatewayURL+")")
 	flag.Var(&roots, "root", "watch root (repeatable; overrides config 'roots')")
 	flag.BoolVar(&oneShot, "one-shot", false, "perform a single scan + ingest pass and exit")
@@ -71,11 +71,15 @@ func run() error {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("claudia-index v0.2.0")
+		fmt.Println("claudia-index v0.4.0")
 		return nil
 	}
 
-	fc, err := indexer.LoadFile(cfgPath)
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getwd: %w", err)
+	}
+	fc, err := indexer.LoadLayeredConfig(wd, cfgPath)
 	if err != nil {
 		return err
 	}

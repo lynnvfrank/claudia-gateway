@@ -2,6 +2,8 @@ package indexer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -18,9 +20,11 @@ import (
 )
 
 type ingestRecord struct {
-	Source string
-	Hash   string
-	Body   string
+	Source  string
+	Hash    string
+	Body    string
+	Project string
+	Flavor  string
 }
 
 // fakeGateway implements the v0.2 indexer-facing surface the indexer relies
@@ -39,7 +43,7 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/indexer/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"gateway_version":"v0.2","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1048576}`))
+		_, _ = w.Write([]byte(`{"gateway_version":"v0.4","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1048576,"max_whole_file_bytes":1048576,"ingest_session_path":"/v1/ingest/session"}`))
 	})
 	mux.HandleFunc("/v1/indexer/storage/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -49,6 +53,19 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		}
 		_, _ = w.Write([]byte(`{"ok":false,"status":"down"}`))
 	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !g.healthOK.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"degraded":true,"status":"degraded"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/v1/indexer/corpus/inventory", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"indexer.corpus.inventory","entries":[],"has_more":false,"next_cursor":""}`))
+	})
 	mux.HandleFunc("/v1/ingest", func(w http.ResponseWriter, r *http.Request) {
 		mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || !strings.HasPrefix(mt, "multipart/") {
@@ -56,7 +73,10 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 			return
 		}
 		mr := multipart.NewReader(r.Body, params["boundary"])
-		rec := ingestRecord{}
+		rec := ingestRecord{
+			Project: r.Header.Get("X-Claudia-Project"),
+			Flavor:  r.Header.Get("X-Claudia-Flavor-Id"),
+		}
 		for {
 			p, err := mr.NextPart()
 			if err == io.EOF {
@@ -85,8 +105,10 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		}
 		g.ingest = append(g.ingest, rec)
 		g.mu.Unlock()
+		sum := sha256.Sum256([]byte(rec.Body))
+		sha := "sha256:" + hex.EncodeToString(sum[:])
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"object":"ingest.result","tenant_id":"t","project_id":"default","flavor_id":"_","source":"` + rec.Source + `","content_hash":"` + rec.Hash + `","chunks":1,"collection":"c"}`))
+		_, _ = w.Write([]byte(`{"object":"ingest.result","tenant_id":"t","project_id":"default","flavor_id":"_","source":"` + rec.Source + `","content_hash":"` + sha + `","content_sha256":"` + sha + `","chunks":1,"collection":"c"}`))
 	})
 	g.srv = httptest.NewServer(mux)
 	t.Cleanup(g.srv.Close)
@@ -115,6 +137,7 @@ func TestIndexer_OneShotIngestsScannedFiles(t *testing.T) {
 		GatewayURL:           g.srv.URL,
 		Token:                "tok",
 		Roots:                []Root{{ID: "r", AbsPath: root}},
+		SyncStatePath:        filepath.Join(root, "sync.json"),
 		RetryMaxAttempts:     3,
 		RetryBaseDelay:       1 * time.Millisecond,
 		RetryMaxDelay:        2 * time.Millisecond,
@@ -175,6 +198,7 @@ func TestIndexer_RetriesTransientFailures(t *testing.T) {
 	cfg := Resolved{
 		GatewayURL: g.srv.URL, Token: "tok",
 		Roots:                []Root{{ID: "r", AbsPath: root}},
+		SyncStatePath:        filepath.Join(root, "sync.json"),
 		RetryMaxAttempts:     5,
 		RetryBaseDelay:       1 * time.Millisecond,
 		RetryMaxDelay:        2 * time.Millisecond,
@@ -214,6 +238,7 @@ func TestIndexer_PausesAndResumesOnHealth(t *testing.T) {
 	cfg := Resolved{
 		GatewayURL: g.srv.URL, Token: "tok",
 		Roots:                []Root{{ID: "r", AbsPath: root}},
+		SyncStatePath:        filepath.Join(root, "sync.json"),
 		RetryMaxAttempts:     2,
 		RetryBaseDelay:       1 * time.Millisecond,
 		RetryMaxDelay:        2 * time.Millisecond,
@@ -221,6 +246,7 @@ func TestIndexer_PausesAndResumesOnHealth(t *testing.T) {
 		Workers:              1, QueueDepth: 4, MaxFileBytes: 1 << 20,
 		RequestTimeout:       2 * time.Second,
 		BinaryNullByteSample: 1024, BinaryNullByteRatio: 0.001,
+		RecoveryIncludeRootHealth: true,
 	}
 	ix := New(cfg, NewGatewayClient(cfg.GatewayURL, cfg.Token, cfg.RequestTimeout), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -256,4 +282,61 @@ func TestPackageImportable(t *testing.T) {
 	_ = os.Getenv
 	_ = NewGatewayClient
 	_ = New
+}
+
+func TestIndexer_IngestSendsScopedHeaders(t *testing.T) {
+	g := newFakeGateway(t)
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "src", "main.go"), "package main\n")
+	mustWrite(t, filepath.Join(root, "docs", "readme.md"), "# hi\n")
+
+	cfg := Resolved{
+		GatewayURL:           g.srv.URL,
+		Token:                "tok",
+		Roots:                []Root{{ID: "r", AbsPath: root, Scope: ScopeFragment{ProjectID: "svc", FlavorID: "base"}}},
+		SyncStatePath:        filepath.Join(root, "sync.json"),
+		DefaultScope:         ScopeFragment{ProjectID: "ignored", FlavorID: "ignored"},
+		GlobOverrides:        []GlobOverride{{Pattern: "**/*.md", Scope: ScopeFragment{FlavorID: "docs"}}},
+		RetryMaxAttempts:     3,
+		RetryBaseDelay:       1 * time.Millisecond,
+		RetryMaxDelay:        2 * time.Millisecond,
+		RecoveryPollInterval: 5 * time.Millisecond,
+		Workers:              2,
+		QueueDepth:           16,
+		MaxFileBytes:         1 << 20,
+		RequestTimeout:       2 * time.Second,
+		BinaryNullByteSample: 1024,
+		BinaryNullByteRatio:  0.001,
+	}
+	ix := New(cfg, NewGatewayClient(cfg.GatewayURL, cfg.Token, cfg.RequestTimeout), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := ix.EnqueueInitialScan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		ix.RunWorkers(ctx)
+		close(done)
+	}()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		if ix.Queue().Len() == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ix.Queue().Close()
+	<-done
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, rec := range g.ingest {
+		wantFlavor := "base"
+		if strings.HasSuffix(rec.Source, ".md") {
+			wantFlavor = "docs"
+		}
+		if rec.Project != "svc" || rec.Flavor != wantFlavor {
+			t.Fatalf("ingest %q: project=%q flavor=%q want project=svc flavor=%s", rec.Source, rec.Project, rec.Flavor, wantFlavor)
+		}
+	}
 }

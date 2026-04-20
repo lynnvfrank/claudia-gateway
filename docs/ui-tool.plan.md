@@ -145,27 +145,29 @@ Optional **Refresh** control to re-fetch state from BiFrost without full page re
 
 ## Implementation checklist (v0.1)
 
+**Status (repo as of this edit):** Gateway-served operator UI, session auth, BiFrost BFF, and embedded panel (**`internal/server/embedui/`**, wired from **`internal/server/ui_handlers.go`**) are **in place**. Desktop shell uses **`github.com/webview/webview_go`** behind **`-tags desktop`** (see **`cmd/claudia/webview_desktop.go`**, **`cmd/claudia/serve.go`**). **Still open** vs this plan: **bundled wrapper “gateway unreachable” HTML** (no static failure page in the webview layer yet). **Process model nuance:** shipping uses a **separate artifact name** **`claudia-desktop`** (`make desktop-build`) for the CGO/webview build; default **`./claudia`** stays gateway-only without desktop tags.
+
 **Gateway**
 
-- [ ] `config_store` in [`config/bifrost.config.json`](../config/bifrost.config.json) + docs update.
-- [ ] Admin session: login endpoint + cookie + auth middleware for `/ui` and `/api/ui`.
-- [ ] BFF: read/write Groq, Gemini, Ollama via BiFrost management API (pinned OpenAPI).
-- [ ] Serve **default** operator HTML/JS (embed or `html/template` / static files under e.g. `internal/server/ui/`).
-- [ ] Control panel: per-row save + inline errors + masked display.
-- [ ] Continue configuration snippet block.
+- [x] **`config_store`** in [`config/bifrost.config.json`](../config/bifrost.config.json) (enabled, SQLite) — aligns with admin persistence; cross-link remains in [`cli-tool-plan.md`](cli-tool-plan.md) / [`supervisor.md`](supervisor.md) as needed.
+- [x] **Admin session:** **`POST /api/ui/login`**, **`POST /api/ui/logout`**, httpOnly cookie, **`requireAuth`** for **`/ui/*`** pages and **`/api/ui/*`** JSON (plus optional **`CLAUDIA_GATEWAY_TOKEN`** env skip on login).
+- [x] **BFF:** read/write **Groq**, **Gemini**, **Ollama** via **`internal/bifrostadmin`** and routes under **`/api/ui/provider/...`** (and related UI state).
+- [x] **Serve operator UI:** embedded **`embedui/*.html`** (login, panel, logs, metrics, shell, setup) registered on **`/ui/...`**.
+- [x] **Control panel:** per-provider rows with **inline errors**, masked/fingerprint display, **Refresh**; additional sections (**gateway tokens**, **routing / tool-router**) beyond the minimal v0.1 row model.
+- [x] **VS Code Continue** snippet block on the panel (gateway URL, token guidance, virtual model id).
 
 **Desktop shell + launcher**
 
-- [ ] **Single `claudia` binary:** **desktop mode** starts supervisor + gateway and opens **webview** with default base URL `http://127.0.0.1:3000` (or resolved listen address).
-- [ ] **Headless mode** (e.g. `serve` / `--headless` / build tag) shares the same process model without linking or starting the webview.
-- [ ] **Unified shutdown:** **SIGINT** / **SIGTERM** and **window close** call the **same** teardown path (HTTP shutdown, then supervised children stopped).
-- [ ] On load failure → bundled **static failure** page; retry / quit.
-- [ ] On success → load gateway `/ui/...` entry.
+- [x] **Desktop mode:** **`claudia desktop`** (or desktop-tagged **`claudia`** with no subcommand) runs **supervisor + gateway** and opens the **webview** to **`/ui/login?next=/ui/desktop`** (or **`/ui/setup`** in bootstrap), using the **resolved listen URL** (not hard-coded when bound to a concrete address).
+- [x] **Headless / no webview:** **`claudia serve`**, leading **`--headless`**, or a build **without** the **`desktop`** tag — no webview linked or opened.
+- [x] **Unified shutdown:** **`signal.NotifyContext`** cancels the root context; webview **`Terminate`** runs when the context ends; **`w.Run()`** return invokes **`stopRoot`**; HTTP **Shutdown** then **supervisor child cancel** in **`runServe`**.
+- [ ] On **initial navigation / gateway unreachable** → bundled **static failure** page with retry/quit (not implemented in **`webview_desktop.go`** today — webview navigates straight to the entry URL).
+- [x] On success → gateway **`/ui/...`** entry (**`/ui/desktop`** tabbed shell after login).
 
 **Repo hygiene**
 
-- [ ] **Remove Fyne [`gui/`](../gui/)** and repurpose existing targets: **`make gui-install`**, **`make gui-build`**, **`make gui-run`** align with the **webview + `claudia`** layout (artifact names documented after cutover).
-- [ ] README: **bundled desktop release** (launcher + companion binaries + config + data dirs) vs **headless** `claudia serve` for servers and installers.
+- [x] **Fyne `gui/` removed**; **Makefile** / scripts use **`desktop-install`**, **`desktop-build`**, **`desktop-run`**, **`vet-desktop`**, **`test-desktop`** (no **`gui-*`** targets).
+- [x] **README** documents **desktop (webview)** vs **`claudia serve` / headless** installs and **`make claudia-install`** vs **`make install`**.
 
 ---
 
@@ -176,4 +178,4 @@ Optional **Refresh** control to re-fetch state from BiFrost without full page re
 
 ---
 
-*Plan status: **draft for implementation** — v0.1 webview + gateway admin UI, single desktop launcher with headless variant and unified shutdown; v0.8 for persistence, PWA, and extended features.*
+*Plan status: **v0.1 gateway UI + desktop shell largely implemented** — remaining gap called out above: **webview bundled failure page**. v0.8 for saved base URL in wrapper, PWA, and other deferred items.*

@@ -3,6 +3,7 @@ package qdrant
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +58,47 @@ func (f *fakeQdrant) handler() http.Handler {
 			_ = json.NewEncoder(w).Encode(map[string]any{"result": out})
 		case strings.HasSuffix(rest, "/points/delete") && r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"status": "completed"}})
+		case strings.HasSuffix(rest, "/points/scroll") && r.Method == http.MethodPost:
+			coll := strings.TrimSuffix(rest, "/points/scroll")
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			limit := 100
+			if v, ok := body["limit"].(float64); ok && int(v) > 0 {
+				limit = int(v)
+			}
+			off := 0
+			if v, ok := body["offset"]; ok && v != nil {
+				switch t := v.(type) {
+				case float64:
+					off = int(t)
+				}
+			}
+			pts := f.points[coll]
+			end := off + limit
+			if end > len(pts) {
+				end = len(pts)
+			}
+			var chunk []map[string]any
+			if off < len(pts) {
+				chunk = pts[off:end]
+			}
+			var next any
+			if end < len(pts) {
+				next = end
+			}
+			outPts := make([]map[string]any, 0, len(chunk))
+			for _, p := range chunk {
+				id := p["__id"]
+				cp := map[string]any{}
+				for k, v := range p {
+					if k == "__id" || k == "__vector" {
+						continue
+					}
+					cp[k] = v
+				}
+				outPts = append(outPts, map[string]any{"id": id, "payload": cp})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"points": outPts, "next_page_offset": next}})
 		case strings.HasSuffix(rest, "/points") && r.Method == http.MethodPut:
 			coll := strings.TrimSuffix(rest, "/points")
 			var body struct {
@@ -147,6 +189,46 @@ func TestClient_EnsureUpsertSearch(t *testing.T) {
 	}
 	if st.VectorDim != 4 || st.Points != 2 {
 		t.Fatalf("stats: %+v", st)
+	}
+}
+
+func TestClient_ScrollPoints_Paginates(t *testing.T) {
+	f := newFake()
+	srv := httptest.NewServer(f.handler())
+	defer srv.Close()
+	c := New(srv.URL, "")
+	ctx := context.Background()
+	coll := "claudia-t-p-_-abcd1234"
+	if err := c.EnsureCollection(ctx, coll, 4); err != nil {
+		t.Fatal(err)
+	}
+	var pts []vectorstore.Point
+	for i := 0; i < 5; i++ {
+		pts = append(pts, vectorstore.Point{
+			ID:     fmt.Sprintf("00000000-0000-0000-0000-%012d", i),
+			Vector: []float32{1, 0, 0, 0},
+			Payload: vectorstore.Payload{
+				TenantID: "t", ProjectID: "p", Text: "x", Source: fmt.Sprintf("f%d.txt", i),
+				ContentSHA256: fmt.Sprintf("sha256:%d", i),
+			},
+		})
+	}
+	if err := c.Upsert(ctx, coll, pts); err != nil {
+		t.Fatal(err)
+	}
+	b1, err := c.ScrollPoints(ctx, coll, &vectorstore.Coords{TenantID: "t", ProjectID: "p"}, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b1.Points) != 2 || b1.NextCursor == "" {
+		t.Fatalf("batch1: %+v", b1)
+	}
+	b2, err := c.ScrollPoints(ctx, coll, &vectorstore.Coords{TenantID: "t", ProjectID: "p"}, 2, b1.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b2.Points) != 2 {
+		t.Fatalf("batch2: %+v", b2)
 	}
 }
 

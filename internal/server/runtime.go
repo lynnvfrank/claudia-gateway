@@ -39,6 +39,9 @@ type Runtime struct {
 	// rag is the resolved retrieval-augmented-generation service when
 	// res.RAG.Enabled is true. nil when RAG is disabled or init failed.
 	rag *rag.Service
+
+	// ingestSessions buffers v0.4 chunked uploads until complete.
+	ingestSessions *ingestSessionStore
 }
 
 func NewRuntime(gatewayPath string, log *slog.Logger) (*Runtime, error) {
@@ -67,6 +70,7 @@ func NewRuntimeWithUpstreamOverride(gatewayPath string, log *slog.Logger, upstre
 		resolved:         res,
 		tokens:           tokens.NewStore(res.TokensPath, log),
 		routing:          routing.NewPolicy(res.RoutingPolicyPath, log),
+		ingestSessions:   newIngestSessionStore(),
 	}
 	if res.MetricsEnabled {
 		if s, err := gatewaymetrics.Open(res.MetricsSQLitePath, res.MetricsMigrationsDir, log); err != nil {

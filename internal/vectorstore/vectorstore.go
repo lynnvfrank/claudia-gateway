@@ -39,6 +39,23 @@ type Payload struct {
 	Text      string `json:"text"`
 	Source    string `json:"source"`
 	CreatedAt int64  `json:"created_at,omitempty"`
+	// ContentSHA256 is the server digest over UTF-8 ingested document bytes
+	// (same as ingest response content_sha256).
+	ContentSHA256 string `json:"content_sha256,omitempty"`
+	// ClientContentHash is the optional indexer-supplied digest echoed at ingest.
+	ClientContentHash string `json:"client_content_hash,omitempty"`
+}
+
+// PointPayload is a scroll/search row without an embedded vector.
+type PointPayload struct {
+	ID      string
+	Payload Payload
+}
+
+// ScrollBatch is one page from ScrollPoints (Qdrant scroll).
+type ScrollBatch struct {
+	Points     []PointPayload
+	NextCursor string // empty when no further pages
 }
 
 // Hit is a single retrieval result.
@@ -63,6 +80,10 @@ type Store interface {
 	Health(ctx context.Context) error
 	Stats(ctx context.Context, collection string) (Stats, error)
 	DeleteBySource(ctx context.Context, collection, source string) error
+	// ScrollPoints lists points in collection order for corpus inventory. filter
+	// scopes to tenant/project/flavor when non-nil. cursor is empty on the first
+	// page; subsequent calls pass ScrollBatch.NextCursor from the prior page.
+	ScrollPoints(ctx context.Context, collection string, filter *Coords, limit int, cursor string) (ScrollBatch, error)
 }
 
 // CollectionName derives a deterministic collection name from coords.

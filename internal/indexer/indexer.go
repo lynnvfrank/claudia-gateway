@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -27,7 +28,12 @@ type Indexer struct {
 	queue    *Queue
 	matchers map[string]*Matcher
 
-	hooks Hooks
+	hooks     Hooks
+	syncState *SyncState
+	lastGW    atomic.Pointer[IndexerConfig]
+	// remoteInv is populated from GET /v1/indexer/corpus/inventory during the
+	// initial scan (nil when unavailable). Keys are root-relative source paths.
+	remoteInv map[string]CorpusInventoryRow
 }
 
 // Hooks is an optional set of callbacks tests can install to observe and
@@ -49,12 +55,19 @@ func New(cfg Resolved, client *GatewayClient, log *slog.Logger) *Indexer {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	}
+	st, err := OpenSyncState(cfg.SyncStatePath)
+	if err != nil {
+		log.Warn("could not open sync state; continuing without skip cache",
+			"path", cfg.SyncStatePath, "err", err)
+		st = nil
+	}
 	return &Indexer{
-		cfg:      cfg,
-		client:   client,
-		log:      log,
-		queue:    NewQueue(cfg.QueueDepth),
-		matchers: map[string]*Matcher{},
+		cfg:       cfg,
+		client:    client,
+		log:       log,
+		queue:     NewQueue(cfg.QueueDepth),
+		matchers:  map[string]*Matcher{},
+		syncState: st,
 	}
 }
 
@@ -69,7 +82,7 @@ func (ix *Indexer) Queue() *Queue { return ix.queue }
 // the gateway having RAG turned off is surfaced as a fatal error so operators
 // see the actionable message instead of watching workers retry forever.
 func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error) {
-	cfg, err := ix.client.FetchConfig(ctx)
+	cfg, err := ix.client.FetchConfig(ctx, ix.cfg.DefaultIndexerHeaders())
 	if err != nil {
 		var he *HTTPError
 		if errors.As(err, &he) && he.Status == 503 && strings.Contains(strings.ToLower(he.Body), "rag is not enabled") {
@@ -81,6 +94,7 @@ func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error
 		ix.log.Warn("fetch indexer config failed", "err", err)
 		return nil, err
 	}
+	ix.lastGW.Store(cfg)
 	ix.log.Info("gateway indexer config",
 		"gateway_version", cfg.GatewayVersion,
 		"embedding_model", cfg.EmbeddingModel,
@@ -88,13 +102,21 @@ func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error
 		"chunk_size", cfg.ChunkSize,
 		"chunk_overlap", cfg.ChunkOverlap,
 		"max_ingest_bytes", cfg.MaxIngestBytes,
+		"max_whole_file_bytes", cfg.MaxWholeFileBytes,
+		"ingest_session_path", cfg.IngestSessionPath,
+		"corpus_inventory_path", cfg.CorpusInventoryPath,
 	)
 	return cfg, nil
 }
 
 // EnqueueInitialScan walks every configured root and pushes a Job for every
 // candidate file. Matchers are cached per root for reuse during fs events.
-func (ix *Indexer) EnqueueInitialScan(_ context.Context) (int, error) {
+// When gateway config was loaded, it first pulls corpus inventory for
+// reconciliation hints (best-effort).
+func (ix *Indexer) EnqueueInitialScan(ctx context.Context) (int, error) {
+	if err := ix.loadRemoteCorpusInventory(ctx); err != nil {
+		ix.log.Warn("corpus inventory fetch skipped", "err", err)
+	}
 	total := 0
 	for _, r := range ix.cfg.Roots {
 		m, err := NewMatcher(r.AbsPath, ix.cfg.IgnoreExtra)
@@ -126,6 +148,27 @@ func (ix *Indexer) EnqueueInitialScan(_ context.Context) (int, error) {
 	}
 	ix.log.Info("initial scan complete", "candidates", total)
 	return total, nil
+}
+
+func (ix *Indexer) loadRemoteCorpusInventory(ctx context.Context) error {
+	gw := ix.lastGW.Load()
+	if gw == nil {
+		return nil
+	}
+	p := strings.TrimSpace(gw.CorpusInventoryPath)
+	if p == "" {
+		p = "/v1/indexer/corpus/inventory"
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	m, err := ix.client.FetchCorpusInventoryAll(ctx, p, ix.cfg.DefaultIndexerHeaders())
+	if err != nil {
+		return err
+	}
+	ix.remoteInv = m
+	ix.log.Info("loaded remote corpus inventory", "sources", len(m))
+	return nil
 }
 
 // RunWorkers spawns cfg.Workers goroutines that drain the queue. It returns
@@ -188,33 +231,129 @@ func (ix *Indexer) processJob(ctx context.Context, j Job, rng *rand.Rand) error 
 }
 
 func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
+	st, err := os.Stat(j.AbsPath)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", j.RelPath, err)
+	}
+	if ix.cfg.MaxFileBytes > 0 && st.Size() > ix.cfg.MaxFileBytes {
+		return fmt.Errorf("file exceeds max_file_bytes: %s", j.RelPath)
+	}
 	hash, _, err := HashFile(j.AbsPath)
 	if err != nil {
 		return fmt.Errorf("hash %s: %w", j.RelPath, err)
 	}
-	f, err := os.Open(j.AbsPath)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", j.RelPath, err)
+	if ix.remoteInv != nil {
+		if row, ok := ix.remoteInv[j.RelPath]; ok {
+			if row.ClientContentHash != "" && row.ClientContentHash == hash {
+				ix.log.Debug("skip unchanged (corpus inventory)", "rel", j.RelPath)
+				return nil
+			}
+			if row.ClientContentHash == "" && ix.syncState != nil {
+				if ent, ok := ix.syncState.Get(j.Key()); ok && ent.ServerSHA == row.ContentSHA256 && ent.ClientSHA == hash {
+					ix.log.Debug("skip unchanged (corpus inventory + sync state)", "rel", j.RelPath)
+					return nil
+				}
+			}
+		}
 	}
-	defer f.Close()
-	res, err := ix.client.Ingest(ctx, IngestRequest{
-		Source:      j.RelPath,
-		ContentHash: hash,
-		Body:        f,
-	})
+	if ix.syncState != nil {
+		if ent, ok := ix.syncState.Get(j.Key()); ok && ent.ClientSHA == hash {
+			ix.log.Debug("skip unchanged (sync state)", "rel", j.RelPath)
+			return nil
+		}
+	}
+
+	gw := ix.lastGW.Load()
+	maxIngest := int64(1<<62 - 1)
+	if gw != nil && gw.MaxIngestBytes > 0 {
+		maxIngest = gw.MaxIngestBytes
+	}
+	if st.Size() > maxIngest {
+		return fmt.Errorf("file larger than gateway max_ingest_bytes (%d): %s", maxIngest, j.RelPath)
+	}
+
+	proj, flav := ix.cfg.IngestHeaders(j.Root, j.RelPath)
+	wholeLimit := ix.effectiveWholeFileLimit(gw)
+	useChunked := gw != nil && strings.TrimSpace(gw.IngestSessionPath) != "" &&
+		wholeLimit < maxIngest && st.Size() > wholeLimit
+
+	var res *IngestResponse
+	if useChunked {
+		pol := SessionRetryPolicy{
+			MaxAttempts: ix.cfg.RetryMaxAttempts,
+			BaseDelay:   ix.cfg.RetryBaseDelay,
+			MaxDelay:    ix.cfg.RetryMaxDelay,
+		}
+		res, err = ix.client.IngestChunked(ctx, j.AbsPath, IngestRequest{
+			Source:      j.RelPath,
+			ContentHash: hash,
+			Project:     proj,
+			Flavor:      flav,
+		}, gw, pol)
+	} else {
+		var f *os.File
+		f, err = os.Open(j.AbsPath)
+		if err != nil {
+			return fmt.Errorf("open %s: %w", j.RelPath, err)
+		}
+		defer f.Close()
+		res, err = ix.client.Ingest(ctx, IngestRequest{
+			Source:      j.RelPath,
+			ContentHash: hash,
+			Project:     proj,
+			Flavor:      flav,
+			Body:        f,
+		})
+	}
 	if err != nil {
 		return err
+	}
+	serverSHA := strings.TrimSpace(res.ContentSHA256)
+	if serverSHA == "" {
+		serverSHA = strings.TrimSpace(res.ContentHash)
+	}
+	if ix.syncState != nil && serverSHA != "" {
+		if err := ix.syncState.Put(j.Key(), SyncEntry{ClientSHA: hash, ServerSHA: serverSHA}); err != nil {
+			ix.log.Warn("sync state write failed", "rel", j.RelPath, "err", err)
+		}
+	}
+	mode := "whole"
+	if useChunked {
+		mode = "chunked"
 	}
 	ix.log.Info("ingested",
 		"root", j.Root.ID,
 		"rel", j.RelPath,
+		"mode", mode,
 		"chunks", res.Chunks,
 		"collection", res.Collection,
+		"content_sha256", serverSHA,
 	)
 	if ix.hooks.AfterIngest != nil {
 		ix.hooks.AfterIngest(j, res)
 	}
 	return nil
+}
+
+func (ix *Indexer) effectiveWholeFileLimit(gw *IndexerConfig) int64 {
+	var gwWhole int64
+	if gw != nil {
+		gwWhole = gw.MaxWholeFileBytes
+		if gwWhole <= 0 {
+			gwWhole = gw.MaxIngestBytes
+		}
+	}
+	if gwWhole <= 0 {
+		gwWhole = ix.cfg.MaxFileBytes
+	}
+	out := gwWhole
+	if ix.cfg.MaxWholeFileBytes > 0 {
+		out = min(out, ix.cfg.MaxWholeFileBytes)
+	}
+	if ix.cfg.MaxFileBytes > 0 {
+		out = min(out, ix.cfg.MaxFileBytes)
+	}
+	return out
 }
 
 func (ix *Indexer) waitForRecovery(ctx context.Context) error {
@@ -226,13 +365,9 @@ func (ix *Indexer) waitForRecovery(ctx context.Context) error {
 			return ctx.Err()
 		case <-t.C:
 			h, err := ix.client.CheckHealth(ctx)
-			if err == nil && h != nil && h.OK {
-				ix.log.Info("storage health recovered; resuming")
-				return nil
-			}
+			storageOK := err == nil && h != nil && h.OK
 			if err != nil {
-				ix.log.Warn("health probe failed", "err", err)
-				continue
+				ix.log.Warn("storage health probe failed", "err", err)
 			}
 			if h != nil && h.RAGDisabled {
 				// No amount of waiting will fix this; surface a clear
@@ -242,10 +377,28 @@ func (ix *Indexer) waitForRecovery(ctx context.Context) error {
 					"hint", "set rag.enabled=true in config/gateway.yaml and restart the claudia gateway")
 				return fmt.Errorf("gateway rejects ingest: %s (%s)", h.Message, h.ErrorType)
 			}
-			if h != nil {
+			if h != nil && !storageOK && !h.RAGDisabled {
 				ix.log.Warn("storage health degraded",
 					"status", h.Status, "detail", h.Detail, "http_status", h.HTTPStatus)
 			}
+			if !storageOK {
+				continue
+			}
+			if ix.cfg.RecoveryIncludeRootHealth {
+				rh, rerr := ix.client.CheckGatewayRootHealth(ctx)
+				if rerr != nil {
+					ix.log.Warn("gateway /health probe failed", "err", rerr)
+					continue
+				}
+				if rh == nil || !rh.OK {
+					if rh != nil {
+						ix.log.Warn("gateway /health not ready", "status", rh.Status, "degraded", rh.Degraded)
+					}
+					continue
+				}
+			}
+			ix.log.Info("health recovered; resuming")
+			return nil
 		}
 	}
 }

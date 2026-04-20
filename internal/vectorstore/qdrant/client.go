@@ -8,6 +8,7 @@ package qdrant
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,7 +110,7 @@ func (c *Client) EnsureCollection(ctx context.Context, name string, dim int) err
 		return err
 	}
 	// Best-effort payload index on tenant_id / project_id for filter perf.
-	for _, field := range []string{"tenant_id", "project_id", "flavor_id", "source"} {
+	for _, field := range []string{"tenant_id", "project_id", "flavor_id", "source", "content_sha256", "client_content_hash"} {
 		_ = c.do(ctx, http.MethodPut, "/collections/"+name+"/index", map[string]any{
 			"field_name":   field,
 			"field_schema": "keyword",
@@ -137,6 +138,12 @@ func toQPayload(p vectorstore.Payload) map[string]interface{} {
 	if p.CreatedAt != 0 {
 		m["created_at"] = p.CreatedAt
 	}
+	if strings.TrimSpace(p.ContentSHA256) != "" {
+		m["content_sha256"] = p.ContentSHA256
+	}
+	if strings.TrimSpace(p.ClientContentHash) != "" {
+		m["client_content_hash"] = p.ClientContentHash
+	}
 	return m
 }
 
@@ -159,6 +166,12 @@ func fromQPayload(m map[string]any) vectorstore.Payload {
 	}
 	if v, ok := m["created_at"].(float64); ok {
 		p.CreatedAt = int64(v)
+	}
+	if v, ok := m["content_sha256"].(string); ok {
+		p.ContentSHA256 = v
+	}
+	if v, ok := m["client_content_hash"].(string); ok {
+		p.ClientContentHash = v
 	}
 	return p
 }
@@ -248,6 +261,108 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("qdrant /: status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+type scrollCursorWrap struct {
+	O json.RawMessage `json:"o"`
+}
+
+func encodeScrollCursor(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	b, err := json.Marshal(scrollCursorWrap{O: raw})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeScrollCursor(s string) (json.RawMessage, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	dec, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("corpus inventory cursor: %w", err)
+	}
+	var wrap scrollCursorWrap
+	if err := json.Unmarshal(dec, &wrap); err != nil {
+		return nil, fmt.Errorf("corpus inventory cursor: %w", err)
+	}
+	if len(wrap.O) == 0 || strings.TrimSpace(string(wrap.O)) == "null" {
+		return nil, nil
+	}
+	return wrap.O, nil
+}
+
+// ScrollPoints implements vectorstore.Store for corpus inventory pagination.
+func (c *Client) ScrollPoints(ctx context.Context, collection string, filter *vectorstore.Coords, limit int, cursor string) (vectorstore.ScrollBatch, error) {
+	if limit <= 0 {
+		limit = 256
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	body := map[string]any{
+		"limit":        limit,
+		"with_payload": true,
+		"with_vector":  false,
+	}
+	if filter != nil {
+		conds := []map[string]any{}
+		if filter.TenantID != "" {
+			conds = append(conds, kvKeyword("tenant_id", filter.TenantID))
+		}
+		if filter.ProjectID != "" {
+			conds = append(conds, kvKeyword("project_id", filter.ProjectID))
+		}
+		if filter.FlavorID != "" {
+			conds = append(conds, kvKeyword("flavor_id", filter.FlavorID))
+		}
+		if len(conds) > 0 {
+			body["filter"] = map[string]any{"must": conds}
+		}
+	}
+	off, err := decodeScrollCursor(cursor)
+	if err != nil {
+		return vectorstore.ScrollBatch{}, err
+	}
+	if len(off) > 0 && strings.TrimSpace(string(off)) != "null" {
+		var offVal any
+		if err := json.Unmarshal(off, &offVal); err != nil {
+			return vectorstore.ScrollBatch{}, fmt.Errorf("corpus inventory cursor offset: %w", err)
+		}
+		body["offset"] = offVal
+	}
+	var resp struct {
+		Result struct {
+			Points []struct {
+				ID      any                    `json:"id"`
+				Payload map[string]interface{} `json:"payload"`
+			} `json:"points"`
+			NextPageOffset json.RawMessage `json:"next_page_offset"`
+		} `json:"result"`
+	}
+	path := "/collections/" + collection + "/points/scroll"
+	if err := c.do(ctx, http.MethodPost, path, body, &resp); err != nil {
+		if strings.Contains(err.Error(), "Not found") || strings.Contains(err.Error(), "doesn't exist") || strings.Contains(err.Error(), "status 404") {
+			return vectorstore.ScrollBatch{}, nil
+		}
+		return vectorstore.ScrollBatch{}, err
+	}
+	out := make([]vectorstore.PointPayload, 0, len(resp.Result.Points))
+	for _, pt := range resp.Result.Points {
+		pl := fromQPayload(pt.Payload)
+		out = append(out, vectorstore.PointPayload{
+			ID:      fmt.Sprint(pt.ID),
+			Payload: pl,
+		})
+	}
+	next := encodeScrollCursor(resp.Result.NextPageOffset)
+	return vectorstore.ScrollBatch{Points: out, NextCursor: next}, nil
 }
 
 // Stats returns approximate point count + vector dim.

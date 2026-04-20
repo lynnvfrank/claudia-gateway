@@ -30,12 +30,13 @@ type RAG struct {
 	ChunkOverlap int
 
 	// Retrieval knobs.
-	TopK            int
-	ScoreThreshold  float64
-	MaxIngestBytes  int64
-	DefaultProject  string
-	DefaultFlavor   string
-	CollectionScope string // reserved for future scope keys (currently always "tenant_project_flavor")
+	TopK              int
+	ScoreThreshold    float64
+	MaxIngestBytes    int64
+	MaxWholeFileBytes int64 // single POST /v1/ingest body limit hint; 0 = same as MaxIngestBytes
+	DefaultProject    string
+	DefaultFlavor     string
+	CollectionScope   string // reserved for future scope keys (currently always "tenant_project_flavor")
 }
 
 const (
@@ -54,21 +55,22 @@ const (
 // returns RAG{Enabled: false}; when Enabled is true all defaults apply.
 func (d ragDoc) effective() RAG {
 	r := RAG{
-		Enabled:          d.Enabled != nil && *d.Enabled,
-		QdrantURL:        strings.TrimSpace(d.Qdrant.URL),
-		QdrantAPIKey:     strings.TrimSpace(d.Qdrant.APIKey),
-		EmbeddingBaseURL: strings.TrimSpace(d.Embedding.BaseURL),
-		EmbeddingPath:    strings.TrimSpace(d.Embedding.Path),
-		EmbeddingModel:   strings.TrimSpace(d.Embedding.Model),
-		EmbeddingDim:     d.Embedding.Dim,
-		ChunkSize:        d.Chunking.Size,
-		ChunkOverlap:     d.Chunking.Overlap,
-		TopK:             d.Retrieval.TopK,
-		ScoreThreshold:   d.Retrieval.ScoreThreshold,
-		MaxIngestBytes:   d.Ingest.MaxBytes,
-		DefaultProject:   strings.TrimSpace(d.Defaults.ProjectID),
-		DefaultFlavor:    strings.TrimSpace(d.Defaults.FlavorID),
-		CollectionScope:  "tenant_project_flavor",
+		Enabled:           d.Enabled != nil && *d.Enabled,
+		QdrantURL:         strings.TrimSpace(d.Qdrant.URL),
+		QdrantAPIKey:      strings.TrimSpace(d.Qdrant.APIKey),
+		EmbeddingBaseURL:  strings.TrimSpace(d.Embedding.BaseURL),
+		EmbeddingPath:     strings.TrimSpace(d.Embedding.Path),
+		EmbeddingModel:    strings.TrimSpace(d.Embedding.Model),
+		EmbeddingDim:      d.Embedding.Dim,
+		ChunkSize:         d.Chunking.Size,
+		ChunkOverlap:      d.Chunking.Overlap,
+		TopK:              d.Retrieval.TopK,
+		ScoreThreshold:    d.Retrieval.ScoreThreshold,
+		MaxIngestBytes:    d.Ingest.MaxBytes,
+		MaxWholeFileBytes: d.Ingest.MaxWholeFileBytes,
+		DefaultProject:    strings.TrimSpace(d.Defaults.ProjectID),
+		DefaultFlavor:     strings.TrimSpace(d.Defaults.FlavorID),
+		CollectionScope:   "tenant_project_flavor",
 	}
 	if r.QdrantURL == "" {
 		r.QdrantURL = defaultQdrantURL
@@ -103,6 +105,9 @@ func (d ragDoc) effective() RAG {
 	}
 	if r.MaxIngestBytes <= 0 {
 		r.MaxIngestBytes = defaultMaxIngestBytes
+	}
+	if r.MaxWholeFileBytes <= 0 || r.MaxWholeFileBytes > r.MaxIngestBytes {
+		r.MaxWholeFileBytes = r.MaxIngestBytes
 	}
 	return r
 }
@@ -139,6 +144,9 @@ func (r RAG) Validate() error {
 	if r.ChunkSize <= 0 || r.ChunkOverlap < 0 || r.ChunkOverlap >= r.ChunkSize {
 		return fmt.Errorf("rag.chunking: size=%d overlap=%d invalid", r.ChunkSize, r.ChunkOverlap)
 	}
+	if r.MaxWholeFileBytes > r.MaxIngestBytes {
+		return fmt.Errorf("rag.ingest.max_whole_file_bytes (%d) cannot exceed max_bytes (%d)", r.MaxWholeFileBytes, r.MaxIngestBytes)
+	}
 	return nil
 }
 
@@ -164,7 +172,8 @@ type ragDoc struct {
 		ScoreThreshold float64 `yaml:"score_threshold"`
 	} `yaml:"retrieval"`
 	Ingest struct {
-		MaxBytes int64 `yaml:"max_bytes"`
+		MaxBytes          int64 `yaml:"max_bytes"`
+		MaxWholeFileBytes int64 `yaml:"max_whole_file_bytes"`
 	} `yaml:"ingest"`
 	Defaults struct {
 		ProjectID string `yaml:"project_id"`

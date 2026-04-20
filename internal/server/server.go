@@ -252,6 +252,12 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 		}
 		handleV1Ingest(w, r, rt, log)
 	})
+	mux.HandleFunc("/v1/ingest/session/", func(w http.ResponseWriter, r *http.Request) {
+		handleV1IngestSessionTail(w, r, rt, log)
+	})
+	mux.HandleFunc("/v1/ingest/session", func(w http.ResponseWriter, r *http.Request) {
+		handleV1IngestSessionStart(w, r, rt, log)
+	})
 
 	mux.HandleFunc("/v1/indexer/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -273,6 +279,13 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 			return
 		}
 		handleIndexerStats(w, r, rt, log)
+	})
+	mux.HandleFunc("/v1/indexer/corpus/inventory", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleIndexerCorpusInventory(w, r, rt, log)
 	})
 
 	registerAdminUI(mux, rt, log, ui)
@@ -561,6 +574,17 @@ func chatTimeout(res *config.Resolved) time.Duration {
 	return time.Duration(res.ChatTimeoutMs) * time.Millisecond
 }
 
+// httpAccessLogLevel picks the slog level for access-style "http response" lines.
+// High-frequency UI polling routes are DEBUG so default INFO logs stay readable.
+func httpAccessLogLevel(path string) slog.Level {
+	switch path {
+	case "/ui/logs", "/api/ui/metrics":
+		return slog.LevelDebug
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func loggingMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -571,7 +595,7 @@ func loggingMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 			if st == 0 {
 				st = 200
 			}
-			log.Info("http response",
+			log.Log(r.Context(), httpAccessLogLevel(r.URL.Path), "http response",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"statusCode", st,

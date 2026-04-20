@@ -1,13 +1,12 @@
-// Package indexer implements the v0.2 claudia-index workspace file indexer.
+// Package indexer implements the v0.4+ claudia-index workspace file indexer.
 //
-// Scope per docs/indexer.plan.md (v0.2):
-//   - One or more configured watch roots (directories).
-//   - Per-root ignore rules: .claudiaignore + .gitignore + binary detection.
-//   - No symlink follow.
-//   - Whole-file SHA-256 hashing; one POST /v1/ingest per file.
-//   - Bearer token + gateway URL from environment.
-//   - Failure handling: bounded exponential backoff; pause and poll
-//     /v1/indexer/storage/health when the queue cannot drain.
+// Scope per docs/indexer.plan.md:
+//
+//	v0.2: watch roots, ignores, whole-file ingest, backoff, relative source paths.
+//	v0.3: defaults + per-root + per-glob project_id / flavor_id / workspace_id,
+//	sent as X-Claudia-Project / X-Claudia-Flavor-Id on ingest and default indexer config fetch.
+//	v0.4: chunked ingest session for large files, server content_sha256, optional sync state file.
+//	v0.8 (partial): merge ~/.claudia/indexer.config.yaml + ./.claudia/indexer.config.yaml + optional --config.
 package indexer
 
 import (
@@ -18,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,11 +43,75 @@ const (
 	EnvGatewayToken = "CLAUDIA_GATEWAY_TOKEN"
 )
 
-// FileConfig is the on-disk YAML schema (v0.2 minimal).
+// DefaultsYAML is the optional top-level `defaults:` block (v0.3).
+type DefaultsYAML struct {
+	ProjectID   string `yaml:"project_id"`
+	FlavorID    string `yaml:"flavor_id"`
+	WorkspaceID string `yaml:"workspace_id"`
+}
+
+// RootYAML is one roots[] entry after YAML parse (path + optional scope).
+type RootYAML struct {
+	Path        string `yaml:"path"`
+	ProjectID   string `yaml:"project_id"`
+	FlavorID    string `yaml:"flavor_id"`
+	WorkspaceID string `yaml:"workspace_id"`
+}
+
+// FlexibleRoots unmarshals roots as either a list of directory strings or a
+// list of mappings with `path` and optional scope fields (v0.3).
+type FlexibleRoots []RootYAML
+
+// UnmarshalYAML implements yaml.Unmarshaler for backward-compatible roots.
+func (fr *FlexibleRoots) UnmarshalYAML(n *yaml.Node) error {
+	*fr = nil
+	if n.Kind != yaml.SequenceNode {
+		return fmt.Errorf("roots: must be a sequence")
+	}
+	for _, el := range n.Content {
+		switch el.Kind {
+		case yaml.ScalarNode:
+			p := strings.TrimSpace(el.Value)
+			if p != "" {
+				*fr = append(*fr, RootYAML{Path: p})
+			}
+		case yaml.MappingNode:
+			var row RootYAML
+			if err := el.Decode(&row); err != nil {
+				return fmt.Errorf("roots entry: %w", err)
+			}
+			row.Path = strings.TrimSpace(row.Path)
+			if row.Path == "" {
+				return fmt.Errorf("roots entry: missing path")
+			}
+			*fr = append(*fr, row)
+		default:
+			return fmt.Errorf("roots: unsupported YAML node kind %v", el.Kind)
+		}
+	}
+	return nil
+}
+
+// OverrideYAML is one `overrides:` entry (v0.3).
+type OverrideYAML struct {
+	Glob        string `yaml:"glob"`
+	ProjectID   string `yaml:"project_id"`
+	FlavorID    string `yaml:"flavor_id"`
+	WorkspaceID string `yaml:"workspace_id"`
+}
+
+// FileConfig is the on-disk YAML schema (v0.2 minimal + v0.3 scope fields).
 type FileConfig struct {
-	GatewayURL  string   `yaml:"gateway_url"`
-	Roots       []string `yaml:"roots"`
-	IgnoreExtra []string `yaml:"ignore_extra"`
+	GatewayURL  string         `yaml:"gateway_url"`
+	Defaults    *DefaultsYAML  `yaml:"defaults"`
+	Roots       FlexibleRoots  `yaml:"roots"`
+	Overrides   []OverrideYAML `yaml:"overrides"`
+	IgnoreExtra []string       `yaml:"ignore_extra"`
+
+	// RecoveryIncludeRootHealth, when non-nil after merge, controls whether the
+	// recovery poll also requires GET /health to be non-degraded. When absent
+	// from all merged files, Resolve defaults to true.
+	RecoveryIncludeRootHealth *bool `yaml:"recovery_include_root_health"`
 
 	RetryMaxAttempts     int     `yaml:"retry_max_attempts"`
 	RetryBaseDelayMS     int     `yaml:"retry_base_delay_ms"`
@@ -61,6 +125,10 @@ type FileConfig struct {
 	FollowSymlinks       bool    `yaml:"follow_symlinks"` // v0.2 forces false at Resolve time.
 	BinaryNullByteSample int     `yaml:"binary_null_byte_sample_bytes"`
 	BinaryNullByteRatio  float64 `yaml:"binary_null_byte_ratio"`
+
+	// v0.4: optional local overrides (see GET /v1/indexer/config for gateway defaults).
+	SyncStatePath     string `yaml:"sync_state_path"`
+	MaxWholeFileBytes int64  `yaml:"max_whole_file_bytes"` // 0 = use gateway max_whole_file_bytes only
 }
 
 // Resolved is the runtime indexer configuration after merging YAML, env vars,
@@ -70,6 +138,9 @@ type Resolved struct {
 	Token       string
 	Roots       []Root
 	IgnoreExtra []string
+
+	DefaultScope  ScopeFragment
+	GlobOverrides []GlobOverride
 
 	RetryMaxAttempts     int
 	RetryBaseDelay       time.Duration
@@ -83,10 +154,17 @@ type Resolved struct {
 
 	BinaryNullByteSample int
 	BinaryNullByteRatio  float64
+
+	SyncStatePath     string
+	MaxWholeFileBytes int64
+
+	// RecoveryIncludeRootHealth gates an extra GET /health probe while workers
+	// are paused after exhausting ingest retries (defaults true when unset in YAML).
+	RecoveryIncludeRootHealth bool
 }
 
 // Root is a watched directory and its stable, slug-form identifier used in
-// logs and (later) for layered project/flavor scoping.
+// logs. Scope holds per-root v0.3 overrides only (defaults applied separately).
 type Root struct {
 	// ID is a slug derived from the root's basename; it never appears in
 	// payloads sent to the gateway and exists only for local logging.
@@ -94,6 +172,8 @@ type Root struct {
 	// AbsPath is the cleaned absolute path on this host. It must never be
 	// transmitted to the gateway.
 	AbsPath string
+	// Scope is optional per-root project / flavor / workspace overrides.
+	Scope ScopeFragment
 }
 
 // LoadFile reads a YAML config file. Returns a zero-value FileConfig if path
@@ -119,10 +199,10 @@ type Overrides struct {
 	Roots      []string
 }
 
-// Resolve produces a Resolved config from a parsed file, environment lookup,
-// and CLI overrides. Roots and gateway URL fall through layers in this order:
-// file < env < overrides. The gateway token is taken from the environment per
-// indexer plan v0.2 (no token-in-YAML).
+// Resolve produces a Resolved config from merged YAML (see LoadLayeredConfig),
+// environment lookup, and CLI overrides. Gateway URL: merged YAML <
+// CLAUDIA_GATEWAY_URL < --gateway-url. Roots: merged YAML < --root (when any
+// --root is set). Token is only from CLAUDIA_GATEWAY_TOKEN (no token-in-YAML).
 func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, error) {
 	if env == nil {
 		env = os.Getenv
@@ -141,6 +221,32 @@ func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, er
 		RequestTimeout:       msOr(fc.RequestTimeoutMS, defaultRequestTimeout),
 		BinaryNullByteSample: fc.BinaryNullByteSample,
 		BinaryNullByteRatio:  fc.BinaryNullByteRatio,
+		SyncStatePath:        strings.TrimSpace(fc.SyncStatePath),
+		MaxWholeFileBytes:    fc.MaxWholeFileBytes,
+	}
+	if fc.Defaults != nil {
+		r.DefaultScope = ScopeFragment{
+			ProjectID:   strings.TrimSpace(fc.Defaults.ProjectID),
+			FlavorID:    strings.TrimSpace(fc.Defaults.FlavorID),
+			WorkspaceID: strings.TrimSpace(fc.Defaults.WorkspaceID),
+		}
+	}
+	for i, o := range fc.Overrides {
+		pat := strings.TrimSpace(o.Glob)
+		if pat == "" {
+			return r, fmt.Errorf("overrides[%d]: glob is required", i)
+		}
+		if _, err := doublestar.Match(pat, "probe"); err != nil {
+			return r, fmt.Errorf("overrides[%d]: invalid glob %q: %w", i, pat, err)
+		}
+		r.GlobOverrides = append(r.GlobOverrides, GlobOverride{
+			Pattern: pat,
+			Scope: ScopeFragment{
+				ProjectID:   strings.TrimSpace(o.ProjectID),
+				FlavorID:    strings.TrimSpace(o.FlavorID),
+				WorkspaceID: strings.TrimSpace(o.WorkspaceID),
+			},
+		})
 	}
 	if r.RetryMaxAttempts <= 0 {
 		r.RetryMaxAttempts = defaultRetryAttempts
@@ -169,12 +275,20 @@ func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, er
 	}
 	r.Token = strings.TrimSpace(env(EnvGatewayToken))
 
-	rawRoots := append([]string{}, fc.Roots...)
+	var rootEntries []RootYAML
 	if ov.Roots != nil {
-		rawRoots = ov.Roots
+		for _, p := range ov.Roots {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				rootEntries = append(rootEntries, RootYAML{Path: p})
+			}
+		}
+	} else {
+		rootEntries = append(rootEntries, fc.Roots...)
 	}
-	for _, p := range rawRoots {
-		p = strings.TrimSpace(p)
+
+	for _, entry := range rootEntries {
+		p := strings.TrimSpace(entry.Path)
 		if p == "" {
 			continue
 		}
@@ -190,7 +304,12 @@ func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, er
 		if !st.IsDir() {
 			return r, fmt.Errorf("root %q is not a directory", abs)
 		}
-		r.Roots = append(r.Roots, Root{ID: rootSlug(abs), AbsPath: abs})
+		scope := ScopeFragment{
+			ProjectID:   strings.TrimSpace(entry.ProjectID),
+			FlavorID:    strings.TrimSpace(entry.FlavorID),
+			WorkspaceID: strings.TrimSpace(entry.WorkspaceID),
+		}
+		r.Roots = append(r.Roots, Root{ID: rootSlug(abs), AbsPath: abs, Scope: scope})
 	}
 
 	if r.GatewayURL == "" {
@@ -202,7 +321,150 @@ func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, er
 	if len(r.Roots) == 0 {
 		return r, errors.New("at least one watch root is required (config roots or --root)")
 	}
+	if r.SyncStatePath == "" {
+		r.SyncStatePath = filepath.Join(".claudia", "indexer.sync-state.json")
+	}
+	if fc.RecoveryIncludeRootHealth != nil {
+		r.RecoveryIncludeRootHealth = *fc.RecoveryIncludeRootHealth
+	} else {
+		r.RecoveryIncludeRootHealth = true
+	}
 	return r, nil
+}
+
+// LayeredConfigPaths returns config file paths to merge in order: global user
+// file (~/.claudia/indexer.config.yaml), workspace-local (.claudia/ under
+// cwd), then explicitPath last when non-empty. Duplicate paths are de-duped
+// with the last position winning (so --config overrides an earlier copy).
+func LayeredConfigPaths(cwd, explicitPath string) []string {
+	add := func(list []string, p string) []string {
+		p = filepath.Clean(p)
+		if p == "." || p == "" {
+			return list
+		}
+		out := list[:0]
+		for _, x := range list {
+			if x != p {
+				out = append(out, x)
+			}
+		}
+		return append(out, p)
+	}
+	var paths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = add(paths, filepath.Join(home, ".claudia", "indexer.config.yaml"))
+	}
+	if cwd != "" {
+		paths = add(paths, filepath.Join(cwd, ".claudia", "indexer.config.yaml"))
+	}
+	if strings.TrimSpace(explicitPath) != "" {
+		paths = add(paths, explicitPath)
+	}
+	return paths
+}
+
+// LoadLayeredConfig merges all existing YAML files from LayeredConfigPaths.
+// If explicitPath is set, that file must exist (even if empty YAML). Missing
+// global or local files are skipped silently.
+func LoadLayeredConfig(cwd, explicitPath string) (FileConfig, error) {
+	paths := LayeredConfigPaths(cwd, explicitPath)
+	explicitClean := filepath.Clean(strings.TrimSpace(explicitPath))
+	var acc FileConfig
+	for _, p := range paths {
+		p = filepath.Clean(p)
+		if _, err := os.Stat(p); err != nil {
+			if explicitClean != "" && p == explicitClean {
+				if errors.Is(err, os.ErrNotExist) {
+					return FileConfig{}, fmt.Errorf("indexer config not found: %s", p)
+				}
+				return FileConfig{}, fmt.Errorf("indexer config %q: %w", p, err)
+			}
+			continue
+		}
+		fc, err := LoadFile(p)
+		if err != nil {
+			return FileConfig{}, err
+		}
+		acc = MergeFileConfig(acc, fc)
+	}
+	return acc, nil
+}
+
+// MergeFileConfig merges overlay onto base (later wins for overlapping keys).
+func MergeFileConfig(base, overlay FileConfig) FileConfig {
+	out := base
+	if strings.TrimSpace(overlay.GatewayURL) != "" {
+		out.GatewayURL = overlay.GatewayURL
+	}
+	if overlay.Defaults != nil {
+		if out.Defaults == nil {
+			cp := *overlay.Defaults
+			out.Defaults = &cp
+		} else {
+			if strings.TrimSpace(overlay.Defaults.ProjectID) != "" {
+				out.Defaults.ProjectID = overlay.Defaults.ProjectID
+			}
+			if strings.TrimSpace(overlay.Defaults.FlavorID) != "" {
+				out.Defaults.FlavorID = overlay.Defaults.FlavorID
+			}
+			if strings.TrimSpace(overlay.Defaults.WorkspaceID) != "" {
+				out.Defaults.WorkspaceID = overlay.Defaults.WorkspaceID
+			}
+		}
+	}
+	if len(overlay.Roots) > 0 {
+		out.Roots = append(FlexibleRoots(nil), overlay.Roots...)
+	}
+	if overlay.Overrides != nil {
+		out.Overrides = append([]OverrideYAML(nil), overlay.Overrides...)
+	}
+	if overlay.IgnoreExtra != nil {
+		out.IgnoreExtra = append([]string(nil), overlay.IgnoreExtra...)
+	}
+	if overlay.RecoveryIncludeRootHealth != nil {
+		v := *overlay.RecoveryIncludeRootHealth
+		out.RecoveryIncludeRootHealth = &v
+	}
+	if overlay.RetryMaxAttempts != 0 {
+		out.RetryMaxAttempts = overlay.RetryMaxAttempts
+	}
+	if overlay.RetryBaseDelayMS != 0 {
+		out.RetryBaseDelayMS = overlay.RetryBaseDelayMS
+	}
+	if overlay.RetryMaxDelayMS != 0 {
+		out.RetryMaxDelayMS = overlay.RetryMaxDelayMS
+	}
+	if overlay.RecoveryPollMS != 0 {
+		out.RecoveryPollMS = overlay.RecoveryPollMS
+	}
+	if overlay.DebounceMS != 0 {
+		out.DebounceMS = overlay.DebounceMS
+	}
+	if overlay.Workers != 0 {
+		out.Workers = overlay.Workers
+	}
+	if overlay.QueueDepth != 0 {
+		out.QueueDepth = overlay.QueueDepth
+	}
+	if overlay.MaxFileBytes != 0 {
+		out.MaxFileBytes = overlay.MaxFileBytes
+	}
+	if overlay.RequestTimeoutMS != 0 {
+		out.RequestTimeoutMS = overlay.RequestTimeoutMS
+	}
+	if overlay.BinaryNullByteSample != 0 {
+		out.BinaryNullByteSample = overlay.BinaryNullByteSample
+	}
+	if overlay.BinaryNullByteRatio != 0 {
+		out.BinaryNullByteRatio = overlay.BinaryNullByteRatio
+	}
+	if strings.TrimSpace(overlay.SyncStatePath) != "" {
+		out.SyncStatePath = overlay.SyncStatePath
+	}
+	if overlay.MaxWholeFileBytes != 0 {
+		out.MaxWholeFileBytes = overlay.MaxWholeFileBytes
+	}
+	return out
 }
 
 func msOr(ms int, def time.Duration) time.Duration {

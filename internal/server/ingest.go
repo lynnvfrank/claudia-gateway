@@ -80,16 +80,21 @@ func handleV1Ingest(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"object":       "ingest.result",
-		"source":       result.Source,
-		"chunks":       result.Chunks,
-		"collection":   result.Collection,
-		"tenant_id":    coords.TenantID,
-		"project_id":   coords.ProjectID,
-		"flavor_id":    coords.FlavorID,
-		"content_hash": result.ContentHash,
-	})
+	out := map[string]any{
+		"object":         "ingest.result",
+		"source":         result.Source,
+		"chunks":         result.Chunks,
+		"collection":     result.Collection,
+		"tenant_id":      coords.TenantID,
+		"project_id":     coords.ProjectID,
+		"flavor_id":      coords.FlavorID,
+		"content_hash":   result.ContentHash,
+		"content_sha256": result.ContentSHA256,
+	}
+	if result.ClientContentHash != "" {
+		out["client_content_hash"] = result.ClientContentHash
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // readIngestBody returns (source, text, contentHash, err) regardless of input

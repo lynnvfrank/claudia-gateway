@@ -17,15 +17,26 @@
     #status { font-size: 0.75rem; color: #555; }
     #status.err { color: #c00; }
     .table-wrap { overflow-x: auto; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
-    #log-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    #log-table thead th { position: sticky; top: 0; z-index: 1; background: #e8e8e8; color: #222; text-align: left; font-weight: 600; padding: 0.45rem 0.5rem; border-bottom: 1px solid #bbb; white-space: nowrap; }
-    #log-table tbody td { vertical-align: middle; padding: 0.45rem 0.5rem; border-bottom: 1px solid #ddd; }
+    #log-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed; }
+    /* Fixed outer column widths so the Details column keeps the same width regardless of which rows are currently visible (filter toggles). */
+    #log-table col.outer-col-app { width: 10rem; }
+    #log-table col.outer-col-dt { width: 12.5rem; }
+    #log-table col.outer-col-dt-local { width: 12.5rem; }
+    #log-table col.outer-col-lvl { width: 5.5rem; }
+    #log-table col.outer-col-details { width: auto; }
+    #log-table thead th { position: sticky; top: 0; z-index: 1; background: #e8e8e8; color: #222; text-align: left; font-weight: 600; padding: 0.45rem 0.5rem; border-bottom: 1px solid #bbb; white-space: nowrap; vertical-align: top; }
+    #log-table tbody td { vertical-align: top; padding: 0.45rem 0.5rem; border-bottom: 1px solid #ddd; word-break: break-word; overflow-wrap: anywhere; }
     #log-table tbody tr:nth-child(odd) { background: #fff; }
     #log-table tbody tr:nth-child(even) { background: #f0f0f0; }
     #log-table tbody tr:hover { background: #e0e8f0; }
-    .col-app { font-family: ui-monospace, monospace; color: #0b57d0; white-space: nowrap; }
-    .col-dt { font-family: ui-monospace, monospace; color: #5c4033; white-space: nowrap; }
-    .col-lvl { font-family: ui-monospace, monospace; white-space: nowrap; }
+    .col-app { font-family: ui-monospace, monospace; color: #0b57d0; white-space: nowrap; font-size: 1rem; }
+    /* Datetime cells must wrap: nowrap on the td is inherited and was overflowing into Level / adjacent cols. */
+    .col-dt { font-family: ui-monospace, monospace; color: #5c4033; font-size: 1rem; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .col-dt-local { font-weight: 700; }
+    .col-lvl { font-family: ui-monospace, monospace; white-space: nowrap; font-size: 1rem; overflow-wrap: normal; }
+    .dt-stack { line-height: 1.45; white-space: normal; }
+    .dt-stack .dt-line { display: block; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .dt-stack .dt-date { margin-top: 0.2rem; }
     .lvl-DEBUG { color: #666; }
     .lvl-INFO { color: #1b5e20; }
     .lvl-WARN { color: #b45309; }
@@ -33,40 +44,20 @@
     .lvl-TRACE { color: #666; }
     .lvl-none { color: #888; }
     .col-details { min-width: 24rem; }
-    /* Inner tables: one pair → 2 cols; two+ pairs per row → key1 | val1 | key2 | val2 */
-    .props-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 0; }
+    /* Inner "Details" table: every row uses the same 4-column key | value | key | value layout
+       (with the second pair empty on odd rows) so the Details cell looks the same regardless of
+       how many extras a row has and which filter is currently applied. */
+    .props-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 0; table-layout: fixed; }
+    .props-table col.col-k { width: 24%; }
+    .props-table col.col-v { width: 26%; }
     .props-table td { border: 1px solid #ccc; padding: 0.25rem 0.45rem; vertical-align: top; }
+    .props-table td:nth-child(3) { border-left: 2px solid #bbb; }
     .props-table .prop-name {
       font-family: ui-monospace, monospace; font-weight: 600; color: #0b57d0; background: #f4f6fa; text-align: left;
-      max-width: 32rem; box-sizing: border-box;
+      box-sizing: border-box;
       overflow-wrap: anywhere; word-break: break-word;
     }
-    .props-quad .prop-name { min-width: 16rem; }
-    .props-table .prop-val { color: #222; word-break: break-word; white-space: pre-wrap; background: #fff; }
-    /* Single key|value: key on one horizontal line, column width = full key text */
-    .props-table.props-pair {
-      table-layout: auto;
-      width: 100%;
-      max-width: 100%;
-    }
-    .props-table.props-pair .prop-name {
-      min-width: 0;
-      width: max-content;
-      max-width: none;
-      white-space: nowrap;
-      overflow-wrap: normal;
-      word-break: normal;
-    }
-    .props-pair .prop-val {
-      width: 100%;
-      min-width: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .props-table.props-quad { table-layout: fixed; }
-    .props-quad col.col-k { width: 24%; }
-    .props-quad col.col-v { width: 26%; }
-    .props-quad td:nth-child(3) { border-left: 2px solid #bbb; }
+    .props-table .prop-val { color: #222; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; background: #fff; }
     .props-table .prop-empty { background: #fafafa; }
     .muted { color: #888; }
   </style>
@@ -78,10 +69,18 @@
   </div>
   <div class="table-wrap">
     <table id="log-table">
+      <colgroup>
+        <col class="outer-col-app" />
+        <col class="outer-col-dt" />
+        <col class="outer-col-dt-local" />
+        <col class="outer-col-lvl" />
+        <col class="outer-col-details" />
+      </colgroup>
       <thead>
         <tr>
           <th scope="col">Application</th>
-          <th scope="col">Date / time (UTC)</th>
+          <th scope="col">UTC</th>
+          <th scope="col">Local</th>
           <th scope="col">Level</th>
           <th scope="col">Details</th>
         </tr>
@@ -164,6 +163,60 @@
     } catch (err) {
       return d.toUTCString();
     }
+  }
+
+  function formatStackedDateTimeCell(d, timeZone) {
+    var optsTime = {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true
+    };
+    var optsDate = {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    };
+    if (timeZone) {
+      optsTime.timeZone = timeZone;
+      optsDate.timeZone = timeZone;
+    }
+    var timeStr = new Intl.DateTimeFormat("en-US", optsTime).format(d);
+    var dateStr = new Intl.DateTimeFormat("en-US", optsDate).format(d);
+    return (
+      '<div class="dt-stack">' +
+      '<span class="dt-line dt-time">' +
+      escapeHtml(timeStr) +
+      "</span>" +
+      '<span class="dt-line dt-date">' +
+      escapeHtml(dateStr) +
+      "</span></div>"
+    );
+  }
+
+  function buildDateTimeCells(instant, entryTS) {
+    if (instant && !isNaN(instant.getTime())) {
+      return {
+        utc: formatStackedDateTimeCell(instant, "UTC"),
+        local: formatStackedDateTimeCell(instant, undefined)
+      };
+    }
+    var raw = "";
+    if (entryTS !== null && entryTS !== undefined && entryTS !== "") {
+      raw = formatHumanDateTimeUTC(entryTS);
+    }
+    if (!raw) {
+      var dash = '<div class="dt-stack"><span class="dt-line muted">—</span></div>';
+      return { utc: dash, local: dash };
+    }
+    return {
+      utc:
+        '<div class="dt-stack dt-fallback"><span class="dt-line dt-time">' +
+        escapeHtml(raw) +
+        "</span></div>",
+      local: '<div class="dt-stack"><span class="dt-line muted">—</span></div>'
+    };
   }
 
   function parseKeyValueLine(line) {
@@ -306,7 +359,11 @@
       }
     }
 
-    var dt = formatHumanDateTimeUTC(entryTS);
+    var instant = null;
+    if (entryTS !== null && entryTS !== undefined && entryTS !== "") {
+      var d0 = entryTS instanceof Date ? entryTS : new Date(entryTS);
+      if (!isNaN(d0.getTime())) instant = d0;
+    }
     var levelCanon = null;
     var extras = [];
 
@@ -318,7 +375,7 @@
       else if (flat["@timestamp"] !== undefined && flat["@timestamp"] !== null && flat["@timestamp"] !== "") tRaw = flat["@timestamp"];
       if (tRaw !== "" && tRaw !== undefined && tRaw !== null) {
         var tryDt = new Date(String(tRaw));
-        if (!isNaN(tryDt.getTime())) dt = formatHumanDateTimeUTC(tryDt);
+        if (!isNaN(tryDt.getTime())) instant = tryDt;
       }
       if (flat.level !== undefined && flat.level !== null && flat.level !== "") {
         levelCanon = canonicalLevel(flat.level);
@@ -336,7 +393,15 @@
       extras.push({ k: "text", v: text });
     }
 
-    return { app: source || "—", dt: dt, levelCanon: levelCanon, levelLabel: displayLevelLabel(levelCanon), extras: extras };
+    var dtCells = buildDateTimeCells(instant, entryTS);
+    return {
+      app: source || "—",
+      dtUtcHtml: dtCells.utc,
+      dtLocalHtml: dtCells.local,
+      levelCanon: levelCanon,
+      levelLabel: displayLevelLabel(levelCanon),
+      extras: extras
+    };
   }
 
   function ensureAppOption(app) {
@@ -370,7 +435,8 @@
   }
 
   function applyFilters() {
-    var rows = tbody.querySelectorAll("tr");
+    // tbody.rows = log rows only; querySelectorAll("tr") also matched inner details <tr>s.
+    var rows = tbody.rows;
     for (var i = 0; i < rows.length; i++) {
       rows[i].style.display = rowMatchesFilter(rows[i]) ? "" : "none";
     }
@@ -381,27 +447,23 @@
 
   function buildDetailsCell(extras) {
     if (!extras.length) return '<span class="muted">—</span>';
-    if (extras.length === 1) {
-      return (
-        '<table class="props-table props-pair"><tbody><tr>' +
-        '<td class="prop-name">' + escapeHtml(extras[0].k) + "</td>" +
-        '<td class="prop-val">' + escapeHtml(extras[0].v) + "</td>" +
-        "</tr></tbody></table>"
-      );
-    }
-    var s = '<table class="props-table props-quad"><colgroup>' +
+    // Use a 4-column grid (key | value | key | value) so multi-field structured logs stay dense.
+    // When a row only has one pair (either the single-extra case, e.g. a plain-text line captured
+    // as text=<line>, or the trailing odd pair of a multi-extra log), expand that value across the
+    // remaining 3 columns so it gets the full Details width. Keeps the outer column geometry
+    // stable across filter toggles while never cramping solo values into 26%.
+    var s = '<table class="props-table"><colgroup>' +
       '<col class="col-k" /><col class="col-v" /><col class="col-k" /><col class="col-v" />' +
       "</colgroup><tbody>";
     for (var i = 0; i < extras.length; i += 2) {
       s += "<tr>";
       s += '<td class="prop-name">' + escapeHtml(extras[i].k) + "</td>";
-      s += '<td class="prop-val">' + escapeHtml(extras[i].v) + "</td>";
       if (i + 1 < extras.length) {
+        s += '<td class="prop-val">' + escapeHtml(extras[i].v) + "</td>";
         s += '<td class="prop-name">' + escapeHtml(extras[i + 1].k) + "</td>";
         s += '<td class="prop-val">' + escapeHtml(extras[i + 1].v) + "</td>";
       } else {
-        s += '<td class="prop-name prop-empty" aria-hidden="true"></td>';
-        s += '<td class="prop-val prop-empty" aria-hidden="true"></td>';
+        s += '<td class="prop-val prop-val-wide" colspan="3">' + escapeHtml(extras[i].v) + "</td>";
       }
       s += "</tr>";
     }
@@ -429,7 +491,8 @@
 
     tr.innerHTML =
       "<td class=\"col-app\">" + escapeHtml(parsed.app) + "</td>" +
-      "<td class=\"col-dt\">" + escapeHtml(parsed.dt) + "</td>" +
+      "<td class=\"col-dt col-dt-utc\">" + parsed.dtUtcHtml + "</td>" +
+      "<td class=\"col-dt col-dt-local\">" + parsed.dtLocalHtml + "</td>" +
       "<td class=\"col-lvl " + lvlClass + "\">" + escapeHtml(parsed.levelLabel) + "</td>" +
       "<td class=\"col-details\">" + buildDetailsCell(parsed.extras) + "</td>";
 

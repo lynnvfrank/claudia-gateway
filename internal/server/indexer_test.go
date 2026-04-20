@@ -42,6 +42,9 @@ func TestIndexerConfig_HappyPath(t *testing.T) {
 	if doc["ingest_path"] != "/v1/ingest" {
 		t.Fatalf("ingest_path: %+v", doc["ingest_path"])
 	}
+	if doc["max_whole_file_bytes"] == nil || doc["ingest_session_path"] == nil {
+		t.Fatalf("expected v0.4 indexer fields: %+v", doc)
+	}
 	hdrs, _ := doc["optional_headers"].([]any)
 	if len(hdrs) != 2 {
 		t.Fatalf("optional_headers: %+v", hdrs)
@@ -120,6 +123,55 @@ func TestIndexerStats_AfterIngest(t *testing.T) {
 	}
 	if doc["vector_dim"].(float64) != 8 {
 		t.Fatalf("doc: %+v", doc)
+	}
+}
+
+func TestIndexerCorpusInventory_AfterIngest(t *testing.T) {
+	rt, _, srv := setupRAGServer(t)
+	_, err := rt.RAG().Ingest(context.Background(), rag.IngestRequest{
+		Coords:      vectorstore.Coords{TenantID: "tenantA", ProjectID: "proj"},
+		Source:      "docs/b.md",
+		Text:        strings.Repeat("beta ", 80),
+		ContentHash: "sha256:clienthash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/indexer/corpus/inventory?limit=50", nil)
+	req.Header.Set("Authorization", "Bearer ingest-tok")
+	req.Header.Set(headerProject, "proj")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d %s", res.StatusCode, b)
+	}
+	var doc struct {
+		Entries []struct {
+			Source            string `json:"source"`
+			ContentSHA256     string `json:"content_sha256"`
+			ClientContentHash string `json:"client_content_hash"`
+		} `json:"entries"`
+		HasMore bool `json:"has_more"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Entries) < 1 {
+		t.Fatalf("entries=%v", doc.Entries)
+	}
+	found := false
+	for _, e := range doc.Entries {
+		if e.Source == "docs/b.md" && strings.HasPrefix(e.ContentSHA256, "sha256:") && e.ClientContentHash == "sha256:clienthash" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing expected entry: %+v", doc.Entries)
 	}
 }
 

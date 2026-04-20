@@ -4,6 +4,8 @@ This document plans a **portable Go binary** that watches configured directories
 
 **Related docs:** [`cli-tool.plan.md`](cli-tool.plan.md) (configuration precedence pattern), [`claudia-gateway.plan.md`](claudia-gateway.plan.md), [`overview.md`](overview.md), [`network.md`](network.md).
 
+**Current code (this repo):** `claudia-index` is implemented and reports **`claudia-index v0.4.0`** (`--version`). Sources: `cmd/claudia-index`, `internal/indexer`, operator guide [`indexer.md`](indexer.md), example [`config/indexer.example.yaml`](../config/indexer.example.yaml). Makefile targets `indexer-build` / `indexer-run` / `indexer-install` and `scripts/clean.sh` / `scripts/print-make-help.sh` include the binary. **Still missing** relative to this document: durable offline queue and optional **global discovery without cwd** edge cases. **Shipped:** layered YAML, **`GET /health`** during recovery, **Mode B** per-step retries, **`GET /v1/indexer/corpus/inventory`** (path + **`content_sha256`** + optional **`client_content_hash`**) for startup reconciliation.
+
 ---
 
 ## Goals
@@ -26,7 +28,7 @@ This document plans a **portable Go binary** that watches configured directories
 
 ## Versioning (indexer milestones)
 
-**Indexer and gateway v0.2 align:** the first shippable **`claudia-index`** targets **gateway v0.2** (ingest + indexer config/storage APIs). Later indexer versions may add features without a gateway bump, but **v0.2** is the shared baseline for “RAG indexing works end-to-end.”
+**Indexer and gateway v0.2 align:** the first shippable **`claudia-index`** targets **gateway v0.2** (ingest + indexer config/storage APIs). Later indexer versions may add features without a gateway bump, but **v0.2** is the shared baseline for “RAG indexing works end-to-end.” **As of the current tree**, the shipped indexer binary is **v0.4.0** and implements **v0.2 + v0.3 + most of v0.4** below; milestone headings remain the spec history.
 
 ### Indexer v0.2 (initial release)
 
@@ -35,15 +37,15 @@ This document plans a **portable Go binary** that watches configured directories
 - **Tenant scope** — `tenant_id` is implied by the **gateway-issued Bearer token** (same token model as chat); no separate tenant field in YAML required.
 - **Single or multiple roots** — configurable **watch roots** (directories); each root is a **security boundary** for relative paths (see [§ Stable document identity](#stable-document-identity)).
 - **Ignore rules** — skip binary files; honor **`.claudiaignore`** (shipped template or generated defaults including entries such as `.env`); also honor **`.gitignore`** and, where feasible, other common `*ignore` patterns documented in config.
-- **Symlinks** — default **do not follow** symlinks when walking the tree (more secure); no toggle in v0.2.
-- **Ingest unit** — **one whole file per `POST /v1/ingest`**; **gateway** chunks, embeds, and writes vectors (see [§ Chunking and gateway contract](#chunking-and-gateway-contract)).
-- **Auth** — read gateway URL and **API token from environment** (e.g. `.env` loaded by the user’s shell or documented env vars); no token in YAML yet.
+- **Symlinks** — default **do not follow** symlinks when walking the tree (more secure); no supported toggle in v0.2 (**current code:** a YAML `follow_symlinks` field exists but **`Resolve` forces off**).
+- **Ingest unit** — **one logical file** per ingest; **v0.2** uses **`POST /v1/ingest`** for bodies under the whole-file cap; **v0.4** adds the **session chunk API** for larger files (see [Indexer v0.4](#indexer-v04--large-files-dual-mode-ingest--authoritative-server-hash)). **Gateway** chunks, embeds, and writes vectors (see [§ Chunking and gateway contract](#chunking-and-gateway-contract)).
+- **Auth** — gateway URL and **API token from environment** (`CLAUDIA_GATEWAY_URL` / `CLAUDIA_GATEWAY_TOKEN`); **`claudia-index`** also loads **`env`** / **`.env`** from CWD before reading flags. No token in YAML yet.
 - **Operational behavior** — **debouncing**, **coalescing**, and **backpressure** (bounded worker pool, queue depth limits); **failure handling** follows [§ Failure handling (normative)](#failure-handling-normative).
 
-**Not in indexer v0.2**
+**Not in indexer v0.2** (historical scope; some items shipped in later milestones)
 
-- Per-path **`project_id` / `workspace_id` / `flavor_id`** overrides (deferred to **indexer v0.3**).
-- Gateway **reconciliation API** (full “list remote files + content hash”) if not yet implemented on the gateway — indexer may **fallback to full backfill** of local watch set until the API exists (see [§ Startup reconciliation](#startup-reconciliation)).
+- Per-path **`project_id` / `workspace_id` / `flavor_id`** overrides — **shipped in v0.3** (see checklist).
+- Gateway **reconciliation API** (full “list remote files + content hash”) — **still absent**; indexer uses **full local scan** plus optional **v0.4 sync state** skip (see [§ Startup reconciliation](#startup-reconciliation)).
 
 ### Indexer v0.3
 
@@ -59,16 +61,16 @@ This document plans a **portable Go binary** that watches configured directories
 **Indexer + gateway must implement both modes** (negotiated per file or per config):
 
 1. **Mode A — whole-file** (unchanged from v0.2): single **`POST /v1/ingest`** per file; gateway chunks server-side.
-2. **Mode B — streaming / client-chunked upload** for large bodies — **normative wire format TBD** (e.g. resumable session id + ordered chunk uploads, or HTTP chunked encoding with gateway-defined framing). Gateway still **owns embedding and vector writes**; the split is **transport**, not a promise that the client chooses semantic chunk boundaries for RAG (unless explicitly specified later).
+2. **Mode B — session + ordered chunk uploads** for large bodies — **implemented** in gateway + `internal/indexer/client.go`: **`POST /v1/ingest/session`** (JSON `source`, `content_hash`) → **`PUT /v1/ingest/session/{id}/chunk`** (raw bytes, header **`X-Claudia-Chunk-Index`**) → **`POST /v1/ingest/session/{id}/complete`**. Gateway still **owns embedding and vector writes**; the split is **transport** only. Session limits (`max_chunk_bytes`, `max_total_bytes`) come from the start response.
 
-**Configuration:** threshold **e.g. file size or `GET /v1/indexer/config` field** (`max_whole_file_bytes` or similar) selects Mode A vs B.
+**Configuration:** file size vs **`GET /v1/indexer/config`** fields **`max_whole_file_bytes`** and **`ingest_session_path`** select Mode A vs B; the indexer may cap whole-file size further with YAML **`max_whole_file_bytes`**.
 
 **Content hash (this milestone):**
 
 - **v0.2–v0.3:** **client-computed SHA-256** (or agreed algorithm) is the **source of truth** the indexer uses for change detection and sends on ingest; reconciliation compares **local client hash** to **remote stored hash** from inventory when available.
 - **v0.4 adds:** gateway **computes hash over the bytes it actually ingested** (after decoding/normalization as defined in the contract) and returns **`content_sha256`** (name TBD) in the **ingest response** (and persists it for **corpus inventory**). Indexer **updates local bookkeeping** to that value so **server truth** can override client preflight hash when they differ (normalization, transcoding, or bug diagnosis).
 
-**Deliverables:** documented APIs for Mode B, size thresholds, error/retry semantics per chunk/session, and **response body** fields for **server-side SHA**.
+**Deliverables:** documented APIs for Mode B, size thresholds, error/retry semantics per chunk/session, and **response body** fields for **server-side SHA**. **Status:** gateway and client implement start/chunk/complete and ingest JSON responses include **`content_sha256`** / **`client_content_hash`**; **per-step bounded retries** (session start, each **PUT** chunk, **complete**) reuse the same backoff caps as whole-file ingest **within** one `processJob` attempt. If all attempts fail, the outer job retry may still restart the session from byte zero.
 
 ### Indexer v0.8+ (configuration parity with `claudiactl`)
 
@@ -93,7 +95,7 @@ This document plans a **portable Go binary** that watches configured directories
 
 - **Canonical id** — derived from **`(tenant_id, root_id, path_relative_to_that_root, content_hash)`** where:
   - **`tenant_id`** comes from the token (server-side); indexer does not send raw tenant in path ids unless the gateway contract requires it in payload.
-  - **`root_id`** is a stable slug for each configured watch root (config-defined or hash of normalized root path **local only**, never sent as absolute path).
+  - **`root_id`** is a stable slug for each configured watch root (**implementation:** basename-derived slug in logs only via `internal/indexer/config.go`; **not** sent on the wire). Config-defined or hashed root ids remain a possible future refinement.
   - **`path_relative_to_that_root`** is the **only** path form stored in **`source`** and used for human-readable citations.
   - **`content_hash`** — **cryptographic hash** of file bytes (e.g. **SHA-256**).
     - **Indexer v0.2–v0.3:** computed **on the client**; treated as **truth** for **local change detection** and sent with ingest so the gateway can **store** it for inventory (exact header or JSON field name is part of the ingest contract). Reconciliation uses **client hash vs remote stored hash** when the inventory API exists.
@@ -130,30 +132,32 @@ Track as **open design** once gateway exposes stable operations beyond ingest.
 
 Aligned with [`cli-tool.plan.md`](cli-tool.plan.md) where applicable.
 
-**From indexer v0.8** (and optionally introduced earlier in simplified form):
+**Indexer v0.8** — **YAML file merge implemented** in `LoadLayeredConfig` / `MergeFileConfig`:
 
-1. **Built-in defaults** (compiled into the binary).
-2. **Global user config:** `~/.claudia/indexer.config.yaml` (resolve home via `os.UserHomeDir()`; on Windows `%USERPROFILE%\.claudia\indexer.config.yaml`).
-3. **Local project config:** `./.claudia/indexer.config.yaml` relative to the **current working directory** when the indexer starts (or explicit `--config` path that overrides “local” discovery).
-4. **CLI flags** — override merged YAML for the same keys (e.g. `--gateway-url`, `--token-file`, `--root`).
+1. **Built-in defaults** (compiled into the binary; applied in `Resolve`).
+2. **Global user config:** `~/.claudia/indexer.config.yaml` (`os.UserHomeDir()`; Windows `%USERPROFILE%\.claudia\…`).
+3. **Local project config:** `<cwd>/.claudia/indexer.config.yaml`.
+4. **`--config path`** — merged **last** when provided (file must exist).
 
-**Merge rule:** later layers override earlier for the same key; missing keys fall through.
+**Merge rule:** later YAML files override earlier for the same key; see `MergeFileConfig` for field-wise rules.
 
-**Indexer v0.2 shortcut:** support **only** env vars + a **single explicit `--config` pointing at `.claudia/indexer.config.yaml`** if full merge is not ready day one; still document the **target** precedence above.
+**After merged YAML:** **`CLAUDIA_GATEWAY_URL`** overrides `gateway_url`; **`--gateway-url`** / **`--root`** override merged YAML for URL and roots. **`CLAUDIA_GATEWAY_TOKEN`** is **only** from the environment (never YAML). On startup, `cmd/claudia-index` loads **`env`** then **`.env`** from the **current working directory** (missing files ignored), matching the main **`claudia`** binary. Operator summary: [`indexer.md`](indexer.md).
 
 ### Configuration schema (evolution)
 
-**v0.2 — minimal**
+**v0.2 — minimal** (**implemented** in `FileConfig` plus v0.4 fields below)
 
-- `gateway_url` (or env `CLAUDIA_GATEWAY_URL`)
-- `roots`: list of directory paths to watch
+- `gateway_url` (or env `CLAUDIA_GATEWAY_URL`; CLI `--gateway-url` wins)
+- `roots`: list of directory paths to watch (or CLI `--root` replaces the list)
 - Optional `ignore_extra`: list of glob patterns added to `.claudiaignore` semantics
-- **Backoff / recovery** — optional overrides for [§ Failure handling (normative)](#failure-handling-normative): e.g. `retry_max_attempts`, `retry_base_delay`, `retry_max_delay`, `recovery_poll_interval` (see gateway contract for health URLs).
+- **Backoff / recovery** — optional overrides for [§ Failure handling (normative)](#failure-handling-normative): `retry_max_attempts`, `retry_base_delay_ms`, `retry_max_delay_ms`, `recovery_poll_interval_ms`, optional **`recovery_include_root_health`** (default **true**: recovery also waits on **`GET /health`**)
+- **Operational:** `debounce_ms`, `workers`, `queue_depth`, `max_file_bytes`, `request_timeout_ms`, optional `binary_null_byte_sample_bytes` / `binary_null_byte_ratio`
+- **v0.4 additions:** `sync_state_path` (default **`.claudia/indexer.sync-state.json`**), `max_whole_file_bytes`
 
 **v0.3 — scoped overrides**
 
 ```yaml
-# Illustrative only — final schema when implementing.
+# Implemented shape (see config/indexer.example.yaml).
 defaults:
   project_id: "my-app"
   flavor_id: "default"
@@ -203,8 +207,8 @@ For **ingest failures** (transient HTTP errors, **503**, **429**, network errors
 1. **Retry with exponential backoff** — **configurable** **`retry_max_attempts`** (small integer, e.g. default **5**), **`retry_base_delay`**, **`retry_max_delay`** (cap per wait). Jitter optional. Apply per failing operation or per batch per implementation, but **must** bound total attempts.
 2. **After the last backoff attempt fails** — **pause** the ingest **queue** (do **not** discard queued work; continue **collecting** filesystem events if desired, subject to backpressure limits).
 3. **Recovery polling** — while paused, periodically call gateway **status** endpoints to determine whether **ingest / RAG storage** is available again:
-   - **`GET /v1/indexer/storage/health`** (Bearer token; scoped per [`claudia-gateway.plan.md`](claudia-gateway.plan.md) **indexer REST**), and
-   - optionally **`GET /health`** for overall gateway / upstream readiness.
+   - **`GET /v1/indexer/storage/health`** (Bearer token; scoped per [`claudia-gateway.plan.md`](claudia-gateway.plan.md) **indexer REST**) — **implemented**; client parses **`ok`**, **`status`**, **`detail`**, and the structured **`{"error":{...}}`** shape when RAG is disabled.
+   - **`GET /health`** for overall gateway / upstream readiness — **implemented** when **`recovery_include_root_health`** is **true** (default); set **`false`** to use only storage health.
 4. **Resume** when responses indicate **healthy / not degraded** for the paths relevant to ingest (exact JSON fields documented with gateway implementation). **Reset** backoff state for subsequent failures.
 
 **Configurable** **`recovery_poll_interval`** (e.g. default **30s**) governs how often to poll while paused.
@@ -215,7 +219,7 @@ Document defaults and env overrides in the indexer **README** when implemented.
 
 ## Authentication
 
-- **v0.2:** Bearer token from **environment** (e.g. `CLAUDIA_GATEWAY_TOKEN`); document loading from `.env` via user workflow (shell, `direnv`, etc.).
+- **v0.2:** Bearer token from **environment** (`CLAUDIA_GATEWAY_TOKEN`). **`claudia-index`** auto-loads **`env`** and **`.env`** from the process CWD (see [§ Configuration precedence](#configuration-precedence)), so tokens can live in `.env` without a separate shell export step.
 - **Later:** read token (or path to token file) from **YAML** per [§ Configuration precedence](#configuration-precedence); never commit secrets; recommend `.gitignore` for `.claudia/indexer.config.yaml` when it holds tokens.
 
 ---
@@ -236,7 +240,7 @@ Document defaults and env overrides in the indexer **README** when implemented.
 3. Compute **diff**: enqueue **uploads** for missing files or paths whose **local hash ≠ remote hash**.
 4. Run workers with **backpressure**; transient failures follow [§ Failure handling (normative)](#failure-handling-normative).
 
-**Gateway gap:** [`claudia-gateway.plan.md`](claudia-gateway.plan.md) currently specifies **`GET /v1/indexer/storage/stats`** (aggregate) but not per-document **path + hash inventory**. Add a **normative endpoint or contract extension** (e.g. **`GET /v1/indexer/corpus/state`** with pagination) as part of **gateway + indexer joint delivery**; until then, indexer may **queue full scan** on each cold start (document cost).
+**Startup reconciliation:** **`GET /v1/indexer/corpus/inventory`** (paginated; see [`indexer.md`](indexer.md)) lists **`source`** + **`content_sha256`** + optional **`client_content_hash`** for the authenticated tenant/project/flavor. **`claudia-index`** merges all pages after **`GET /v1/indexer/config`** and uses the map to **skip** unchanged files when hashes match (see implementation in `internal/indexer`). **Multi-root** setups that share one corpus and reuse the same relative **`source`** string can collide — use disjoint paths or separate projects.
 
 ---
 
@@ -266,41 +270,42 @@ On **every startup** (and periodically during long runs), the indexer **SHOULD**
 
 ---
 
-## Makefile (when implemented)
+## Makefile (**implemented** in repo root `Makefile`)
 
 | Target | Behavior |
 |--------|----------|
 | **`make indexer-build`** | `go build -o claudia-index[.exe] ./cmd/claudia-index` |
-| **`make indexer-run`** | `go run ./cmd/claudia-index` with passthrough args |
+| **`make indexer-run`** | `go run ./cmd/claudia-index` (pass flags via **`ARGS=...`**) |
 | **`make indexer-install`** | `go install ./cmd/claudia-index` |
 
-Update `scripts/print-make-help.sh` and **clean** scripts to remove `claudia-index[.exe]` consistently with other binaries.
+`scripts/print-make-help.sh` and `scripts/clean.sh` list / remove **`claudia-index[.exe]`** alongside **`claudia`** / **`claudia-desktop`**.
 
 ---
 
 ## Testing
 
-- **Unit:** ignore matching, relative path canonicalization, **content hash** computation, config merge order (v0.8+).
-- **Integration:** `httptest` for gateway client; optional testcontainers or mocked **`GET /v1/indexer/config`** / ingest.
+- **Unit:** present under **`internal/indexer/*_test.go`** — ignore matching, walker, hashing, queue, scope merge, debounce, config resolve, gateway client (`httptest` for config / ingest / health / session flows).
+- **Integration:** expand with testcontainers or a live gateway fixture when useful; not required for current CI coverage of the indexer package.
 
 ---
 
-## Documentation deliverables (when implemented)
+## Documentation deliverables
 
-- **`README.md`** (or `docs/indexer.md`) — install, env vars, `.claudia/indexer.config.yaml` example, Continue header alignment for **v0.3**, [§ Failure handling (normative)](#failure-handling-normative) defaults.
-- **Security** — no absolute paths in payloads; symlink default; secret handling.
-- **Gateway API** — link to finalized **whole-file ingest** schema (v0.2), **v0.4** dual-mode / streaming protocol, **ingest response** (**server SHA**), and **corpus state** endpoint.
+- **`docs/indexer.md`** — operator quick start: install via **`make`**, env vars, example config path, **v0.3** headers, **v0.4** sync state, failure defaults, **`--one-shot`**.
+- **Root `README.md`** — still optional; indexer is discoverable via **`docs/indexer.md`** and **`make help`**.
+- **Security** — no absolute paths in payloads; symlink default; secret handling (see [`indexer.md`](indexer.md)).
+- **Gateway API** — whole-file ingest + session chunk paths live in **`internal/server`**; a single consolidated “indexer HTTP contract” doc for operators (inventory API still open) would still add value.
 
 ---
 
 ## Open decisions
 
-1. **v0.2 — Large files under whole-file-only** — max body size for **`POST /v1/ingest`**; indexer behavior when over limit (**skip** vs **fail loud**) until **v0.4** dual-mode exists.
-2. **v0.4 — Mode B wire protocol** — session lifecycle, chunk size, idempotency keys, resume after partial failure; must align with gateway streaming implementation.
+1. **Large files** — **Mode B** addresses over-limit bodies; remaining product choice: behavior when a file exceeds **`max_ingest_bytes`** / session **`max_total_bytes`** (**skip** vs **fail loud** vs user-visible metric).
+2. **v0.4+ — Mode B resilience** — idempotency keys, **resume after partial chunk failure** without full-file redo, session TTL semantics; must stay aligned with gateway.
 3. **Corpus inventory endpoint** — schema (**path key**, **`content_hash`**, pagination); **authz** per tenant/project/flavor; **v0.4** stores **server-computed** hash for truth after ingest.
 4. **Delete/rename** — first gateway primitive (tombstone, delete-by-filter, or reindex-only).
 5. **Durable queue format** — SQLite vs JSONL vs embedded store for offline resilience while **paused**.
-6. **Binary name** — `claudia-index` vs shorter alias; align with `make` targets and docs.
+6. **Binary name** — settled on **`claudia-index`** for `make` and docs unless packaging introduces an alias.
 
 ---
 
@@ -308,28 +313,30 @@ Update `scripts/print-make-help.sh` and **clean** scripts to remove `claudia-ind
 
 **Indexer v0.2**
 
-- [ ] `cmd/claudia-index`: config discovery (minimal), env-based token, watch roots, ignores (.claudiaignore + .gitignore), no symlink follow by default.
-- [ ] **Whole-file** ingest; **`content_hash`** (e.g. SHA-256) for local change detection and future reconciliation.
-- [ ] Gateway HTTP client: **`GET /v1/indexer/config`**, **`POST /v1/ingest`**, **`GET /v1/indexer/storage/health`**, optional **`GET /health`** — implement [§ Failure handling (normative)](#failure-handling-normative).
-- [ ] Debounced change handling, worker pool, bounded queue / backpressure.
-- [ ] Stable **relative** `source` (no absolute paths on wire).
-- [ ] Makefile targets + help text + clean script updates.
-- [ ] README / docs snippet for operators.
+- [x] `cmd/claudia-index`: **`--config`** YAML, env-based token, watch roots (`roots` / **`--root`**), ignores (built-ins + **`ignore_extra`** + `.claudiaignore` + `.gitignore`), **no symlink follow** (YAML `follow_symlinks` exists but **`Resolve` forces false**).
+- [x] **Whole-file** ingest; **`content_hash`** as **`sha256:<hex>`** for local change detection and gateway echo.
+- [x] Gateway HTTP client: **`GET /v1/indexer/config`**, **`POST /v1/ingest`**, **`GET /v1/indexer/storage/health`** — [§ Failure handling (normative)](#failure-handling-normative) backoff + pause + recovery poll **implemented** in `internal/indexer/indexer.go`.
+- [x] Optional **`GET /health`** during recovery — **`CheckGatewayRootHealth`**; gated by **`recovery_include_root_health`** (default **true**).
+- [x] Debounced change handling (**`fsnotify`** + **`debounce_ms`**), worker pool, bounded queue / backpressure.
+- [x] Stable **relative** `source` (no absolute paths on wire).
+- [x] Makefile targets + **`scripts/print-make-help.sh`** + **`scripts/clean.sh`**.
+- [x] Operator docs: **`docs/indexer.md`** + **`config/indexer.example.yaml`** (root **`README.md`** does not yet summarize the indexer).
 
 **Indexer v0.3**
 
-- [ ] `project_id` / `flavor_id` (and `workspace_id` alias if adopted) in YAML: defaults, per-root, per-glob.
-- [ ] Send matching headers on ingest; document parity with Continue `config.yaml`.
+- [x] `project_id` / `flavor_id` / **`workspace_id`** in YAML: defaults, per-root, per-glob (`internal/indexer/scope.go`).
+- [x] Send **`X-Claudia-Project`** / **`X-Claudia-Flavor-Id`** on ingest and on default **`GET /v1/indexer/config`** fetch; documented in **`docs/indexer.md`**.
 
 **Indexer v0.4**
 
-- [ ] **Dual-mode ingest:** whole-file (Mode A) + streaming/chunked large-file path (Mode B); threshold from config or **`GET /v1/indexer/config`**.
-- [ ] Parse **ingest response** **server `content_sha256`** (name TBD); persist for reconciliation / conflict vs client hash.
-- [ ] Retry and **pause/resume** semantics extended to **chunk sessions** per open decisions.
+- [x] **Dual-mode ingest:** whole-file (Mode A) + session chunk path (Mode B); threshold from YAML and/or **`GET /v1/indexer/config`**.
+- [x] Parse **ingest response** **`content_sha256`**; persist client + server digests in **`sync_state_path`** (default **`.claudia/indexer.sync-state.json`**) for skip-if-unchanged.
+- [x] **`--one-shot`** scan mode and **`--version`**.
+- [x] **Mid-session HTTP retries:** each Mode B step (**POST** session start, **PUT** chunk, **POST** complete) uses bounded exponential backoff (`retry_*` fields) before the worker exhausts attempts and pauses.
 
 **Indexer v0.8**
 
-- [ ] Full config precedence: defaults → `~/.claudia/indexer.config.yaml` → `./.claudia/indexer.config.yaml` → flags.
+- [x] Layered YAML merge: **`~/.claudia/indexer.config.yaml`** → **`<cwd>/.claudia/indexer.config.yaml`** → **`--config`** (`LoadLayeredConfig`). CLI/env overrides unchanged.
 
 **Indexer v0.9**
 
@@ -337,11 +344,12 @@ Update `scripts/print-make-help.sh` and **clean** scripts to remove `claudia-ind
 
 **Gateway coordination (not indexer-only)**
 
-- [ ] **`POST /v1/ingest`** — **whole-file** document schema (v0.2); **server-side** chunking per existing gateway plan; accept **client** `content_hash` field and store for inventory.
-- [ ] Define **corpus state / inventory** API for startup reconciliation (**path** + **`content_hash`**).
-- [ ] Document **`GET /v1/indexer/storage/health`** (and **`GET /health`**) fields used by indexer **resume** logic.
-- [ ] **v0.4:** **Mode B** streaming/chunked ingest API; **compute and return** canonical **server SHA** on success; persist for inventory; advertise limits/capability in **`GET /v1/indexer/config`**.
+- [x] **`POST /v1/ingest`** — **whole-file** document schema (v0.2); **server-side** chunking per existing gateway plan; accept **client** `content_hash` (echoed as `client_content_hash`); authoritative **`content_sha256`** over ingested UTF-8 bytes.
+- [x] **`GET /v1/indexer/corpus/inventory`** — paginated corpus rows (**`source`**, **`content_sha256`**, optional **`client_content_hash`**); Qdrant scroll + dedupe per page; indexer client + startup skip logic.
+- [x] **`GET /v1/indexer/storage/health`** — implemented and used for **resume**; **operator-facing field reference** still thin vs “document defaults” checklist item.
+- [x] **`GET /health`** — consumed when **`recovery_include_root_health`** is true (default).
+- [x] **v0.4:** **Mode B** `POST /v1/ingest/session` + `PUT .../chunk` + `POST .../complete`; **compute and return** canonical **server SHA** on success; advertise limits in **`GET /v1/indexer/config`** (`max_whole_file_bytes`, `ingest_session_path`, path templates).
 
 ---
 
-*Plan status: **draft for implementation** — aligns with product direction in [`claudia-gateway.plan.md`](claudia-gateway.plan.md); **indexer v0.2** and **gateway v0.2** are the shared baseline for ingest; **indexer v0.4** adds dual-mode large-file ingest and **server-returned SHA** for authoritative sync state.*
+*Plan status: **implemented through v0.4 + layered YAML + recovery `/health` + Mode B per-step retries + corpus inventory REST** (indexer binary still reports **v0.4.0**) — aligns with [`claudia-gateway.plan.md`](claudia-gateway.plan.md). **Outstanding:** durable paused queue, root README blurb, smarter **session resume** after abandoning a partially uploaded session mid-flight.*
