@@ -13,6 +13,7 @@ import (
 
 	"github.com/lynn/claudia-gateway/internal/chat"
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/platform"
 	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/transform"
 	"github.com/lynn/claudia-gateway/internal/upstream"
@@ -462,7 +463,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 					}
 				} else if ctxBlock := rag.FormatRetrievedContext(hits); ctxBlock != "" {
 					if log != nil {
-						log.Info("rag context injected", "tenant", coords.TenantID,
+						log.Debug("rag context injected", "tenant", coords.TenantID,
 							"project", coords.ProjectID, "flavor", coords.FlavorID, "hits", len(hits))
 					}
 					rag.InjectSystemMessage(raw, ctxBlock)
@@ -581,9 +582,13 @@ func loggingMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// ParseLogLevel maps gateway.log_level to slog.Level.
+// ParseLogLevel maps gateway.log_level to slog.Level. "trace" is supported as
+// a level one step below DEBUG (see platform.LevelTrace) for extra-chatty
+// per-operation traces such as RAG ingest results.
 func ParseLogLevel(s string) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "trace":
+		return platform.LevelTrace
 	case "debug":
 		return slog.LevelDebug
 	case "warn", "warning":

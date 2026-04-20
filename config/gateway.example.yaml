@@ -1,10 +1,10 @@
 # Copy to `gateway.yaml` and edit. See docs/configuration.md.
 
 gateway:
-  semver: "0.1.0"
+  semver: "0.2.0"
   listen_port: 3000
   listen_host: "0.0.0.0"
-  log_level: "info"
+  log_level: "info"           # one of: trace | debug | info | warn | error
 
 upstream:
   # OpenAI-compatible upstream (BiFrost on the host).

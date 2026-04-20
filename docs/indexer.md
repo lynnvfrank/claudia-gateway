@@ -32,7 +32,9 @@ Precedence (lowest → highest): built-in defaults → file → environment
 (`CLAUDIA_GATEWAY_URL`) → CLI flags (`--gateway-url`, `--root`).
 
 ```yaml
-gateway_url: "http://127.0.0.1:8080"
+# Claudia Gateway base URL (default listen_port is 3000 in config/gateway.yaml).
+# Do not point this at BiFrost (8080) — claudia-index talks to the gateway.
+gateway_url: "http://127.0.0.1:3000"
 roots:
   - "."
 ignore_extra:

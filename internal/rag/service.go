@@ -13,10 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lynn/claudia-gateway/internal/platform"
 	"github.com/lynn/claudia-gateway/internal/rag/chunk"
 	"github.com/lynn/claudia-gateway/internal/rag/embed"
 	"github.com/lynn/claudia-gateway/internal/vectorstore"
 )
+
+// queryPreviewMax bounds the query/text excerpt included in DEBUG logs so we
+// don't echo entire prompts into the log stream.
+const queryPreviewMax = 160
 
 // Service orchestrates ingest + retrieval against a single vector store +
 // embedding client.
@@ -172,8 +177,18 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 		res.ContentHash = "sha256:" + hex.EncodeToString(sum[:])
 	}
 	if s.log != nil {
-		s.log.Info("rag ingest", "tenant", req.Coords.TenantID, "project", req.Coords.ProjectID,
-			"flavor", req.Coords.FlavorID, "source", res.Source, "chunks", res.Chunks, "collection", collection)
+		s.log.Log(ctx, platform.LevelTrace, "rag ingest",
+			"tenant", req.Coords.TenantID,
+			"project", req.Coords.ProjectID,
+			"flavor", req.Coords.FlavorID,
+			"source", res.Source,
+			"chunks", res.Chunks,
+			"collection", collection,
+			"content_hash", res.ContentHash,
+			"embed_dim", s.embedDim,
+			"embed_model", s.embedder.Model(),
+			"text_bytes", len(req.Text),
+		)
 	}
 	return res, nil
 }
@@ -198,15 +213,72 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 		k = s.topK
 	}
 	collection := vectorstore.CollectionName(req.Coords)
+	if s.log != nil {
+		s.log.Debug("rag search query",
+			"tenant", req.Coords.TenantID,
+			"project", req.Coords.ProjectID,
+			"flavor", req.Coords.FlavorID,
+			"collection", collection,
+			"top_k", k,
+			"score_threshold", s.scoreFloor,
+			"query_bytes", len(req.Query),
+			"query", previewText(req.Query),
+		)
+	}
+	embedStart := time.Now()
 	vec, err := s.embedder.EmbedOne(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	if s.log != nil {
+		s.log.Debug("rag embedding retrieved",
+			"tenant", req.Coords.TenantID,
+			"project", req.Coords.ProjectID,
+			"flavor", req.Coords.FlavorID,
+			"collection", collection,
+			"embed_dim", len(vec),
+			"embed_model", s.embedder.Model(),
+			"elapsed_ms", time.Since(embedStart).Milliseconds(),
+		)
 	}
 	hits, err := s.store.Search(ctx, collection, vec, k, s.scoreFloor, &req.Coords)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
+	if s.log != nil {
+		for i, h := range hits {
+			s.log.Debug("rag comparison",
+				"tenant", req.Coords.TenantID,
+				"project", req.Coords.ProjectID,
+				"flavor", req.Coords.FlavorID,
+				"collection", collection,
+				"rank", i+1,
+				"hits", len(hits),
+				"top_k", k,
+				"score", h.Score,
+				"score_threshold", s.scoreFloor,
+				"point_id", h.ID,
+				"source", h.Payload.Source,
+				"text", previewText(h.Payload.Text),
+			)
+		}
+	}
 	return hits, nil
+}
+
+// previewText returns a single-line, length-bounded excerpt of s suitable for
+// inclusion in DEBUG/TRACE log records.
+func previewText(s string) string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return ""
+	}
+	t = strings.ReplaceAll(t, "\r", " ")
+	t = strings.ReplaceAll(t, "\n", " ")
+	if len(t) > queryPreviewMax {
+		t = t[:queryPreviewMax] + "…"
+	}
+	return t
 }
 
 // EmbedDim is the configured embedding dimension (used by /v1/indexer/config).

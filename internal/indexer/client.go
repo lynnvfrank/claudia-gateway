@@ -71,16 +71,41 @@ func (c *GatewayClient) FetchConfig(ctx context.Context) (*IndexerConfig, error)
 	return &out, nil
 }
 
-// HealthStatus mirrors GET /v1/indexer/storage/health. The "ok" boolean is
-// the only field the resume loop consults.
+// HealthStatus mirrors GET /v1/indexer/storage/health.
+//
+// The gateway returns one of two body shapes on this endpoint:
+//
+//  1. The healthy / Qdrant-degraded shape:
+//     {"ok":true,"status":"ok"} or
+//     {"ok":false,"status":"degraded","detail":"<store error>"}
+//  2. The structured-error shape (e.g. RAG not enabled):
+//     {"error":{"message":"RAG is not enabled","type":"gateway_config"}}
+//
+// CheckHealth tolerates both. RAGDisabled is set true when the structured
+// error indicates the gateway has RAG turned off so the indexer can decide
+// whether to keep polling forever or surface a fatal configuration error.
 type HealthStatus struct {
-	OK     bool   `json:"ok"`
-	Status string `json:"status"`
-	Error  string `json:"error"`
+	OK          bool   `json:"ok"`
+	Status      string `json:"status"`
+	Detail      string `json:"detail"`
+	Message     string `json:"-"` // populated from the structured error message.
+	ErrorType   string `json:"-"` // populated from the structured error type.
+	RAGDisabled bool   `json:"-"`
+	HTTPStatus  int    `json:"-"`
+}
+
+// rawErrorEnvelope mirrors writeJSONError on the server side.
+type rawErrorEnvelope struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
 }
 
 // CheckHealth calls GET /v1/indexer/storage/health and returns the parsed
-// payload. A 200 with `ok:false` is not an error; a non-200 is.
+// payload. A 200 with `ok:false` is not an error; a non-200 with the
+// healthy/degraded shape is also not an error (so the resume loop can poll
+// forever). Truly unexpected statuses still bubble up as HTTPError.
 func (c *GatewayClient) CheckHealth(ctx context.Context) (*HealthStatus, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/v1/indexer/storage/health", "", nil, nil)
 	if err != nil {
@@ -91,14 +116,28 @@ func (c *GatewayClient) CheckHealth(ctx context.Context) (*HealthStatus, error) 
 		return nil, err
 	}
 	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	out := &HealthStatus{HTTPStatus: res.StatusCode}
+	// Try the structured-error shape first; if it parses and has a message,
+	// surface it without erroring so the caller can keep polling.
+	var env rawErrorEnvelope
+	if jerr := json.Unmarshal(body, &env); jerr == nil && env.Error.Message != "" {
+		out.OK = false
+		out.Status = "degraded"
+		out.Message = env.Error.Message
+		out.ErrorType = env.Error.Type
+		out.Detail = env.Error.Message
+		out.RAGDisabled = env.Error.Type == "gateway_config" ||
+			strings.Contains(strings.ToLower(env.Error.Message), "rag is not enabled")
+		return out, nil
+	}
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusServiceUnavailable {
-		return nil, classify(res, "/v1/indexer/storage/health")
+		return nil, &HTTPError{Path: "/v1/indexer/storage/health", Status: res.StatusCode, Body: string(body)}
 	}
-	var out HealthStatus
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode health: %w", err)
+	if err := json.Unmarshal(body, out); err != nil {
+		return nil, fmt.Errorf("decode health (status %d, body=%q): %w", res.StatusCode, truncate(string(body), 200), err)
 	}
-	return &out, nil
+	return out, nil
 }
 
 // IngestRequest is a single whole-file ingest sent as multipart/form-data per

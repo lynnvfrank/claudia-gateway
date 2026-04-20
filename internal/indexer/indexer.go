@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,11 +65,19 @@ func (ix *Indexer) SetHooks(h Hooks) { ix.hooks = h }
 func (ix *Indexer) Queue() *Queue { return ix.queue }
 
 // FetchAndLogConfig calls GET /v1/indexer/config and logs version-skew info.
-// Failures are logged but do not abort the indexer; the indexer can still
-// upload files even if the config endpoint is briefly unavailable.
+// Transient failures are logged but do not abort the indexer; a 503 caused by
+// the gateway having RAG turned off is surfaced as a fatal error so operators
+// see the actionable message instead of watching workers retry forever.
 func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error) {
 	cfg, err := ix.client.FetchConfig(ctx)
 	if err != nil {
+		var he *HTTPError
+		if errors.As(err, &he) && he.Status == 503 && strings.Contains(strings.ToLower(he.Body), "rag is not enabled") {
+			ix.log.Error("gateway has RAG disabled; nothing for the indexer to do",
+				"hint", "set rag.enabled=true in config/gateway.yaml and restart the claudia gateway",
+				"body", he.Body)
+			return nil, err
+		}
 		ix.log.Warn("fetch indexer config failed", "err", err)
 		return nil, err
 	}
@@ -223,8 +232,19 @@ func (ix *Indexer) waitForRecovery(ctx context.Context) error {
 			}
 			if err != nil {
 				ix.log.Warn("health probe failed", "err", err)
-			} else if h != nil {
-				ix.log.Warn("storage health degraded", "status", h.Status, "err", h.Error)
+				continue
+			}
+			if h != nil && h.RAGDisabled {
+				// No amount of waiting will fix this; surface a clear
+				// operator-facing message and abort recovery.
+				ix.log.Error("gateway has RAG disabled; nothing to recover",
+					"detail", h.Message, "type", h.ErrorType,
+					"hint", "set rag.enabled=true in config/gateway.yaml and restart the claudia gateway")
+				return fmt.Errorf("gateway rejects ingest: %s (%s)", h.Message, h.ErrorType)
+			}
+			if h != nil {
+				ix.log.Warn("storage health degraded",
+					"status", h.Status, "detail", h.Detail, "http_status", h.HTTPStatus)
 			}
 		}
 	}

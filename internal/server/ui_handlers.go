@@ -16,7 +16,7 @@ import (
 )
 
 // envLoginTokenName is a gateway token (same as tokens.yaml) used to skip the /ui/login form when set in the process environment.
-const envLoginTokenName = "CLAUDIA_LOGIN_TOKEN"
+const envLoginTokenName = "CLAUDIA_GATEWAY_TOKEN"
 
 func envLoginToken() string {
 	return strings.TrimSpace(os.Getenv(envLoginTokenName))

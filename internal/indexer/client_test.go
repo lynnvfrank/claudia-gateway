@@ -164,6 +164,50 @@ func TestClient_Ingest_RetryableThenSuccess(t *testing.T) {
 	}
 }
 
+func TestClient_CheckHealth_RAGDisabledStructuredError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/indexer/storage/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"message":"RAG is not enabled","type":"gateway_config"}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewGatewayClient(srv.URL, "tok", time.Second)
+	h, err := c.CheckHealth(context.Background())
+	if err != nil {
+		t.Fatalf("structured-error response should not be a hard error: %v", err)
+	}
+	if h == nil || h.OK {
+		t.Fatalf("h=%+v", h)
+	}
+	if !h.RAGDisabled {
+		t.Fatalf("expected RAGDisabled=true, got %+v", h)
+	}
+	if h.Message == "" || h.ErrorType != "gateway_config" {
+		t.Fatalf("unexpected fields: %+v", h)
+	}
+}
+
+func TestClient_CheckHealth_DegradedDetailShape(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/indexer/storage/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"object":"indexer.storage.health","status":"degraded","ok":false,"detail":"qdrant down"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewGatewayClient(srv.URL, "tok", time.Second)
+	h, err := c.CheckHealth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.OK || h.RAGDisabled || h.Detail != "qdrant down" || h.Status != "degraded" {
+		t.Fatalf("unexpected: %+v", h)
+	}
+}
+
 // Sanity: HTTPError formats and surfaces JSON status fields.
 func TestHTTPError_String(t *testing.T) {
 	e := &HTTPError{Path: "/v1/x", Status: 503, Body: `{"error":"busy"}`}

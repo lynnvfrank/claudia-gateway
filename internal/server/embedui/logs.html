@@ -254,9 +254,10 @@
     var s0 = String(raw).trim();
     if (s0 === "") return null;
     var n = parseInt(s0, 10);
-    /* Go slog JSON uses small integers (-4 DEBUG … 8 ERROR). Skip larger ints (e.g. Zap). */
+    /* Go slog JSON uses small integers (-8 TRACE, -4 DEBUG … 8 ERROR). Skip larger ints (e.g. Zap). */
     if (!isNaN(n) && String(n) === s0 && n >= -8 && n <= 12) {
-      if (n <= -4) return "DEBUG";
+      if (n <= -5) return "TRACE";
+      if (n <= -1) return "DEBUG";
       if (n < 4) return "INFO";
       if (n < 8) return "WARN";
       return "ERROR";

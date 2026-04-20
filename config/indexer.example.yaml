@@ -4,7 +4,9 @@
 #   CLAUDIA_GATEWAY_URL   (or set gateway_url below)
 #   CLAUDIA_GATEWAY_TOKEN (required; never put tokens in YAML for v0.2)
 
-gateway_url: "http://127.0.0.1:8080"
+# Claudia Gateway base URL — must match `gateway.listen_port` in
+# config/gateway.yaml (default 3000). NOT the BiFrost upstream port (8080).
+gateway_url: "http://127.0.0.1:3000"
 
 roots:
   - "."

@@ -10,12 +10,18 @@
 //
 // Environment:
 //
-//	CLAUDIA_GATEWAY_URL    base URL of the gateway (e.g. http://127.0.0.1:8080)
-//	CLAUDIA_GATEWAY_TOKEN  bearer token (required)
+//	CLAUDIA_GATEWAY_URL    base URL of the gateway (default port 3000)
+//	CLAUDIA_GATEWAY_TOKEN  bearer token; must equal a token: entry in
+//	                       config/tokens.yaml on the gateway side
+//
+// On startup the binary loads `env` and then `.env` (later wins) from the
+// current working directory, mirroring the main `claudia` binary so operators
+// can keep one secrets file for both.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -24,6 +30,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/joho/godotenv"
 	"github.com/lynn/claudia-gateway/internal/indexer"
 )
 
@@ -43,6 +50,12 @@ func main() {
 }
 
 func run() error {
+	// Load env files from cwd (missing files ignored) before reading flags so
+	// operators can stash CLAUDIA_GATEWAY_URL/_TOKEN in `.env` next to the
+	// gateway's own .env. Matches cmd/claudia behavior.
+	_ = godotenv.Load("env")
+	_ = godotenv.Load(".env")
+
 	var (
 		cfgPath     string
 		gatewayURL  string
@@ -82,6 +95,10 @@ func run() error {
 
 	ix := indexer.New(cfg, client, log)
 	if _, err := ix.FetchAndLogConfig(ctx); err != nil {
+		var he *indexer.HTTPError
+		if errors.As(err, &he) && he.Status == 503 && strings.Contains(strings.ToLower(he.Body), "rag is not enabled") {
+			return fmt.Errorf("gateway at %s has RAG disabled — set rag.enabled=true in config/gateway.yaml and restart the gateway", cfg.GatewayURL)
+		}
 		log.Warn("continuing despite config fetch failure", "err", err)
 	}
 	if _, err := ix.EnqueueInitialScan(ctx); err != nil {

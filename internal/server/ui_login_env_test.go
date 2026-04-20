@@ -12,7 +12,7 @@ import (
 
 func TestUILoginGET_autoLoginFromEnvToken(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "gw-ui-secret")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "gw-ui-secret")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
 
@@ -42,7 +42,7 @@ func TestUILoginGET_autoLoginFromEnvToken(t *testing.T) {
 
 func TestUILoginGET_autoLoginRespectsNextQuery(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "gw-ui-secret")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "gw-ui-secret")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
 
@@ -70,7 +70,7 @@ func TestUILoginGET_autoLoginRespectsNextQuery(t *testing.T) {
 
 func TestUILoginGET_badEnvTokenShowsLoginPage(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "not-a-valid-token")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "not-a-valid-token")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
 
@@ -103,7 +103,7 @@ func TestUILoginGET_badEnvTokenShowsLoginPage(t *testing.T) {
 
 func TestUILoginGET_openRedirectQuerySanitized(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "gw-ui-secret")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "gw-ui-secret")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
 
@@ -132,7 +132,7 @@ func TestUILoginGET_openRedirectQuerySanitized(t *testing.T) {
 
 func TestUILoginGET_envTokenAllowsAuthenticatedAPI(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "gw-ui-secret")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "gw-ui-secret")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
 
@@ -171,7 +171,7 @@ func TestUILoginGET_envTokenAllowsAuthenticatedAPI(t *testing.T) {
 }
 
 func TestUILoginGET_unsetEnvDoesNotRedirect(t *testing.T) {
-	t.Setenv("CLAUDIA_LOGIN_TOKEN", "")
+	t.Setenv("CLAUDIA_GATEWAY_TOKEN", "")
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
 	up := bifrostStubForUILogs(t)
 	t.Cleanup(up.Close)
