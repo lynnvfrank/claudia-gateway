@@ -30,6 +30,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/lynn/claudia-gateway/internal/indexer"
 )
@@ -71,7 +72,7 @@ func run() error {
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("claudia-index v0.4.0")
+		fmt.Println("claudia-index v0.4.1")
 		return nil
 	}
 
@@ -91,13 +92,17 @@ func run() error {
 		return err
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	runID := uuid.NewString()
+	baseLog := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log := baseLog.With("index_run_id", runID, "service", "indexer")
 	client := indexer.NewGatewayClient(cfg.GatewayURL, cfg.Token, cfg.RequestTimeout)
+	client.IndexRunID = runID
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	ix := indexer.New(cfg, client, log)
+	log.Info("indexer run start", "msg", "indexer.run.start", "roots", len(cfg.Roots))
 	if _, err := ix.FetchAndLogConfig(ctx); err != nil {
 		var he *indexer.HTTPError
 		if errors.As(err, &he) && he.Status == 503 && strings.Contains(strings.ToLower(he.Body), "rag is not enabled") {
@@ -128,6 +133,7 @@ func run() error {
 		}()
 		ix.RunWorkers(drainCtx)
 		ix.Queue().Close()
+		log.Info("indexer run done", "msg", "indexer.run.done", "mode", "one-shot")
 		return nil
 	}
 
@@ -138,5 +144,6 @@ func run() error {
 	}
 	ix.Queue().Close()
 	<-doneWorkers
+	log.Info("indexer run stopped", "msg", "indexer.run.done", "mode", "watch")
 	return nil
 }

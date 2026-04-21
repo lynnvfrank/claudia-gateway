@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 )
 
 // GatewayClient talks to the Claudia Gateway indexer-facing surface:
@@ -24,6 +26,8 @@ type GatewayClient struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+	// IndexRunID is optional; when set and valid, sent as X-Claudia-Index-Run-Id on indexer HTTP calls.
+	IndexRunID string
 }
 
 // NewGatewayClient constructs a client with a sane default timeout.
@@ -557,6 +561,9 @@ func (c *GatewayClient) newRequest(ctx context.Context, method, path, contentTyp
 	}
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if id := strings.TrimSpace(c.IndexRunID); requestid.Valid(id) {
+		req.Header.Set("X-Claudia-Index-Run-Id", id)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

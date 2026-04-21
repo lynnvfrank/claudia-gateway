@@ -109,6 +109,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 		n, errTok := tokencount.Count(string(out))
 		if errTok == nil {
 			log.Info("upstream chat relay",
+				"msg", "chat.bifrost.request",
 				"upstreamModel", upstreamModel,
 				"stream", stream,
 				"target", url,
@@ -116,6 +117,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 			)
 		} else {
 			log.Info("upstream chat relay",
+				"msg", "chat.bifrost.request",
 				"upstreamModel", upstreamModel,
 				"stream", stream,
 				"target", url,
@@ -139,7 +141,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if log != nil {
-			log.Info("upstream chat fetch failed", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
+			log.Info("upstream chat fetch failed", "msg", "chat.bifrost.error", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
 		}
 		recordUpstreamMetrics(rec, upstreamModel, http.StatusServiceUnavailable, est)
 		return ProxyResult{Status: 503, ErrMessage: err.Error()}
@@ -346,7 +348,7 @@ func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initia
 		if r.JSONBody != nil {
 			if _, retry := retryStatuses[r.Status]; retry && hasMoreFallbackCandidates(chain, i, excluded413) {
 				if log != nil {
-					log.Info("retrying next fallback model", "upstreamModel", upstreamModel, "status", r.Status, "willRetry", true)
+					log.Info("retrying next fallback model", "msg", "chat.routing.fallback", "upstreamModel", upstreamModel, "status", r.Status, "willRetry", true)
 				}
 				continue
 			}

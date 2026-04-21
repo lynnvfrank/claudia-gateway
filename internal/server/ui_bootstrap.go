@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 	"github.com/lynn/claudia-gateway/internal/tokens"
 )
 
@@ -69,7 +70,7 @@ func NewBootstrapMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay) http
 
 	mux.HandleFunc("POST /api/ui/setup/token", handleSetupTokenPOST(rt, log))
 
-	return loggingMiddleware(log, mux)
+	return requestid.Middleware(loggingMiddleware(log, mux))
 }
 
 func serveBootstrapHTML(name string) http.HandlerFunc {

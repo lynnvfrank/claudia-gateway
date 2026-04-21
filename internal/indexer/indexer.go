@@ -146,7 +146,7 @@ func (ix *Indexer) EnqueueInitialScan(ctx context.Context) (int, error) {
 			total++
 		}
 	}
-	ix.log.Info("initial scan complete", "candidates", total)
+	ix.log.Info("initial scan complete", "msg", "indexer.run.progress", "phase", "initial_scan", "candidates_enqueued", total)
 	return total, nil
 }
 

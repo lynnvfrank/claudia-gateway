@@ -60,6 +60,27 @@
     .props-table .prop-val { color: #222; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; background: #fff; }
     .props-table .prop-empty { background: #fafafa; }
     .muted { color: #888; }
+    #view-toolbar { display: flex; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; font-size: 0.8rem; }
+    #view-toolbar label { display: flex; align-items: center; gap: 0.35rem; }
+    #view-toolbar select { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 0.2rem 0.4rem; }
+    .summary-headline { line-height: 1.5; margin-bottom: 0.35rem; }
+    .summary-headline .path-em { font-weight: 700; color: #0b57d0; background: #f0f4ff; padding: 0.05rem 0.25rem; border-radius: 3px; }
+    .pill-2xx, .pill-4xx, .pill-5xx { display: inline-block; font-weight: 700; font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 4px; margin-right: 0.35rem; }
+    .pill-2xx { background: #e8f5e9; color: #1b5e20; }
+    .pill-4xx { background: #fff8e1; color: #b45309; }
+    .pill-5xx { background: #ffebee; color: #b71c1c; }
+    .shape-badge { display: inline-block; font-size: 0.68rem; font-family: ui-monospace, monospace; background: #e8eaf6; color: #3949ab; padding: 0.08rem 0.35rem; border-radius: 3px; margin-right: 0.35rem; vertical-align: middle; }
+    .story-panel { border: 1px solid #ccc; border-radius: 6px; padding: 0.65rem; margin-bottom: 0.75rem; background: #fafafa; max-height: 70vh; overflow-y: auto; }
+    .story-panel h3 { margin: 0 0 0.5rem 0; font-size: 0.95rem; }
+    .conv-card, .subsys-card { border: 1px solid #bbb; border-radius: 6px; padding: 0.5rem 0.65rem; margin: 0.5rem 0; background: #fff; }
+    .conv-card.err-head { border-color: #c62828; background: #fff5f5; }
+    .conv-card h4 { margin: 0 0 0.35rem 0; font-size: 0.85rem; }
+    .conv-meta { font-size: 0.75rem; color: #555; margin-bottom: 0.35rem; }
+    .story-events { font-size: 0.78rem; margin: 0; padding-left: 1.1rem; }
+    .story-events li { margin: 0.2rem 0; cursor: pointer; }
+    .err-badge { background: #c62828; color: #fff; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 3px; margin-left: 0.35rem; }
+    details.summary-details { margin-top: 0.35rem; font-size: 0.78rem; }
+    details.summary-details summary { cursor: pointer; color: #0b57d0; }
   </style>
 </head>
 <body>
@@ -67,6 +88,18 @@
     <span id="toolbar-extra"></span>
     <span id="status">Starting…</span>
   </div>
+  <div id="view-toolbar">
+    <label>View
+      <select id="view-mode" title="Log presentation mode">
+        <option value="detailed">Detailed</option>
+        <option value="summary">Summary</option>
+        <option value="conversations">Conversations</option>
+        <option value="subsystems">Subsystems</option>
+      </select>
+    </label>
+    <span class="hint">Summary highlights path &amp; status. Conversations / Subsystems group by tags (<code>conversation_id</code>, <code>service</code>).</span>
+  </div>
+  <div id="panel-classic">
   <div class="table-wrap">
     <table id="log-table">
       <colgroup>
@@ -88,6 +121,9 @@
       <tbody id="log-body"></tbody>
     </table>
   </div>
+  </div>
+  <div id="panel-conversations" class="story-panel" hidden></div>
+  <div id="panel-subsystems" class="story-panel" hidden></div>
   <div id="filters-bar">
     <span class="filters-heading">Filters</span>
     <div id="filters">
@@ -117,6 +153,17 @@
   var extra = document.getElementById("toolbar-extra");
   var fltApp = document.getElementById("flt-app");
   var fltLevel = document.getElementById("flt-level");
+  viewMode = loadViewMode();
+  viewModeEl = document.getElementById("view-mode");
+  if (viewModeEl) {
+    viewModeEl.value = viewMode;
+    viewModeEl.addEventListener("change", function () {
+      viewMode = viewModeEl.value || "detailed";
+      saveViewMode(viewMode);
+      applyViewLayout();
+      rebuildAllRows();
+    });
+  }
   if (embedded) {
     extra.innerHTML = '<span class="hint">Embedded in desktop shell — switch views with the tabs above.</span>';
   } else {
@@ -129,6 +176,105 @@
   var pollTimer = null;
   var started = false;
   var levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
+  var VIEW_LS = "claudia_logs_view_mode";
+  var entryCache = [];
+  var viewMode = "detailed";
+  var viewModeEl = null;
+  var storyRebuildTimer = null;
+
+  function loadViewMode() {
+    try {
+      var v = localStorage.getItem(VIEW_LS);
+      if (v === "summary" || v === "detailed" || v === "conversations" || v === "subsystems") return v;
+    } catch (x) {}
+    return "detailed";
+  }
+  function saveViewMode(v) {
+    try {
+      localStorage.setItem(VIEW_LS, v);
+    } catch (x) {}
+  }
+
+  function inferShape(flat, source, rawText) {
+    if (!flat) {
+      if (source === "qdrant" || source === "bifrost" || source === "indexer") return "service." + source;
+      return "generic";
+    }
+    var msg = String(flat.msg != null ? flat.msg : flat.message != null ? flat.message : "").toLowerCase();
+    if (msg === "http response" || (flat.method && flat.path != null && flat.statusCode !== undefined && flat.statusCode !== null))
+      return "http.access";
+    if (msg === "chat.request") return "chat.request";
+    if (msg.indexOf("chat.bifrost") === 0 || msg.indexOf("upstream chat") >= 0) return "chat.bifrost";
+    if (msg.indexOf("rag.") === 0) return "rag";
+    if (msg === "ingest.complete" || (msg.indexOf("ingest") === 0 && msg !== "ingest complete")) return "ingest";
+    if (msg.indexOf("indexer.run") === 0) return "indexer.run";
+    if (flat.service && String(flat.service) !== "gateway") return "service." + flat.service;
+    if (source === "qdrant" || source === "bifrost" || source === "indexer") return "service." + source;
+    return "generic";
+  }
+
+  function statusPillClass(code) {
+    var sc = Number(code);
+    if (isNaN(sc)) return "pill-4xx";
+    if (sc >= 500) return "pill-5xx";
+    if (sc >= 400) return "pill-4xx";
+    return "pill-2xx";
+  }
+
+  function buildHeadlineHtml(flat, shape) {
+    if (!flat) return '<span class="muted">—</span>';
+    if (shape === "http.access") {
+      var sc = flat.statusCode;
+      var auth = flat.authorization ? ' <span class="muted">' + escapeHtml(String(flat.authorization)) + "</span>" : "";
+      return (
+        '<div class="summary-headline"><span class="' +
+        statusPillClass(sc) +
+        '">' +
+        escapeHtml(String(sc)) +
+        "</span> <strong>" +
+        escapeHtml(String(flat.method || "")) +
+        '</strong> <code class="path-em">' +
+        escapeHtml(String(flat.path || "")) +
+        '</code> <span class="muted">' +
+        (flat.responseTimeMs != null ? escapeHtml(String(flat.responseTimeMs)) + " ms" : "") +
+        "</span>" +
+        auth +
+        "</div>"
+      );
+    }
+    var m = flat.msg != null ? flat.msg : flat.message != null ? flat.message : "";
+    var one = [m && String(m), flat.upstreamModel && ("model " + flat.upstreamModel), flat.source && ("source " + flat.source)]
+      .filter(Boolean)
+      .join(" · ");
+    if (!one) one = shape;
+    return '<div class="summary-headline">' + escapeHtml(one) + "</div>";
+  }
+
+  var headlineKeys = {
+    "http.access": { method: true, path: true, statusCode: true, responseTimeMs: true, authorization: true, msg: true, message: true }
+  };
+
+  function filterExtrasForSummary(shape, extras, flat) {
+    var drop = headlineKeys[shape] || null;
+    if (!drop) return extras;
+    var out = [];
+    for (var i = 0; i < extras.length; i++) {
+      if (drop[extras[i].k]) continue;
+      out.push(extras[i]);
+    }
+    return out;
+  }
+
+  function buildDetailsColumn(parsed) {
+    if (viewMode === "detailed") {
+      return buildDetailsCell(parsed.extras);
+    }
+    var shapeLabel = parsed.shape || "generic";
+    var head = '<span class="shape-badge">' + escapeHtml(shapeLabel) + "</span>" + buildHeadlineHtml(parsed.rawFlat, shapeLabel);
+    var filt = filterExtrasForSummary(shapeLabel, parsed.extras, parsed.rawFlat);
+    var inner = buildDetailsCell(filt.length ? filt : [{ k: "_", v: "—" }]);
+    return head + '<details class="summary-details"><summary>All fields</summary>' + inner + "</details>";
+  }
 
   function nearBottom() {
     var el = document.documentElement;
@@ -394,13 +540,23 @@
     }
 
     var dtCells = buildDateTimeCells(instant, entryTS);
+    var rawFlat = null;
+    if (flat) {
+      rawFlat = {};
+      for (var rk in flat) {
+        if (Object.prototype.hasOwnProperty.call(flat, rk)) rawFlat[rk] = flat[rk];
+      }
+    }
+    var shape = inferShape(rawFlat, source, text || "");
     return {
       app: source || "—",
       dtUtcHtml: dtCells.utc,
       dtLocalHtml: dtCells.local,
       levelCanon: levelCanon,
       levelLabel: displayLevelLabel(levelCanon),
-      extras: extras
+      extras: extras,
+      rawFlat: rawFlat,
+      shape: shape
     };
   }
 
@@ -445,6 +601,223 @@
   fltApp.addEventListener("change", applyFilters);
   fltLevel.addEventListener("change", applyFilters);
 
+  function applyViewLayout() {
+    var classic = document.getElementById("panel-classic");
+    var pc = document.getElementById("panel-conversations");
+    var ps = document.getElementById("panel-subsystems");
+    if (!classic || !pc || !ps) return;
+    if (viewMode === "conversations") {
+      classic.hidden = true;
+      pc.hidden = false;
+      ps.hidden = true;
+    } else if (viewMode === "subsystems") {
+      classic.hidden = true;
+      pc.hidden = true;
+      ps.hidden = false;
+    } else {
+      classic.hidden = false;
+      pc.hidden = true;
+      ps.hidden = true;
+    }
+  }
+
+  function getFlat(parsed) {
+    return parsed.rawFlat || {};
+  }
+
+  function rebuildAllRows() {
+    tbody.innerHTML = "";
+    fltApp.innerHTML = '<option value="">All</option>';
+    levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
+    for (var i = 0; i < entryCache.length; i++) {
+      var parsed = entryCache[i].parsed;
+      ensureAppOption(parsed.app);
+      if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
+      if (viewMode !== "conversations" && viewMode !== "subsystems") {
+        appendTableRow(parsed, false);
+      }
+    }
+    if (viewMode === "conversations" || viewMode === "subsystems") refreshStoryPanels();
+    applyFilters();
+  }
+
+  function refreshStoryPanels() {
+    var pc = document.getElementById("panel-conversations");
+    var ps = document.getElementById("panel-subsystems");
+    if (!pc || !ps) return;
+    if (viewMode === "conversations") pc.innerHTML = renderConversations();
+    if (viewMode === "subsystems") ps.innerHTML = renderSubsystems();
+  }
+
+  function scheduleStoryRebuild() {
+    if (storyRebuildTimer) clearTimeout(storyRebuildTimer);
+    storyRebuildTimer = setTimeout(function () {
+      storyRebuildTimer = null;
+      refreshStoryPanels();
+    }, 80);
+  }
+
+  function renderConversations() {
+    var groups = {};
+    for (var i = 0; i < entryCache.length; i++) {
+      var p = entryCache[i].parsed;
+      var f = getFlat(p);
+      var cid = f.conversation_id ? String(f.conversation_id) : "";
+      if (!cid) continue;
+      var pid = f.principal_id ? String(f.principal_id) : f.tenant ? String(f.tenant) : "";
+      if (!pid) pid = "(unknown principal)";
+      var key = pid + "\0" + cid;
+      if (!groups[key]) {
+        groups[key] = { pid: pid, cid: cid, events: [], err: 0 };
+      }
+      var g = groups[key];
+      var lvl = p.levelCanon || "";
+      if (lvl === "ERROR" || lvl === "WARN") g.err++;
+      var sc = Number(f.statusCode);
+      if (!isNaN(sc) && sc >= 400) g.err++;
+      g.events.push({ parsed: p, text: entryCache[i].text || "" });
+    }
+    var keys = Object.keys(groups);
+    if (!keys.length) {
+      return '<p class="muted">No <code>conversation_id</code> yet. Traffic from <code>POST /v1/chat/completions</code> after gateway Phase B will appear here.</p>';
+    }
+    keys.sort();
+    var html = "<h3>By principal · conversation</h3>";
+    for (var j = 0; j < keys.length; j++) {
+      var g = groups[keys[j]];
+      var errClass = g.err > 0 ? "conv-card err-head" : "conv-card";
+      var show = g.events.slice(-5);
+      var hidden = g.events.length - show.length;
+      var evHtml = "<ul class=\"story-events\">";
+      for (var k = 0; k < show.length; k++) {
+        var ev = show[k];
+        var rf = getFlat(ev.parsed);
+        var one = (rf.msg && String(rf.msg)) || (ev.text || "").slice(0, 140);
+        evHtml += "<li>" + escapeHtml(one) + "</li>";
+      }
+      evHtml += "</ul>";
+      var more =
+        hidden > 0
+          ? '<p class="muted">' + hidden + " earlier events in buffer — switch to <strong>Detailed</strong> for the full table.</p>"
+          : "";
+      html +=
+        "<div class=\"" +
+        errClass +
+        '"><h4>' +
+        escapeHtml(g.pid) +
+        ' <span class="muted">·</span> <code>' +
+        escapeHtml(g.cid) +
+        "</code>" +
+        (g.err ? '<span class="err-badge">' + g.err + " issues</span>" : "") +
+        "</h4><div class=\"conv-meta\">Events: " +
+        g.events.length +
+        "</div>" +
+        evHtml +
+        more +
+        "</div>";
+    }
+    return html;
+  }
+
+  function renderSubsystems() {
+    var buckets = { gateway: [], qdrant: [], bifrost: [], indexer: [] };
+    for (var i = 0; i < entryCache.length; i++) {
+      var ent = entryCache[i];
+      var p = ent.parsed;
+      var f = getFlat(p);
+      var svc = f.service ? String(f.service) : "";
+      if (!buckets[svc]) {
+        svc = ent.source || "gateway";
+        if (!buckets[svc]) svc = "gateway";
+      }
+      buckets[svc].push(ent);
+    }
+    var order = ["gateway", "qdrant", "bifrost", "indexer"];
+    var html = "<h3>Subsystem activity</h3>";
+    for (var j = 0; j < order.length; j++) {
+      var name = order[j];
+      var arr = buckets[name];
+      var err = 0;
+      for (var k = 0; k < arr.length; k++) {
+        var p = arr[k].parsed;
+        if (p.levelCanon === "ERROR" || p.levelCanon === "WARN") err++;
+        var sc = Number(getFlat(p).statusCode);
+        if (!isNaN(sc) && sc >= 400) err++;
+      }
+      var last = arr.length ? arr[arr.length - 1] : null;
+      var lastMsg = "";
+      if (last) {
+        var rf = getFlat(last.parsed);
+        lastMsg = (rf.msg && String(rf.msg)) || (last.text || "").slice(0, 120);
+      }
+      var cardClass = err > 0 ? "subsys-card err-head" : "subsys-card";
+      var show = arr.slice(-8);
+      var lines = "";
+      for (var m = 0; m < show.length; m++) {
+        var p2 = show[m].parsed;
+        var f2 = getFlat(p2);
+        var line = (f2.msg && String(f2.msg)) || (show[m].text || "").slice(0, 120);
+        lines += "<li>" + escapeHtml(line) + "</li>";
+      }
+      html +=
+        "<div class=\"" +
+        cardClass +
+        '"><h4>' +
+        escapeHtml(name) +
+        (err ? '<span class="err-badge">' + err + "</span>" : "") +
+        "</h4><div class=\"conv-meta\">Events: " +
+        arr.length +
+        "</div><p class=\"conv-meta\">Last: " +
+        escapeHtml(lastMsg) +
+        '</p><ul class="story-events">' +
+        lines +
+        "</ul></div>";
+    }
+    return html;
+  }
+
+  function appendTableRow(parsed, follow) {
+    var tr = document.createElement("tr");
+    tr.dataset.app = parsed.app;
+    tr.dataset.level = parsed.levelCanon || "";
+    var lvlClass = "lvl-none";
+    if (parsed.levelCanon) {
+      var safe = String(parsed.levelCanon).replace(/[^A-Z0-9_-]/gi, "");
+      if (safe) lvlClass = "lvl-" + safe;
+    }
+    tr.innerHTML =
+      '<td class="col-app">' +
+      escapeHtml(parsed.app) +
+      "</td>" +
+      '<td class="col-dt col-dt-utc">' +
+      parsed.dtUtcHtml +
+      "</td>" +
+      '<td class="col-dt col-dt-local">' +
+      parsed.dtLocalHtml +
+      "</td>" +
+      '<td class="col-lvl ' +
+      lvlClass +
+      '">' +
+      escapeHtml(parsed.levelLabel) +
+      "</td>" +
+      '<td class="col-details">' +
+      buildDetailsColumn(parsed) +
+      "</td>";
+    if (!rowMatchesFilter(tr)) tr.style.display = "none";
+    tbody.appendChild(tr);
+    while (tbody.children.length > 5000) {
+      var first = tbody.firstChild;
+      var removedH = first.offsetHeight;
+      tbody.removeChild(first);
+      if (!follow && removedH) {
+        window.scrollTo(0, Math.max(0, window.scrollY - removedH));
+      }
+    }
+    if (follow) {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    }
+  }
+
   function buildDetailsCell(extras) {
     if (!extras.length) return '<span class="muted">—</span>';
     // Use a 4-column grid (key | value | key | value) so multi-field structured logs stay dense.
@@ -476,40 +849,23 @@
     maxSeq = e.seq;
     var follow = nearBottom();
     var parsed = parseLogText(e.source, e.text || "", e.ts);
+    entryCache.push({
+      seq: e.seq,
+      source: e.source,
+      text: e.text || "",
+      ts: e.ts,
+      parsed: parsed
+    });
+    while (entryCache.length > 5000) entryCache.shift();
+
+    if (viewMode === "conversations" || viewMode === "subsystems") {
+      scheduleStoryRebuild();
+      if (follow) window.scrollTo(0, document.documentElement.scrollHeight);
+      return;
+    }
     ensureAppOption(parsed.app);
     if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
-
-    var tr = document.createElement("tr");
-    tr.dataset.app = parsed.app;
-    tr.dataset.level = parsed.levelCanon || "";
-
-    var lvlClass = "lvl-none";
-    if (parsed.levelCanon) {
-      var safe = String(parsed.levelCanon).replace(/[^A-Z0-9_-]/gi, "");
-      if (safe) lvlClass = "lvl-" + safe;
-    }
-
-    tr.innerHTML =
-      "<td class=\"col-app\">" + escapeHtml(parsed.app) + "</td>" +
-      "<td class=\"col-dt col-dt-utc\">" + parsed.dtUtcHtml + "</td>" +
-      "<td class=\"col-dt col-dt-local\">" + parsed.dtLocalHtml + "</td>" +
-      "<td class=\"col-lvl " + lvlClass + "\">" + escapeHtml(parsed.levelLabel) + "</td>" +
-      "<td class=\"col-details\">" + buildDetailsCell(parsed.extras) + "</td>";
-
-    if (!rowMatchesFilter(tr)) tr.style.display = "none";
-    tbody.appendChild(tr);
-
-    while (tbody.children.length > 5000) {
-      var first = tbody.firstChild;
-      var removedH = first.offsetHeight;
-      tbody.removeChild(first);
-      if (!follow && removedH) {
-        window.scrollTo(0, Math.max(0, window.scrollY - removedH));
-      }
-    }
-    if (follow) {
-      window.scrollTo(0, document.documentElement.scrollHeight);
-    }
+    appendTableRow(parsed, follow);
   }
 
   function applyPollPayload(data) {
@@ -624,6 +980,7 @@
   } else {
     startStreaming();
   }
+  applyViewLayout();
 })();
   </script>
 </body>

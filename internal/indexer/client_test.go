@@ -329,3 +329,24 @@ func TestClient_IngestChunked_RetriesChunkPUT(t *testing.T) {
 		t.Fatalf("expected at least one retried chunk PUT, got %d calls", n)
 	}
 }
+
+func TestClient_IndexRunIDHeader(t *testing.T) {
+	var saw string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/indexer/config", func(w http.ResponseWriter, r *http.Request) {
+		saw = r.Header.Get("X-Claudia-Index-Run-Id")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"gateway_version":"v0.2","embedding_model":"m","embedding_dim":8,"chunk_size":512,"chunk_overlap":128,"ingest_path":"/v1/ingest","max_ingest_bytes":1024}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := NewGatewayClient(srv.URL, "tok", 5*time.Second)
+	c.IndexRunID = "run-test-1"
+	_, err := c.FetchConfig(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saw != "run-test-1" {
+		t.Fatalf("header: %q", saw)
+	}
+}
