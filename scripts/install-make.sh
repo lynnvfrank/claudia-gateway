@@ -116,7 +116,7 @@ install_make_main() {
 			cmdexe="${WINDIR:-C:/Windows}/System32/cmd.exe"
 			cmdexe="${cmdexe//\\//}"
 			[[ -f "$cmdexe" ]] || cmdexe="/c/Windows/System32/cmd.exe"
-			if [[ -f "$cmdexe" ]] && run "$cmdexe" //c "winget install -e --id GnuWin32.Make --accept-package-agreements --accept-source-agreements --disable-interactivity"; then
+			if [[ -f "$cmdexe" ]] && run "$cmdexe" //c "winget install -e --id \"GnuWin32.Make\" --accept-package-agreements --accept-source-agreements --disable-interactivity"; then
 				winget_ok=1
 			fi
 		fi
