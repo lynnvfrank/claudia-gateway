@@ -26,6 +26,31 @@ if ! command -v "$MAKE_BIN" >/dev/null 2>&1; then
 	exit 1
 fi
 
+# BiFrost's Makefile runs $(MAKE) inside /bin/sh lines without quoting. If GNU make's
+# argv0 / MAKE is under "Program Files (x86)" etc., '(' breaks the shell. Shorten
+# to a mixed 8.3 path (Git Bash / MSYS cygpath -m -s) and export so recursive $(MAKE) is safe.
+_make_short_for_bifrost() {
+	local bin="$1" resolved short
+	resolved="$(command -v "$bin" 2>/dev/null || true)"
+	[[ -z "$resolved" ]] && resolved="$bin"
+	if [[ "$resolved" != *" "* && "$resolved" != *"("* && "$resolved" != *")"* ]]; then
+		printf '%s\n' "$resolved"
+		return 0
+	fi
+	if command -v cygpath >/dev/null 2>&1; then
+		short="$(cygpath -m -s "$resolved" 2>/dev/null || true)"
+		if [[ -n "$short" ]]; then
+			printf '%s\n' "$short"
+			return 0
+		fi
+	fi
+	echo "install-bootstrap: GNU make lives at a path with spaces/parentheses; cygpath could not shorten it." >&2
+	echo "install-bootstrap: try MSYS2 make, or put make.exe on PATH from a directory without spaces (see docs/installation.md)." >&2
+	printf '%s\n' "$resolved"
+}
+MAKE_BIN="$(_make_short_for_bifrost "$MAKE_BIN")"
+export MAKE="$MAKE_BIN"
+
 echo "==> BiFrost @ $BIFROST_GIT_REF from $BIFROST_GIT_URL -> $BIFROST_DIR"
 if [[ ! -d "$BIFROST_DIR/.git" ]]; then
 	git clone "$BIFROST_GIT_URL" "$BIFROST_DIR"

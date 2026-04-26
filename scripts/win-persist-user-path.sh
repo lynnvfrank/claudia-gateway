@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Append one MSYS-style directory to the Windows *User* PATH if missing (registry / environment).
 # Safe to source from Git Bash / MSYS; no-op on Linux/macOS.
-# Paths with single quotes may break the PowerShell invocation; typical Program Files paths are fine.
+# Embedded single quotes in the Windows path are doubled for PowerShell's single-quoted literal.
 win_persist_user_path_dir() {
 	local msys_dir="${1//$'\r'/}"
 	msys_dir="${msys_dir//\\//}"
@@ -15,8 +15,10 @@ win_persist_user_path_dir() {
 		winpath="$(cygpath -w "$msys_dir" 2>/dev/null || true)"
 	fi
 	[[ -n "${winpath:-}" ]] || return 0
+	# PowerShell single-quoted literal: escape embedded ' as ''
+	local ps_path="${winpath//\'/\'\'}"
 	powershell.exe -NoProfile -Command "
-		\$d = '$winpath'
+		\$d = '$ps_path'
 		if (-not (Test-Path -LiteralPath \$d)) { exit 0 }
 		\$cur = [Environment]::GetEnvironmentVariable('Path', 'User')
 		if (-not \$cur) { \$cur = '' }

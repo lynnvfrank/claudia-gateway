@@ -127,7 +127,7 @@ main() {
 				cmdexe="${cmdexe//\\//}"
 				[[ -f "$cmdexe" ]] || cmdexe="/c/Windows/System32/cmd.exe"
 				[[ -f "$cmdexe" ]] || return 1
-				out="$("$cmdexe" //c "winget list -e --id $id --disable-interactivity 2>nul")" || true
+				out="$("$cmdexe" //c "winget list -e --id \"$id\" --disable-interactivity 2>nul")" || true
 			fi
 			[[ -n "${out//[[:space:]]/}" ]] || return 1
 			echo "$out" | grep -qiE 'no installed package found|no packages found|no matching package|no installed package matches' && return 1
@@ -175,7 +175,7 @@ main() {
 				cmdexe="${cmdexe//\\//}"
 				[[ -f "$cmdexe" ]] || cmdexe="/c/Windows/System32/cmd.exe"
 				if [[ -f "$cmdexe" ]]; then
-					if run "$cmdexe" //c "winget install -e --id $id --accept-package-agreements --accept-source-agreements --disable-interactivity"; then
+					if run "$cmdexe" //c "winget install -e --id \"$id\" --accept-package-agreements --accept-source-agreements --disable-interactivity"; then
 						return 0
 					fi
 				fi
