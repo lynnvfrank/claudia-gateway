@@ -46,7 +46,7 @@ func TestIndexerConfig_HappyPath(t *testing.T) {
 		t.Fatalf("expected v0.4 indexer fields: %+v", doc)
 	}
 	hdrs, _ := doc["optional_headers"].([]any)
-	if len(hdrs) != 2 {
+	if len(hdrs) != 3 {
 		t.Fatalf("optional_headers: %+v", hdrs)
 	}
 }

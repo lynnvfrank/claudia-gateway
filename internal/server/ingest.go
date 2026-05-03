@@ -72,16 +72,19 @@ func handleV1Ingest(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		indexRun = ""
 	}
 
+	rid := requestid.FromContext(r.Context())
 	result, err := rt.RAG().Ingest(r.Context(), rag.IngestRequest{
 		Coords:      coords,
 		Source:      source,
 		Text:        text,
 		ContentHash: contentHash,
+		RequestID:   rid,
+		IndexRunID:  indexRun,
 	})
 	if err != nil {
 		if log != nil {
 			args := []any{"tenant", sess.TenantID, "source", source, "err", err, "service", "gateway", "principal_id", sess.TenantID}
-			if rid := requestid.FromContext(r.Context()); rid != "" {
+			if rid != "" {
 				args = append(args, "request_id", rid)
 			}
 			if indexRun != "" {
@@ -114,7 +117,7 @@ func handleV1Ingest(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 			"tenant", sess.TenantID, "source", source, "chunks", result.Chunks,
 			"service", "gateway", "principal_id", sess.TenantID,
 		}
-		if rid := requestid.FromContext(r.Context()); rid != "" {
+		if rid != "" {
 			args = append(args, "request_id", rid)
 		}
 		if indexRun != "" {

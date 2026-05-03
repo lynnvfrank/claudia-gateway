@@ -75,6 +75,20 @@ metrics:
   # sqlite_path: "../data/gateway/metrics.sqlite"
   # migrations_dir: "../migrations/gateway"
 
+# Merge chat sessions per tenant + X-Claudia-Project / X-Claudia-Flavor when the client omits
+# X-Claudia-Conversation-Id, using embeddings (rag.embedding) + SQLite state. Requires metrics.enabled.
+# conversation_merge:
+#   enabled: true
+#   match_threshold: 0.75
+#   recent_window_minutes: 10
+#   candidate_limit: 32
+#   max_idle_hours: 168
+#   # When enabled, defaults attach follow-ups to the latest session within 45m if cosine ≥ 0.18
+#   # or the user message is short (≤220 runes). Set session_attach_minutes: 0 to disable only sticky attach.
+#   # session_attach_minutes: 45
+#   # session_attach_min_cosine: 0.18
+#   # session_short_follow_up_runes: 220
+
 # v0.2 Retrieval-Augmented Generation. When enabled, the virtual Claudia model
 # performs Qdrant retrieval before chat; POST /v1/ingest, GET /v1/indexer/*,
 # and the /health Qdrant probe are activated. See docs/version-v0.2.md.

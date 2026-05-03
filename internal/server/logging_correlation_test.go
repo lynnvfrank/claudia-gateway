@@ -32,19 +32,17 @@ func TestLoggingMiddleware_emitsRequestID(t *testing.T) {
 	}
 }
 
-func TestConversationIDForChat_header(t *testing.T) {
+func TestOptionalConversationIDFromHeader_set(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	r.Header.Set(headerConversationID, "sess-abc-1")
-	if got := conversationIDForChat(r); got != "sess-abc-1" {
+	if got := optionalConversationIDFromHeader(r); got != "sess-abc-1" {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestConversationIDForChat_generates(t *testing.T) {
+func TestOptionalConversationIDFromHeader_empty(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	a := conversationIDForChat(r)
-	b := conversationIDForChat(r)
-	if a == "" || a == b {
-		t.Fatalf("expected distinct uuids: %q %q", a, b)
+	if got := optionalConversationIDFromHeader(r); got != "" {
+		t.Fatalf("got %q want empty", got)
 	}
 }

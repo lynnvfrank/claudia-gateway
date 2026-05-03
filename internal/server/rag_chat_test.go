@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/vectorstore"
 )
@@ -98,6 +99,35 @@ func (c *capturedReqs) snapshot() [][]byte {
 	out := make([][]byte, len(c.bodies))
 	copy(out, c.bodies)
 	return out
+}
+
+func TestV1Chat_echoesCorrelationHeaders(t *testing.T) {
+	url, _, _ := setupRAGChatServer(t)
+	body := `{"model":"Claudia-0.2.0","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	req, err := http.NewRequest(http.MethodPost, url+"/v1/chat/completions", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer rag-tok")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerConversationID, "client-conv-1")
+	req.Header.Set(requestid.HeaderName, "req-hdr-1")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d %s", res.StatusCode, b)
+	}
+	if got := res.Header.Get(headerConversationID); got != "client-conv-1" {
+		t.Fatalf("conversation header: got %q", got)
+	}
+	if got := res.Header.Get(requestid.HeaderName); got != "req-hdr-1" {
+		t.Fatalf("request id header: got %q", got)
+	}
 }
 
 func TestVirtualModelChat_InjectsRetrievedContext(t *testing.T) {

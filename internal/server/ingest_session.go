@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/vectorstore"
 )
@@ -32,6 +33,7 @@ type ingestSession struct {
 	coords     vectorstore.Coords
 	source     string
 	clientHash string
+	indexRunID string
 	buf        bytes.Buffer
 	nextChunk  int
 	maxTotal   int64
@@ -114,10 +116,15 @@ func handleV1IngestSessionStart(w http.ResponseWriter, r *http.Request, rt *Runt
 		writeJSONError(w, http.StatusInternalServerError, "session id", "internal")
 		return
 	}
+	indexRun := strings.TrimSpace(r.Header.Get(headerIndexRun))
+	if indexRun != "" && !requestid.Valid(indexRun) {
+		indexRun = ""
+	}
 	rec := &ingestSession{
 		tenantID:   sess.TenantID,
 		source:     source,
 		clientHash: strings.TrimSpace(body.ContentHash),
+		indexRunID: indexRun,
 		maxTotal:   maxTotal,
 		maxChunk:   maxChunk,
 		createdAt:  time.Now(),
@@ -296,18 +303,33 @@ func handleIngestSessionComplete(w http.ResponseWriter, r *http.Request, rt *Run
 	source := rec.source
 	clientHash := rec.clientHash
 	coords := rec.coords
+	indexRunID := rec.indexRunID
 	delete(store.sessions, id)
 	store.mu.Unlock()
 
+	rid := requestid.FromContext(r.Context())
 	result, err := rt.RAG().Ingest(r.Context(), rag.IngestRequest{
 		Coords:      coords,
 		Source:      source,
 		Text:        text,
 		ContentHash: clientHash,
+		RequestID:   rid,
+		IndexRunID:  indexRunID,
 	})
 	if err != nil {
 		if log != nil {
-			log.Error("chunked ingest failed", "tenant", sess.TenantID, "source", source, "err", err)
+			args := []any{
+				"msg", "ingest.chunked.error",
+				"tenant", sess.TenantID, "source", source, "err", err,
+				"service", "gateway", "principal_id", sess.TenantID,
+			}
+			if rid != "" {
+				args = append(args, "request_id", rid)
+			}
+			if indexRunID != "" {
+				args = append(args, "index_run_id", indexRunID)
+			}
+			log.Error("chunked ingest failed", args...)
 		}
 		writeJSONError(w, http.StatusBadGateway, err.Error(), "gateway_upstream")
 		return
@@ -327,6 +349,20 @@ func handleIngestSessionComplete(w http.ResponseWriter, r *http.Request, rt *Run
 	}
 	if result.ClientContentHash != "" {
 		out["client_content_hash"] = result.ClientContentHash
+	}
+	if log != nil {
+		args := []any{
+			"msg", "ingest.complete",
+			"tenant", sess.TenantID, "source", source, "chunks", result.Chunks,
+			"service", "gateway", "principal_id", sess.TenantID,
+		}
+		if rid != "" {
+			args = append(args, "request_id", rid)
+		}
+		if indexRunID != "" {
+			args = append(args, "index_run_id", indexRunID)
+		}
+		log.Info("ingest complete", args...)
 	}
 	_ = json.NewEncoder(w).Encode(out)
 }

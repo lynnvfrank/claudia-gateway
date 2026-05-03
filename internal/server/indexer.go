@@ -44,7 +44,7 @@ func handleIndexerConfig(w http.ResponseWriter, r *http.Request, rt *Runtime, _ 
 		"ingest_complete_path_tpl": "/v1/ingest/session/{session_id}/complete",
 		"corpus_inventory_path":    "/v1/indexer/corpus/inventory",
 		"required_headers":         []string{"Authorization"},
-		"optional_headers":         []string{headerProject, headerFlavor},
+		"optional_headers":         []string{headerProject, headerFlavor, headerIndexRun},
 		"payload_fields": []string{
 			"tenant_id", "project_id", "text", "source", "flavor_id", "created_at",
 			"content_sha256", "client_content_hash",

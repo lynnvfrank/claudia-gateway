@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -50,7 +51,7 @@ func TestApplyToolRouter_disabled_noop(t *testing.T) {
 	body := map[string]json.RawMessage{
 		"tools": json.RawMessage(`[{"type":"function","function":{"name":"x","description":""}}]`),
 	}
-	out := ApplyToolRouter(t.Context(), body, Config{Enabled: false, RouterModels: []string{"m"}})
+	out := ApplyToolRouter(context.Background(), body, Config{Enabled: false, RouterModels: []string{"m"}})
 	if out["tools"] == nil || string(out["tools"]) != string(body["tools"]) {
 		t.Fatal("expected unchanged")
 	}

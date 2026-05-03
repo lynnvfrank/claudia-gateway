@@ -94,6 +94,10 @@ type IngestRequest struct {
 	Source      string // relative path or document key
 	Text        string
 	ContentHash string // optional, client-supplied
+	// Optional HTTP correlation (gateway sets these from inbound requests).
+	RequestID      string
+	ConversationID string
+	IndexRunID     string
 }
 
 // IngestResult summarizes what was written.
@@ -151,7 +155,7 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 	// Re-ingest is upsert: delete old points for this source first, then
 	// upsert. Errors from delete on a fresh collection are tolerated.
 	if err := s.store.DeleteBySource(ctx, collection, res.Source); err != nil && s.log != nil {
-		s.log.Debug("delete-by-source pre-ingest failed (likely empty collection)", "source", res.Source, "err", err)
+		s.log.Debug("delete-by-source pre-ingest failed (likely empty collection)", "source", res.Source, "err", err, "service", "gateway")
 	}
 
 	sum := sha256.Sum256([]byte(req.Text))
@@ -184,7 +188,8 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 	res.ContentSHA256 = serverHash
 	res.ContentHash = serverHash
 	if s.log != nil {
-		s.log.Log(ctx, platform.LevelTrace, "rag ingest",
+		args := []any{
+			"msg", "rag.ingest.trace",
 			"tenant", req.Coords.TenantID,
 			"project", req.Coords.ProjectID,
 			"flavor", req.Coords.FlavorID,
@@ -195,7 +200,9 @@ func (s *Service) Ingest(ctx context.Context, req IngestRequest) (IngestResult, 
 			"embed_dim", s.embedDim,
 			"embed_model", s.embedder.Model(),
 			"text_bytes", len(req.Text),
-		)
+		}
+		args = appendGatewayCorrelation(args, req.RequestID, req.ConversationID, req.IndexRunID)
+		s.log.Log(ctx, platform.LevelTrace, "rag ingest", args...)
 	}
 	return res, nil
 }
@@ -205,6 +212,9 @@ type RetrieveRequest struct {
 	Coords vectorstore.Coords
 	Query  string
 	TopK   int // <= 0 uses Service default
+	// Optional correlation from the gateway chat handler.
+	RequestID      string
+	ConversationID string
 }
 
 // Retrieve embeds the query then runs a top-k search filtered by coords.
@@ -221,7 +231,8 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 	}
 	collection := vectorstore.CollectionName(req.Coords)
 	if s.log != nil {
-		s.log.Debug("rag search query",
+		args := []any{
+			"msg", "rag.query",
 			"tenant", req.Coords.TenantID,
 			"project", req.Coords.ProjectID,
 			"flavor", req.Coords.FlavorID,
@@ -230,7 +241,9 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 			"score_threshold", s.scoreFloor,
 			"query_bytes", len(req.Query),
 			"query", previewText(req.Query),
-		)
+		}
+		args = appendGatewayCorrelation(args, req.RequestID, req.ConversationID, "")
+		s.log.Debug("rag search query", args...)
 	}
 	embedStart := time.Now()
 	vec, err := s.embedder.EmbedOne(ctx, req.Query)
@@ -238,7 +251,8 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 	if s.log != nil {
-		s.log.Debug("rag embedding retrieved",
+		args := []any{
+			"msg", "rag.embed",
 			"tenant", req.Coords.TenantID,
 			"project", req.Coords.ProjectID,
 			"flavor", req.Coords.FlavorID,
@@ -246,7 +260,9 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 			"embed_dim", len(vec),
 			"embed_model", s.embedder.Model(),
 			"elapsed_ms", time.Since(embedStart).Milliseconds(),
-		)
+		}
+		args = appendGatewayCorrelation(args, req.RequestID, req.ConversationID, "")
+		s.log.Debug("rag embedding retrieved", args...)
 	}
 	hits, err := s.store.Search(ctx, collection, vec, k, s.scoreFloor, &req.Coords)
 	if err != nil {
@@ -254,12 +270,13 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 	}
 	if s.log != nil {
 		for i, h := range hits {
-			s.log.Debug("rag comparison",
+			args := []any{
+				"msg", "rag.hit",
 				"tenant", req.Coords.TenantID,
 				"project", req.Coords.ProjectID,
 				"flavor", req.Coords.FlavorID,
 				"collection", collection,
-				"rank", i+1,
+				"rank", i + 1,
 				"hits", len(hits),
 				"top_k", k,
 				"score", h.Score,
@@ -267,10 +284,26 @@ func (s *Service) Retrieve(ctx context.Context, req RetrieveRequest) ([]vectorst
 				"point_id", h.ID,
 				"source", h.Payload.Source,
 				"text", previewText(h.Payload.Text),
-			)
+			}
+			args = appendGatewayCorrelation(args, req.RequestID, req.ConversationID, "")
+			s.log.Debug("rag comparison", args...)
 		}
 	}
 	return hits, nil
+}
+
+func appendGatewayCorrelation(args []any, requestID, conversationID, indexRunID string) []any {
+	if requestID != "" {
+		args = append(args, "request_id", requestID)
+	}
+	if conversationID != "" {
+		args = append(args, "conversation_id", conversationID)
+	}
+	if indexRunID != "" {
+		args = append(args, "index_run_id", indexRunID)
+	}
+	args = append(args, "service", "gateway")
+	return args
 }
 
 // previewText returns a single-line, length-bounded excerpt of s suitable for

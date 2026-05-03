@@ -29,13 +29,18 @@ func WithContext(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, ctxKey{}, id)
 }
 
+// HeaderName is the canonical HTTP header for the request correlation id.
+const HeaderName = "X-Request-ID"
+
 // Middleware assigns X-Request-ID when present and valid, otherwise generates a UUID.
+// It always echoes the resolved id on the response so clients can tie logs to responses.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		id := strings.TrimSpace(r.Header.Get(HeaderName))
 		if !Valid(id) {
 			id = uuid.NewString()
 		}
+		w.Header().Set(HeaderName, id)
 		next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), id)))
 	})
 }

@@ -25,10 +25,13 @@ func TestMiddleware_usesHeaderWhenValid(t *testing.T) {
 	}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Request-ID", "client-req-1")
+	req.Header.Set(HeaderName, "client-req-1")
 	h.ServeHTTP(rec, req)
 	if got != "client-req-1" {
 		t.Fatalf("got %q", got)
+	}
+	if rec.Header().Get(HeaderName) != "client-req-1" {
+		t.Fatalf("response header: got %q", rec.Header().Get(HeaderName))
 	}
 }
 
@@ -41,6 +44,9 @@ func TestMiddleware_generatesUUID(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if got == "" || len(got) < 8 {
 		t.Fatalf("expected generated id, got %q", got)
+	}
+	if rec.Header().Get(HeaderName) != got {
+		t.Fatalf("response header want %q got %q", got, rec.Header().Get(HeaderName))
 	}
 }
 

@@ -50,7 +50,7 @@ func TestProxyChatCompletion_recordsMetrics(t *testing.T) {
 		"stream":   json.RawMessage(`false`),
 	}
 	w := httptest.NewRecorder()
-	_ = ProxyChatCompletion(context.Background(), w, up.URL, "", "groq/llama-3.3-70b-versatile", false, body, time.Minute, nil, st, nil)
+	_ = ProxyChatCompletion(context.Background(), w, up.URL, "", "groq/llama-3.3-70b-versatile", false, body, time.Minute, nil, st, nil, nil)
 
 	var calls int
 	q := `SELECT calls FROM upstream_rollup_minute WHERE provider='groq' AND model_id='groq/llama-3.3-70b-versatile' AND status=200 ORDER BY minute_utc DESC LIMIT 1`

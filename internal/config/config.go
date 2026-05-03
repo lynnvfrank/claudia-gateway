@@ -54,6 +54,10 @@ type Resolved struct {
 	// RAG holds gateway v0.2 retrieval-augmented-generation settings; RAG.Enabled
 	// gates ingest, indexer REST, retrieval, and the /health Qdrant probe.
 	RAG RAG
+
+	// ConversationMerge joins chat requests into one logical conversation_id per tenant
+	// and RAG scope using embeddings + similarity (requires metrics SQLite + embeddings API).
+	ConversationMerge ConversationMerge
 }
 
 type upstreamBlock struct {
@@ -98,6 +102,8 @@ type gatewayDoc struct {
 		MigrationsDir string `yaml:"migrations_dir"`
 	} `yaml:"metrics"`
 	RAG ragDoc `yaml:"rag"`
+
+	ConversationMerge conversationMergeDoc `yaml:"conversation_merge"`
 }
 
 const (
@@ -293,6 +299,14 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		rag = RAG{Enabled: false}
 	}
 
+	mergeCfg := conversationMergeEffective(doc.ConversationMerge)
+	if mergeCfg.Enabled && !metricsEnabled {
+		if log != nil {
+			log.Warn("conversation_merge.enabled requires metrics.enabled; disabling conversation merge")
+		}
+		mergeCfg.Enabled = false
+	}
+
 	if log != nil {
 		log.Debug("resolved gateway config paths", "filePath", filePath, "tokensPath", tokensPath, "routingPolicyPath", routingPath)
 	}
@@ -325,6 +339,7 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		ToolRouterEnabled:             toolRouterOn,
 		ToolRouterConfidenceThreshold: toolThresh,
 		RAG:                           rag,
+		ConversationMerge:             mergeCfg,
 	}, nil
 }
 
