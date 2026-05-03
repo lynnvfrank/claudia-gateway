@@ -61,7 +61,7 @@ providers:
 		"messages": json.RawMessage(`[{"role":"user","content":"hi"}]`),
 	}
 	w := httptest.NewRecorder()
-	pr := ProxyChatCompletion(context.Background(), w, up.URL, "", "groq/x", false, body, time.Minute, nil, nil, guard)
+	pr := ProxyChatCompletion(context.Background(), w, up.URL, "", "groq/x", false, body, time.Minute, nil, nil, guard, nil)
 	if sawUpstream {
 		t.Fatal("upstream should not be called when limits deny")
 	}
@@ -117,7 +117,7 @@ providers:
 	}
 	w := httptest.NewRecorder()
 	chain := []string{"groq/exhausted", "groq/ok"}
-	WithVirtualModelFallback(context.Background(), w, "groq/exhausted", chain, up.URL, "", false, body, time.Minute, nil, nil, guard)
+	WithVirtualModelFallback(context.Background(), w, "groq/exhausted", chain, up.URL, "", false, body, time.Minute, nil, nil, guard, nil)
 
 	if lastModel != "groq/ok" {
 		t.Fatalf("upstream should see second model, got %q", lastModel)
@@ -151,7 +151,7 @@ providers:
 	}
 	body := map[string]json.RawMessage{"messages": json.RawMessage(`[{"role":"user","content":"x"}]`)}
 	w := httptest.NewRecorder()
-	WithVirtualModelFallback(context.Background(), w, "groq/a", []string{"groq/a", "groq/b"}, up.URL, "", false, body, time.Minute, nil, nil, guard)
+	WithVirtualModelFallback(context.Background(), w, "groq/a", []string{"groq/a", "groq/b"}, up.URL, "", false, body, time.Minute, nil, nil, guard, nil)
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("want 429, got %d %s", w.Code, w.Body.String())
 	}
@@ -179,7 +179,7 @@ func TestWithVirtualModelFallback_413_retries_next_model(t *testing.T) {
 
 	body := map[string]json.RawMessage{"messages": json.RawMessage(`[{"role":"user","content":"hi"}]`)}
 	w := httptest.NewRecorder()
-	WithVirtualModelFallback(context.Background(), w, "groq/too-big", []string{"groq/too-big", "groq/ok"}, up.URL, "", false, body, time.Minute, nil, nil, nil)
+	WithVirtualModelFallback(context.Background(), w, "groq/too-big", []string{"groq/too-big", "groq/ok"}, up.URL, "", false, body, time.Minute, nil, nil, nil, nil)
 
 	if len(calls) != 2 || calls[0] != "groq/too-big" || calls[1] != "groq/ok" {
 		t.Fatalf("upstream calls=%v", calls)
@@ -221,7 +221,7 @@ func TestWithVirtualModelFallback_413_records_metrics_per_attempt(t *testing.T) 
 	rec := &recStub413{}
 	body := map[string]json.RawMessage{"messages": json.RawMessage(`[{"role":"user","content":"x"}]`)}
 	w := httptest.NewRecorder()
-	WithVirtualModelFallback(context.Background(), w, "groq/a", []string{"groq/a", "groq/b"}, up.URL, "", false, body, time.Minute, nil, rec, nil)
+	WithVirtualModelFallback(context.Background(), w, "groq/a", []string{"groq/a", "groq/b"}, up.URL, "", false, body, time.Minute, nil, rec, nil, nil)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
@@ -257,7 +257,7 @@ func TestWithVirtualModelFallback_skips_duplicate_after_413(t *testing.T) {
 	chain := []string{"groq/dup", "groq/dup", "groq/after"}
 	body := map[string]json.RawMessage{"messages": json.RawMessage(`[{"role":"user","content":"h"}]`)}
 	w := httptest.NewRecorder()
-	WithVirtualModelFallback(context.Background(), w, "groq/dup", chain, up.URL, "", false, body, time.Minute, nil, nil, nil)
+	WithVirtualModelFallback(context.Background(), w, "groq/dup", chain, up.URL, "", false, body, time.Minute, nil, nil, nil, nil)
 
 	// First dup 413; second dup index skipped without a second upstream call to groq/dup.
 	if len(calls) != 2 || calls[0] != "groq/dup" || calls[1] != "groq/after" {

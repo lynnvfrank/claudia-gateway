@@ -13,11 +13,15 @@ import (
 
 	"github.com/lynn/claudia-gateway/internal/chat"
 	"github.com/lynn/claudia-gateway/internal/config"
+	"github.com/lynn/claudia-gateway/internal/conversationmerge"
 	"github.com/lynn/claudia-gateway/internal/platform"
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/transform"
 	"github.com/lynn/claudia-gateway/internal/upstream"
 	"github.com/lynn/claudia-gateway/internal/vectorstore"
+
+	"github.com/google/uuid"
 )
 
 const maxBodyBytes = 25 * 1024 * 1024
@@ -290,7 +294,7 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 
 	registerAdminUI(mux, rt, log, ui)
 
-	return loggingMiddleware(log, mux)
+	return requestid.Middleware(loggingMiddleware(log, mux))
 }
 
 func handleV1Models(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog.Logger) {
@@ -405,6 +409,8 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		return
 	}
 
+	rid := requestid.FromContext(r.Context())
+
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	var raw map[string]json.RawMessage
 	if err := dec.Decode(&raw); err != nil || raw == nil {
@@ -426,10 +432,6 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		_ = json.Unmarshal(m, &clientModel)
 	}
 
-	if log != nil {
-		log.Info("chat completion request", "clientModel", clientModel, "stream", stream, "tenant", sess.TenantID)
-	}
-
 	ctx := r.Context()
 	skipToolRouter := strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Claudia-Tool-Router")), "skip")
 	th := res.ToolRouterConfidenceThreshold
@@ -445,6 +447,10 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 	if rtDur < 5*time.Second {
 		rtDur = 5 * time.Second
 	}
+	tempLog := log
+	if tempLog != nil {
+		tempLog = log.With("request_id", rid, "service", "gateway", "principal_id", sess.TenantID)
+	}
 	raw = transform.ApplyToolRouter(ctx, raw, transform.Config{
 		Enabled:      res.ToolRouterEnabled && !skipToolRouter,
 		RouterModels: res.RouterModels,
@@ -452,11 +458,88 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		BaseURL:      res.UpstreamBaseURL,
 		APIKey:       apiKey,
 		HTTPTimeout:  rtDur,
-		Log:          log,
+		Log:          tempLog,
 		OnAttempt: func(model string, err error) {
 			rt.NoteToolRouterAttempt(model, err)
 		},
 	})
+
+	proj := resolveProject(r.Header.Get(headerProject), res.RAG.DefaultProject)
+	flav := resolveFlavor(r.Header.Get(headerFlavor), res.RAG.DefaultFlavor)
+	lastUser := rag.LastUserText(raw["messages"])
+
+	var mergeSvc *conversationmerge.Service
+	if ms := rt.MetricsStore(); ms != nil {
+		mergeSvc = conversationmerge.NewService(res.ConversationMerge, ms.DB(), res.UpstreamBaseURL, apiKey, res.RAG, log)
+	}
+
+	headerCID := optionalConversationIDFromHeader(r)
+	incomingFP := strings.TrimSpace(r.Header.Get(headerRequestFingerprint))
+
+	var cid string
+	switch {
+	case headerCID != "":
+		cid = headerCID
+	case mergeSvc != nil:
+		out, err := mergeSvc.Resolve(ctx, conversationmerge.ResolveInput{
+			TenantID:             sess.TenantID,
+			ProjectID:            proj,
+			FlavorID:             flav,
+			LastUserText:         lastUser,
+			IncomingFingerprint:  incomingFP,
+			ClientConversationID: "",
+		})
+		if err != nil && log != nil {
+			log.Debug("conversation merge resolve failed", "err", err)
+		}
+		if len(out.DedupJSON) > 0 {
+			w.Header().Set(headerConversationID, out.ConversationID)
+			if fp := mergeSvc.RollingFingerprint(ctx, out.ConversationID); fp != "" {
+				w.Header().Set(headerRollingFingerprint, fp)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(out.DedupJSON)
+			return
+		}
+		cid = out.ConversationID
+	default:
+		cid = uuid.NewString()
+	}
+
+	routeLog := log
+	if log != nil {
+		routeLog = log.With(
+			"request_id", rid,
+			"conversation_id", cid,
+			"service", "gateway",
+			"principal_id", sess.TenantID,
+		)
+	}
+	w.Header().Set(headerConversationID, cid)
+
+	if routeLog != nil {
+		routeLog.Info("chat completion request", "msg", "chat.request", "clientModel", clientModel, "stream", stream, "tenant", sess.TenantID)
+	}
+
+	var chatOpts *chat.ProxyOpts
+	if mergeSvc != nil && !stream {
+		ms := mergeSvc
+		ccid := cid
+		ccTenant := sess.TenantID
+		lu := lastUser
+		chatOpts = &chat.ProxyOpts{
+			OnUpstreamJSONSuccess: func(status int, upstreamModel string, jsonBody []byte) {
+				if status < 200 || status >= 300 {
+					return
+				}
+				fp := ms.RecordTurn(ctx, ccTenant, proj, flav, ccid, lu, jsonBody, time.Now().UTC())
+				if fp != "" {
+					w.Header().Set(headerRollingFingerprint, fp)
+				}
+			},
+		}
+	}
 
 	if clientModel == res.VirtualModelID {
 		// v0.2: when RAG is enabled, retrieve top-k chunks for the last user
@@ -468,15 +551,20 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 				FlavorID:  resolveFlavor(r.Header.Get(headerFlavor), res.RAG.DefaultFlavor),
 			}
 			if q := rag.LastUserText(raw["messages"]); strings.TrimSpace(q) != "" {
-				hits, rerr := rt.RAG().Retrieve(ctx, rag.RetrieveRequest{Coords: coords, Query: q})
+				hits, rerr := rt.RAG().Retrieve(ctx, rag.RetrieveRequest{
+					Coords:         coords,
+					Query:          q,
+					RequestID:      rid,
+					ConversationID: cid,
+				})
 				if rerr != nil {
-					if log != nil {
-						log.Warn("rag retrieve failed; proceeding without context", "err", rerr,
+					if routeLog != nil {
+						routeLog.Warn("rag retrieve failed; proceeding without context", "msg", "rag.retrieve.error", "err", rerr,
 							"tenant", coords.TenantID, "project", coords.ProjectID)
 					}
 				} else if ctxBlock := rag.FormatRetrievedContext(hits); ctxBlock != "" {
-					if log != nil {
-						log.Debug("rag context injected", "tenant", coords.TenantID,
+					if routeLog != nil {
+						routeLog.Debug("rag context injected", "msg", "rag.retrieve.ok", "tenant", coords.TenantID,
 							"project", coords.ProjectID, "flavor", coords.FlavorID, "hits", len(hits))
 					}
 					rag.InjectSystemMessage(raw, ctxBlock)
@@ -495,7 +583,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 			})
 			return
 		}
-		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.UpstreamBaseURL, apiKey, stream, raw, chatTimeout(res), log, rt.Metrics(), rt.LimitsGuard())
+		chat.WithVirtualModelFallback(ctx, w, initial, res.FallbackChain, res.UpstreamBaseURL, apiKey, stream, raw, chatTimeout(res), routeLog, rt.Metrics(), rt.LimitsGuard(), chatOpts)
 		return
 	}
 
@@ -508,7 +596,7 @@ func handleV1Chat(w http.ResponseWriter, r *http.Request, rt *Runtime, log *slog
 		return
 	}
 
-	pr := chat.ProxyChatCompletion(ctx, w, res.UpstreamBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), log, rt.Metrics(), rt.LimitsGuard())
+	pr := chat.ProxyChatCompletion(ctx, w, res.UpstreamBaseURL, apiKey, clientModel, stream, raw, chatTimeout(res), routeLog, rt.Metrics(), rt.LimitsGuard(), chatOpts)
 	if pr.Stream {
 		return
 	}
@@ -588,22 +676,44 @@ func httpAccessLogLevel(path string) slog.Level {
 func loggingMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		wr := &wrapResponse{ResponseWriter: w, status: 200}
+		wr := &wrapResponse{ResponseWriter: w}
 		next.ServeHTTP(wr, r)
 		if log != nil {
 			st := wr.status
 			if st == 0 {
 				st = 200
 			}
-			log.Log(r.Context(), httpAccessLogLevel(r.URL.Path), "http response",
+			rid := requestid.FromContext(r.Context())
+			args := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
 				"statusCode", st,
 				"responseTimeMs", time.Since(start).Milliseconds(),
 				"authorization", redactAuth(r.Header.Get("Authorization")),
-			)
+				"service", "gateway",
+			}
+			if rid != "" {
+				args = append(args, "request_id", rid)
+			}
+			log.Log(r.Context(), httpAccessLogLevel(r.URL.Path), "http response", args...)
 		}
 	})
+}
+
+// headerConversationID is an optional client-provided id for log correlation; must match requestid.Valid charset.
+const headerConversationID = "X-Claudia-Conversation-Id"
+
+// headerRequestFingerprint optional client echo of X-Claudia-Rolling-Fingerprint for duplicate detection.
+const headerRequestFingerprint = "X-Claudia-Request-Fingerprint"
+
+// headerRollingFingerprint is the gateway-computed rolling hash after each completed JSON completion.
+const headerRollingFingerprint = "X-Claudia-Rolling-Fingerprint"
+
+func optionalConversationIDFromHeader(r *http.Request) string {
+	if h := strings.TrimSpace(r.Header.Get(headerConversationID)); requestid.Valid(h) {
+		return h
+	}
+	return ""
 }
 
 // ParseLogLevel maps gateway.log_level to slog.Level. "trace" is supported as

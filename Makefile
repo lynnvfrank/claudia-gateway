@@ -171,7 +171,7 @@ endif
 catalog-free:
 	go run ./cmd/catalog-write-free \
 		-out "$(if $(OUT),$(OUT),config/catalog-free-tier.snapshot.yaml)" \
-		$(if $(INTERSECT),-intersect $(INTERSECT),)
+		$(if $(INTERSECT),-intersect "$(INTERSECT)",)
 
 # GET BiFrost /v1/models and write YAML (running BiFrost; env BIFROST_BASE_URL, CLAUDIA_UPSTREAM_API_KEY).
 # Override OUT=path (default config/catalog-available.snapshot.yaml).
@@ -192,10 +192,10 @@ desktop-install:
 	$(GITBASH) scripts/desktop-install.sh
 
 desktop-build:
-	$(GITBASH) scripts/desktop-build.sh $(DESKTOP_BIN)
+	$(GITBASH) scripts/desktop-build.sh "$(DESKTOP_BIN)"
 
 desktop-run:
-	$(GITBASH) scripts/desktop-run.sh $(DESKTOP_BIN) "$(MAKE)" desktop -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
+	$(GITBASH) scripts/desktop-run.sh "$(DESKTOP_BIN)" "$(MAKE)" desktop -qdrant-bin "$(QDRANT_BIN)" -bifrost-bin "$(BIFROST_BIN)"
 
 run: desktop-run
 
@@ -204,7 +204,7 @@ claudia-run:
 
 # Foreground supervisor: same bin paths as claudia-start --stack (requires make claudia-install).
 claudia-serve:
-	go run ./cmd/claudia serve -qdrant-bin $(QDRANT_BIN) -bifrost-bin $(BIFROST_BIN)
+	go run ./cmd/claudia serve -qdrant-bin "$(QDRANT_BIN)" -bifrost-bin "$(BIFROST_BIN)"
 
 release-install:
 	$(GITBASH) scripts/release-install.sh

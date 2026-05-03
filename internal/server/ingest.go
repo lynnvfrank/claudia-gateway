@@ -11,13 +11,15 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/lynn/claudia-gateway/internal/platform/requestid"
 	"github.com/lynn/claudia-gateway/internal/rag"
 	"github.com/lynn/claudia-gateway/internal/vectorstore"
 )
 
 const (
-	headerProject = "X-Claudia-Project"
-	headerFlavor  = "X-Claudia-Flavor-Id"
+	headerProject  = "X-Claudia-Project"
+	headerFlavor   = "X-Claudia-Flavor-Id"
+	headerIndexRun = "X-Claudia-Index-Run-Id"
 )
 
 // handleV1Ingest implements POST /v1/ingest (gateway v0.2). One document per
@@ -65,15 +67,30 @@ func handleV1Ingest(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 		FlavorID:  resolveFlavor(r.Header.Get(headerFlavor), res.RAG.DefaultFlavor),
 	}
 
+	indexRun := strings.TrimSpace(r.Header.Get(headerIndexRun))
+	if indexRun != "" && !requestid.Valid(indexRun) {
+		indexRun = ""
+	}
+
+	rid := requestid.FromContext(r.Context())
 	result, err := rt.RAG().Ingest(r.Context(), rag.IngestRequest{
 		Coords:      coords,
 		Source:      source,
 		Text:        text,
 		ContentHash: contentHash,
+		RequestID:   rid,
+		IndexRunID:  indexRun,
 	})
 	if err != nil {
 		if log != nil {
-			log.Error("ingest failed", "tenant", sess.TenantID, "source", source, "err", err)
+			args := []any{"tenant", sess.TenantID, "source", source, "err", err, "service", "gateway", "principal_id", sess.TenantID}
+			if rid != "" {
+				args = append(args, "request_id", rid)
+			}
+			if indexRun != "" {
+				args = append(args, "index_run_id", indexRun)
+			}
+			log.Error("ingest failed", args...)
 		}
 		writeJSONError(w, http.StatusBadGateway, err.Error(), "gateway_upstream")
 		return
@@ -93,6 +110,20 @@ func handleV1Ingest(w http.ResponseWriter, r *http.Request, rt *Runtime, log *sl
 	}
 	if result.ClientContentHash != "" {
 		out["client_content_hash"] = result.ClientContentHash
+	}
+	if log != nil {
+		args := []any{
+			"msg", "ingest.complete",
+			"tenant", sess.TenantID, "source", source, "chunks", result.Chunks,
+			"service", "gateway", "principal_id", sess.TenantID,
+		}
+		if rid != "" {
+			args = append(args, "request_id", rid)
+		}
+		if indexRun != "" {
+			args = append(args, "index_run_id", indexRun)
+		}
+		log.Info("ingest complete", args...)
 	}
 	_ = json.NewEncoder(w).Encode(out)
 }

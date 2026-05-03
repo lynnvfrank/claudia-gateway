@@ -5,17 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Claudia — Logs</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 0.75rem; background: #fff; color: #1a1a1a; min-height: 100vh; box-sizing: border-box; font-size: 0.85rem; }
-    #toolbar { margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap; }
-    #toolbar a { color: #0b57d0; }
-    #toolbar .hint { font-size: 0.75rem; color: #555; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 0.75rem; background: #fff; color: #1a1a1a; min-height: 100vh; box-sizing: border-box; font-size: 0.85rem; }
+    /* Summarized: single scroll (conversation list). Avoid document + panel both scrolling — toolbar sits below the feed. */
+    body.logs-summarized {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    body.logs-summarized #raw-bottom-toolbar {
+      flex-shrink: 0;
+      margin-top: 0;
+    }
+    #raw-bottom-toolbar {
+      margin-top: 1rem; padding: 0.65rem 0 0.25rem 0; border-top: 1px solid #ccc;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; font-size: 0.8rem;
+    }
+    #raw-bottom-toolbar label { display: flex; align-items: center; gap: 0.35rem; color: #333; }
+    #raw-bottom-toolbar select { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.8rem; }
+    body.logs-raw #raw-bottom-toolbar { border-top-color: #ccc; }
     #filters-bar { margin-top: 0.85rem; margin-bottom: 1rem; padding-top: 0.65rem; border-top: 1px solid #ccc; display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1.25rem; }
+    /* #filters-bar uses display:flex; that beats the HTML [hidden] default — force hide when summarized. */
+    #filters-bar[hidden] { display: none !important; }
     #filters-bar .filters-heading { font-size: 0.8rem; font-weight: 600; color: #444; margin-right: 0.25rem; }
     #filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
     #filters label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: #333; }
     #filters select { background: #fff; color: #1a1a1a; border: 1px solid #ccc; border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
-    #status { font-size: 0.75rem; color: #555; }
-    #status.err { color: #c00; }
     .table-wrap { overflow-x: auto; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
     #log-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed; }
     /* Fixed outer column widths so the Details column keeps the same width regardless of which rows are currently visible (filter toggles). */
@@ -60,13 +75,174 @@
     .props-table .prop-val { color: #222; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; background: #fff; }
     .props-table .prop-empty { background: #fafafa; }
     .muted { color: #888; }
+    .summary-headline { line-height: 1.5; margin-bottom: 0.35rem; }
+    .summary-headline .path-em { font-weight: 700; color: #0b57d0; background: #f0f4ff; padding: 0.05rem 0.25rem; border-radius: 3px; }
+    .pill-2xx, .pill-4xx, .pill-5xx { display: inline-block; font-weight: 700; font-size: 0.72rem; padding: 0.12rem 0.45rem; border-radius: 4px; margin-right: 0.35rem; }
+    .pill-2xx { background: #e8f5e9; color: #1b5e20; }
+    .pill-4xx { background: #fff8e1; color: #b45309; }
+    .pill-5xx { background: #ffebee; color: #b71c1c; }
+    .shape-badge { display: inline-block; font-size: 0.68rem; font-family: ui-monospace, monospace; background: #e8eaf6; color: #3949ab; padding: 0.08rem 0.35rem; border-radius: 3px; margin-right: 0.35rem; vertical-align: middle; }
+    .story-panel { border: 1px solid #ccc; border-radius: 6px; padding: 0.65rem; margin-bottom: 0.75rem; background: #fafafa; max-height: 70vh; overflow-y: auto; }
+    .story-panel h3 { margin: 0 0 0.5rem 0; font-size: 0.95rem; }
+    .conv-card, .subsys-card { border: 1px solid #bbb; border-radius: 6px; padding: 0.5rem 0.65rem; margin: 0.5rem 0; background: #fff; }
+    .conv-card.err-head { border-color: #c62828; background: #fff5f5; }
+    .conv-card h4 { margin: 0 0 0.35rem 0; font-size: 0.85rem; }
+    .conv-meta { font-size: 0.75rem; color: #555; margin-bottom: 0.35rem; }
+    .story-events { font-size: 0.78rem; margin: 0; padding-left: 1.1rem; }
+    .story-events li { margin: 0.2rem 0; cursor: pointer; }
+    .err-badge { background: #c62828; color: #fff; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 3px; margin-left: 0.35rem; }
+    details.summary-details { margin-top: 0.35rem; font-size: 0.78rem; }
+    details.summary-details summary { cursor: pointer; color: #0b57d0; }
+    .principal-block { border: 1px solid #ccc; border-radius: 6px; padding: 0.5rem 0.65rem; margin-bottom: 0.65rem; background: #f8f9fc; }
+    .principal-block > summary { cursor: pointer; font-weight: 600; font-size: 0.88rem; color: #222; list-style: none; }
+    .principal-block > summary::-webkit-details-marker { display: none; }
+    .principal-block > summary::before { content: "▸ "; color: #0b57d0; }
+    .principal-block[open] > summary::before { content: "▾ "; }
+    .principal-inner { margin-top: 0.5rem; padding-left: 0.25rem; }
+    .service-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0; }
+    .chip { font-size: 0.72rem; background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; padding: 0.12rem 0.4rem; border-radius: 4px; font-family: ui-monospace, monospace; }
+    .context-strip { font-size: 0.72rem; margin: 0.25rem 0 0.4rem 0; }
+    .http-rollup { font-size: 0.75rem; margin: 0.35rem 0; padding: 0.25rem 0.4rem; background: #f5f5f5; border-radius: 4px; border: 1px solid #ddd; }
+    .story-events details { margin: 0.15rem 0; }
+    .story-events summary { cursor: pointer; color: #333; }
+    .indexer-run-card { border: 1px solid #7e57c2; border-radius: 6px; padding: 0.5rem 0.65rem; margin: 0.5rem 0; background: #faf8ff; }
+    .indexer-run-card h4 { margin: 0 0 0.25rem 0; font-size: 0.85rem; }
+    .deep-link { font-size: 0.72rem; margin-left: 0.35rem; }
+    .deep-link a { color: #0b57d0; }
+
+    /* —— Summarized unified feed (light theme cards) —— */
+    #panel-summarized { max-height: calc(100vh - 5.5rem); overflow-y: auto; padding: 0.15rem 0 1rem 0; }
+    body.logs-summarized #panel-summarized {
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
+      overflow-y: auto;
+    }
+    .sum-card {
+      background: #fff; border: 1px solid #d0d0d0; border-radius: 10px; margin-bottom: 0.65rem;
+      overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .sum-card > summary {
+      list-style: none; cursor: pointer; display: flex; align-items: center; gap: 0.65rem;
+      padding: 0.65rem 0.75rem; min-height: 3.25rem;
+    }
+    .sum-card > summary::-webkit-details-marker { display: none; }
+    .sum-card[open] > summary { border-bottom: 1px solid #e8e8e8; }
+    .sum-avatar {
+      flex: 0 0 auto; width: 2.35rem; height: 2.35rem; border-radius: 50%; font-size: 0.72rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; color: #111; text-transform: uppercase;
+    }
+    .sum-av-a { background: #7ec8e3; }
+    .sum-av-b { background: #f48fb1; }
+    .sum-av-c { background: #ffb74d; }
+    .sum-av-d { background: #90caf9; }
+    .sum-av-e { background: #b0bec5; }
+    .sum-av-f { background: #ce93d8; }
+    /* Service summary cards: bubble colors aligned with timeline badges */
+    .sum-av-svc-gateway { background: #64b5f6; color: #0d1e2e; }
+    .sum-av-svc-bifrost { background: #7e57c2; color: #fff; }
+    .sum-av-svc-qdrant { background: #26a69a; color: #fff; }
+    .sum-av-svc-indexer { background: #f57c00; color: #1a1208; }
+    .sum-main { flex: 1 1 auto; min-width: 0; text-align: left; }
+    .sum-title { display: block; font-weight: 600; font-size: 0.88rem; color: #1a1a1a; word-break: break-word; }
+    .sum-title .sum-mono-id { color: #333; font-weight: 500; }
+    .sum-sub { display: block; font-size: 0.76rem; color: #555; margin-top: 0.2rem; line-height: 1.35; }
+    .sum-metrics { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: flex-end; max-width: 42%; }
+    .sum-metric {
+      font-size: 0.68rem; font-family: ui-monospace, monospace; padding: 0.12rem 0.4rem; border-radius: 999px;
+      border: 1px solid #ccc; color: #444; background: #f5f5f5;
+    }
+    .sum-status {
+      flex: 0 0 auto; font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px; text-transform: lowercase;
+      white-space: nowrap;
+    }
+    .sum-st-active { background: #1b5e20; color: #fff; }
+    .sum-st-active.sum-pulse::after { content: ""; display: inline-block; width: 0.35rem; height: 0.35rem; margin-left: 0.35rem; border-radius: 50%; background: #a5d6a7; vertical-align: middle; animation: sum-pulse 1.2s ease-in-out infinite; }
+    @keyframes sum-pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+    .sum-st-complete { background: #c8e6c9; color: #1b5e20; }
+    .sum-st-indexing { background: #ffe0b2; color: #e65100; }
+    .sum-st-error { background: #ffcdd2; color: #b71c1c; }
+    .sum-st-monitor { background: #eceff1; color: #37474f; border: 1px solid #cfd8dc; }
+    .sum-chev { flex: 0 0 auto; color: #666; font-size: 0.75rem; width: 1rem; text-align: center; }
+    .sum-card:not([open]) .sum-chev::before { content: "›"; font-size: 1.1rem; line-height: 1; }
+    .sum-card[open] .sum-chev::before { content: "⌄"; font-size: 0.85rem; }
+    .sum-body { padding: 0.65rem 0.85rem 0.85rem; font-size: 0.78rem; }
+    .sum-section-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em; color: #888; margin: 0.5rem 0 0.35rem 0; text-transform: uppercase; }
+    .sum-section-label:first-child { margin-top: 0; }
+    .sum-feed-section { margin-bottom: 1.15rem; }
+    .sum-feed-section:last-child { margin-bottom: 0; }
+    .sum-feed-section-title.sum-section-label {
+      font-size: 0.7rem !important;
+      letter-spacing: 0.1em;
+      color: #555 !important;
+      margin-bottom: 0.5rem !important;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #ddd;
+    }
+    .sum-last-events { margin: 0; padding: 0; list-style: none; }
+    .sum-last-events li.sum-ev-item {
+      margin: 0; padding: 0.45rem 0; border-bottom: 1px solid #eee;
+    }
+    .sum-last-events li.sum-ev-item:last-child { border-bottom: none; }
+    .sum-ev-time { flex: 0 0 auto; font-family: ui-monospace, monospace; color: #666; font-size: 0.72rem; }
+    .sum-svc-badge {
+      flex: 0 0 auto; font-size: 0.62rem; font-weight: 600; padding: 0.08rem 0.32rem; border-radius: 4px; font-family: ui-monospace, monospace;
+      border: 1px solid; text-transform: lowercase;
+    }
+    .sum-svc-web { border-color: #1976d2; color: #1565c0; }
+    .sum-svc-qdrant { border-color: #2e7d32; color: #1b5e20; }
+    .sum-svc-upstream { border-color: #7e57c2; color: #5e35b1; }
+    .sum-svc-indexer { border-color: #f57c00; color: #e65100; }
+    .sum-svc-gateway { border-color: #607d8b; color: #455a64; }
+    /* Filled pills (indexer run + bifrost upstream narrative) */
+    .sum-svc-badge-filled { border: none !important; }
+    .sum-svc-upstream-filled { background: #7e57c2; color: #fff; }
+    .sum-svc-indexer-filled { background: #f57c00; color: #1a1208; }
+    .sum-svc-qdrant-filled { background: #26a69a; color: #fff; }
+    .sum-mono-id { font-family: ui-monospace, monospace; font-weight: 500; }
+    .sum-timeline-bar { display: flex; height: 0.45rem; border-radius: 4px; overflow: hidden; margin: 0.35rem 0 0.5rem; background: #e8e8e8; }
+    .sum-timeline-seg { height: 100%; min-width: 2px; }
+    .sum-mini-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.35rem 0 0.65rem; }
+    .sum-mini-card {
+      flex: 1 1 6rem; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 0.45rem 0.55rem;
+      font-size: 0.72rem; color: #555;
+    }
+    .sum-mini-card strong { display: block; color: #1a1a1a; font-size: 0.8rem; margin-top: 0.15rem; }
+    .sum-full-log { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; padding: 0.45rem 0.55rem; max-height: 14rem; overflow-y: auto; }
+    .sum-full-log ul { margin: 0; padding: 0; list-style: none; }
+    .sum-full-log li.sum-ev-item { margin: 0; padding: 0.35rem 0; border-bottom: 1px solid #eee; }
+    .sum-full-log li.sum-ev-item:last-child { border-bottom: none; }
+    /* Shared log line: local datetime + level + message (message max 2 lines) */
+    .log-line-sum { margin: 0; line-height: 1.4; }
+    .log-line-sum__meta {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
+      font-size: 0.72rem; color: #555; margin-bottom: 0.15rem;
+    }
+    .log-line-sum__time { font-family: ui-monospace, monospace; color: #5c4033; font-weight: 600; }
+    .log-line-sum__lvl {
+      font-family: ui-monospace, monospace; font-size: 0.65rem; font-weight: 700;
+      padding: 0.06rem 0.32rem; border-radius: 3px; line-height: 1.2;
+    }
+    .log-line-sum__lvl--none { background: #eee; color: #888; font-weight: 500; }
+    .log-line-sum__lvl.lvl-DEBUG { background: #f0f0f0; color: #555; }
+    .log-line-sum__lvl.lvl-INFO { background: #e8f5e9; color: #1b5e20; }
+    .log-line-sum__lvl.lvl-WARN { background: #fff8e1; color: #b45309; }
+    .log-line-sum__lvl.lvl-ERROR { background: #ffebee; color: #b71c1c; }
+    .log-line-sum__lvl.lvl-TRACE { background: #f0f0f0; color: #666; }
+    .log-line-sum__msg {
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+      word-break: break-word; font-size: 0.78rem; color: #222; line-height: 1.35;
+    }
+    .sum-last-events li.sum-ev-item .log-line-sum { margin: 0; }
+    .sum-sub--clamp {
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+      word-break: break-word;
+    }
+    .log-fields-block { margin-top: 0.35rem; font-size: 0.78rem; }
   </style>
 </head>
 <body>
-  <div id="toolbar">
-    <span id="toolbar-extra"></span>
-    <span id="status">Starting…</span>
-  </div>
+  <div id="panel-classic">
   <div class="table-wrap">
     <table id="log-table">
       <colgroup>
@@ -88,7 +264,9 @@
       <tbody id="log-body"></tbody>
     </table>
   </div>
-  <div id="filters-bar">
+  </div>
+  <div id="panel-summarized" hidden></div>
+  <div id="filters-bar" hidden>
     <span class="filters-heading">Filters</span>
     <div id="filters">
       <label>Application
@@ -108,27 +286,173 @@
       </label>
     </div>
   </div>
+  <div id="raw-bottom-toolbar">
+    <label>View
+      <select id="view-mode" title="Log presentation mode">
+        <option value="summarized">Summarized</option>
+        <option value="raw">Raw logs</option>
+      </select>
+    </label>
+  </div>
   <script>
 (function () {
   var params = new URLSearchParams(window.location.search);
   var embedded = params.get("embed") === "1" || window.self !== window.top;
+  var focusPrincipal = (params.get("principal") || "").trim();
+  var focusConv = (params.get("conversation") || params.get("conv") || "").trim();
+  var focusSeq = (params.get("seq") || "").trim();
   var tbody = document.getElementById("log-body");
   var statusEl = document.getElementById("status");
-  var extra = document.getElementById("toolbar-extra");
   var fltApp = document.getElementById("flt-app");
   var fltLevel = document.getElementById("flt-level");
-  if (embedded) {
-    extra.innerHTML = '<span class="hint">Embedded in desktop shell — switch views with the tabs above.</span>';
-  } else {
-    extra.innerHTML = '<a href="/ui/desktop" target="_top">Desktop shell</a> · <a href="/ui/panel" target="_top">Admin</a>';
-  }
-
+  var VIEW_LS = "claudia_logs_view_mode";
+  var FLT_APP_LS = "claudia_logs_flt_app";
+  var FLT_LEVEL_LS = "claudia_logs_flt_level";
+  var CONV_RECENT_N = 5;
+  var SUBSYS_TIMELINE_N = 8;
+  /** Last N events used for summary-strip status pills ("error" vs active/complete). Matches Last-events preview depth. */
+  var RECENT_CARD_STATUS_N = 3;
+  var entryCache = [];
+  /** Maps gateway tenant_id → token label from tokens.yaml (via GET /api/ui/tokens). */
+  var tokenLabelByTenant = {};
+  var storyRebuildTimer = null;
   var maxSeq = 0;
   var stickPx = 160;
   var es = null;
   var pollTimer = null;
   var started = false;
   var levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
+
+  function normalizeViewMode(v) {
+    if (v === "summarized" || v === "raw") return v;
+    /* Legacy URL / localStorage */
+    if (v === "detailed") return "raw";
+    if (v === "summary" || v === "conversations" || v === "subsystems" || v === "indexer-runs") return "summarized";
+    return "summarized";
+  }
+
+  function loadViewMode() {
+    try {
+      var pv = params.get("view");
+      if (pv) return normalizeViewMode(pv);
+      var v = localStorage.getItem(VIEW_LS);
+      if (v) return normalizeViewMode(v);
+    } catch (x) {}
+    return "summarized";
+  }
+  function saveViewMode(v) {
+    try {
+      localStorage.setItem(VIEW_LS, v);
+    } catch (x) {}
+  }
+
+  var viewMode = loadViewMode();
+  if (params.get("view")) saveViewMode(viewMode);
+  var viewModeEl = document.getElementById("view-mode");
+  var filtersBar = document.getElementById("filters-bar");
+
+  function syncViewSelects() {
+    if (viewModeEl) viewModeEl.value = viewMode;
+  }
+
+  function commitViewMode(nextVal) {
+    viewMode = normalizeViewMode(nextVal != null && nextVal !== "" ? nextVal : "summarized");
+    saveViewMode(viewMode);
+    try {
+      params = new URLSearchParams(window.location.search);
+      params.set("view", viewMode);
+      window.history.replaceState({}, "", window.location.pathname + "?" + params.toString());
+    } catch (x) {}
+    syncViewSelects();
+    applyViewLayout();
+    rebuildAllRows();
+    scheduleFocusTargets();
+  }
+
+  syncViewSelects();
+  if (viewModeEl) {
+    viewModeEl.addEventListener("change", function () {
+      commitViewMode(viewModeEl.value);
+    });
+  }
+  function inferShape(flat, source, rawText) {
+    if (!flat) {
+      if (source === "qdrant" || source === "bifrost" || source === "indexer") return "service." + source;
+      return "generic";
+    }
+    var msg = String(flat.msg != null ? flat.msg : flat.message != null ? flat.message : "").toLowerCase();
+    if (msg === "http response" || (flat.method && flat.path != null && flat.statusCode !== undefined && flat.statusCode !== null))
+      return "http.access";
+    if (msg === "chat.request") return "chat.request";
+    if (msg.indexOf("chat.bifrost") === 0 || msg.indexOf("upstream chat") >= 0) return "chat.bifrost";
+    if (msg.indexOf("virtual model fallback attempt") >= 0 || msg.indexOf("virtual model routing resolved") >= 0)
+      return "chat.routing";
+    if (msg.indexOf("rag.") === 0) return "rag";
+    if (msg === "ingest.complete" || (msg.indexOf("ingest") === 0 && msg !== "ingest complete")) return "ingest";
+    if (msg.indexOf("indexer.run") === 0) return "indexer.run";
+    if (flat.service && String(flat.service) !== "gateway") return "service." + flat.service;
+    if (source === "qdrant" || source === "bifrost" || source === "indexer") return "service." + source;
+    return "generic";
+  }
+
+  function statusPillClass(code) {
+    var sc = Number(code);
+    if (isNaN(sc)) return "pill-4xx";
+    if (sc >= 500) return "pill-5xx";
+    if (sc >= 400) return "pill-4xx";
+    return "pill-2xx";
+  }
+
+  function buildHeadlineHtml(flat, shape) {
+    if (!flat) return '<span class="muted">—</span>';
+    if (shape === "http.access") {
+      var sc = flat.statusCode;
+      var auth = flat.authorization ? ' <span class="muted">' + escapeHtml(String(flat.authorization)) + "</span>" : "";
+      return (
+        '<div class="summary-headline"><span class="' +
+        statusPillClass(sc) +
+        '">' +
+        escapeHtml(String(sc)) +
+        "</span> <strong>" +
+        escapeHtml(String(flat.method || "")) +
+        '</strong> <code class="path-em">' +
+        escapeHtml(String(flat.path || "")) +
+        '</code> <span class="muted">' +
+        (flat.responseTimeMs != null ? escapeHtml(String(flat.responseTimeMs)) + " ms" : "") +
+        "</span>" +
+        auth +
+        "</div>"
+      );
+    }
+    var m = flat.msg != null ? flat.msg : flat.message != null ? flat.message : "";
+    var one = [m && String(m), flat.upstreamModel && ("model " + flat.upstreamModel), flat.source && ("source " + flat.source)]
+      .filter(Boolean)
+      .join(" · ");
+    if (!one) one = shape;
+    return '<div class="summary-headline">' + escapeHtml(one) + "</div>";
+  }
+
+  var headlineKeys = {
+    "http.access": { method: true, path: true, statusCode: true, responseTimeMs: true, authorization: true, msg: true, message: true }
+  };
+
+  function filterExtrasForSummary(shape, extras, flat) {
+    var drop = headlineKeys[shape] || null;
+    if (!drop) return extras;
+    var out = [];
+    for (var i = 0; i < extras.length; i++) {
+      if (drop[extras[i].k]) continue;
+      out.push(extras[i]);
+    }
+    return out;
+  }
+
+  function buildDetailsColumn(parsed, entryTs, rawText) {
+    var evLike = { parsed: parsed, text: rawText != null && rawText !== undefined ? rawText : "", ts: entryTs };
+    var top = logSummaryHtml(evLike, null);
+    var grid = buildDetailsCell(parsed.extras);
+    return top + '<div class="log-fields-block">' + grid + "</div>";
+  }
 
   function nearBottom() {
     var el = document.documentElement;
@@ -394,13 +718,23 @@
     }
 
     var dtCells = buildDateTimeCells(instant, entryTS);
+    var rawFlat = null;
+    if (flat) {
+      rawFlat = {};
+      for (var rk in flat) {
+        if (Object.prototype.hasOwnProperty.call(flat, rk)) rawFlat[rk] = flat[rk];
+      }
+    }
+    var shape = inferShape(rawFlat, source, text || "");
     return {
       app: source || "—",
       dtUtcHtml: dtCells.utc,
       dtLocalHtml: dtCells.local,
       levelCanon: levelCanon,
       levelLabel: displayLevelLabel(levelCanon),
-      extras: extras
+      extras: extras,
+      rawFlat: rawFlat,
+      shape: shape
     };
   }
 
@@ -442,8 +776,1440 @@
     }
   }
 
-  fltApp.addEventListener("change", applyFilters);
-  fltLevel.addEventListener("change", applyFilters);
+  function saveFilterPrefs() {
+    try {
+      localStorage.setItem(FLT_APP_LS, fltApp.value);
+      localStorage.setItem(FLT_LEVEL_LS, fltLevel.value);
+    } catch (x) {}
+  }
+  function syncFiltersFromStorage() {
+    try {
+      var fa = localStorage.getItem(FLT_APP_LS);
+      if (fa !== null && fa !== undefined && fa !== "") {
+        var foundA = false;
+        for (var a = 0; a < fltApp.options.length; a++) {
+          if (fltApp.options[a].value === fa) {
+            fltApp.value = fa;
+            foundA = true;
+            break;
+          }
+        }
+        if (!foundA) {
+          fltApp.value = "";
+          localStorage.removeItem(FLT_APP_LS);
+        }
+      }
+      var fl = localStorage.getItem(FLT_LEVEL_LS);
+      if (fl !== null && fl !== undefined && fl !== "") {
+        var foundL = false;
+        for (var b = 0; b < fltLevel.options.length; b++) {
+          if (fltLevel.options[b].value === fl) {
+            fltLevel.value = fl;
+            foundL = true;
+            break;
+          }
+        }
+        if (!foundL) {
+          fltLevel.value = "";
+          localStorage.removeItem(FLT_LEVEL_LS);
+        }
+      }
+    } catch (x) {}
+  }
+  fltApp.addEventListener("change", function () {
+    saveFilterPrefs();
+    applyFilters();
+  });
+  fltLevel.addEventListener("change", function () {
+    saveFilterPrefs();
+    applyFilters();
+  });
+
+  function applyViewLayout() {
+    var classic = document.getElementById("panel-classic");
+    var psu = document.getElementById("panel-summarized");
+    if (!classic || !psu) return;
+    try {
+      document.body.classList.toggle("logs-raw", viewMode === "raw");
+      document.body.classList.toggle("logs-summarized", viewMode === "summarized");
+    } catch (x) {}
+    if (viewMode === "summarized") {
+      classic.hidden = true;
+      psu.hidden = false;
+      if (filtersBar) filtersBar.hidden = true;
+      refreshSummarizedPanel();
+    } else {
+      classic.hidden = false;
+      psu.hidden = true;
+      if (filtersBar) filtersBar.hidden = false;
+    }
+  }
+
+  function getFlat(parsed) {
+    return parsed.rawFlat || {};
+  }
+
+  function strHash(s) {
+    var h = 0;
+    var t = String(s);
+    for (var i = 0; i < t.length; i++) h = ((h << 5) - h) + t.charCodeAt(i) | 0;
+    return "fc" + (h >>> 0).toString(16);
+  }
+
+  function entryInstant(entry) {
+    if (!entry || entry.ts === null || entry.ts === undefined || entry.ts === "") return null;
+    var d = entry.ts instanceof Date ? entry.ts : new Date(entry.ts);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function humanDurationMs(ms) {
+    if (ms == null || isNaN(ms) || ms < 0) return "—";
+    if (ms < 1000) return Math.round(ms) + " ms";
+    if (ms < 60000) return (ms / 1000).toFixed(1) + " s";
+    if (ms < 3600000) return Math.round(ms / 60000) + " min";
+    return (ms / 3600000).toFixed(1) + " h";
+  }
+
+  function rollupHTTPInConversation(events) {
+    var count = 0,
+      sumMs = 0;
+    var maxStatus = 0;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].parsed.shape !== "http.access") continue;
+      var f = getFlat(events[i].parsed);
+      if (f.statusCode === undefined || f.statusCode === null) continue;
+      count++;
+      var sc = Number(f.statusCode);
+      if (!isNaN(sc) && sc > maxStatus) maxStatus = sc;
+      var rt = Number(f.responseTimeMs);
+      if (!isNaN(rt)) sumMs += rt;
+    }
+    if (count === 0) return null;
+    return { count: count, sumMs: sumMs, worst: maxStatus };
+  }
+
+  function serviceStripHtml(events) {
+    var ragN = 0,
+      bifrostN = 0,
+      qdrantEvt = 0,
+      ingestN = 0;
+    var ragMs = 0;
+    for (var i = 0; i < events.length; i++) {
+      var sh = events[i].parsed.shape || "";
+      var f = getFlat(events[i].parsed);
+      if (sh === "rag" || (sh.indexOf("rag.") === 0 && sh !== "rag")) {
+        ragN++;
+        var lm = Number(f.latencyMs != null ? f.latencyMs : f.latency_ms != null ? f.latency_ms : f.elapsedMs);
+        if (!isNaN(lm)) ragMs += lm;
+      } else if (sh.indexOf("chat.bifrost") === 0 || (String(f.msg || "").toLowerCase().indexOf("bifrost") >= 0 && sh.indexOf("chat") >= 0)) {
+        bifrostN++;
+      } else if (sh === "service.qdrant" || f.service === "qdrant") {
+        qdrantEvt++;
+      } else if (sh === "ingest") {
+        ingestN++;
+      }
+    }
+    var parts = [];
+    if (ragN) parts.push("RAG · " + ragN + (ragMs ? " · ~" + Math.round(ragMs) + " ms" : ""));
+    if (bifrostN) parts.push("BiFrost · " + bifrostN);
+    if (qdrantEvt) parts.push("Qdrant · " + qdrantEvt);
+    if (ingestN) parts.push("ingest · " + ingestN);
+    if (!parts.length) return "";
+    return (
+      '<div class="service-chips">' +
+      parts
+        .map(function (p) {
+          return '<span class="chip">' + escapeHtml(p) + "</span>";
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function contextGrowthStripHtml(events) {
+    var keys = [
+      "turn_index",
+      "turnIndex",
+      "context_tokens_est",
+      "context_chars_est",
+      "rag_hits",
+      "hits",
+      "chunks",
+      "tool_rounds",
+      "response_tokens_est"
+    ];
+    for (var i = events.length - 1; i >= 0; i--) {
+      var f = getFlat(events[i].parsed);
+      var bits = [];
+      for (var k = 0; k < keys.length; k++) {
+        var key = keys[k];
+        if (f[key] !== undefined && f[key] !== null && f[key] !== "") {
+          bits.push(key.replace(/_/g, " ") + ": " + formatExtraValue(f[key]));
+        }
+      }
+      if (bits.length)
+        return '<div class="context-strip">' + escapeHtml(bits.join(" · ")) + "</div>";
+    }
+    return "";
+  }
+
+  var MAX_PRIMARY_MSG_CHARS = 900;
+
+  function pad2(n) {
+    return n < 10 ? "0" + n : String(n);
+  }
+
+  function formatLogDateTimeLocal(ts) {
+    if (ts === null || ts === undefined || ts === "") return "—";
+    var d = ts instanceof Date ? ts : new Date(ts);
+    if (isNaN(d.getTime())) return String(ts).replace("T", " ").slice(0, 23);
+    return (
+      d.getFullYear() +
+      "-" +
+      pad2(d.getMonth() + 1) +
+      "-" +
+      pad2(d.getDate()) +
+      " " +
+      pad2(d.getHours()) +
+      ":" +
+      pad2(d.getMinutes()) +
+      ":" +
+      pad2(d.getSeconds())
+    );
+  }
+
+  function toIsoDatetimeAttr(ts) {
+    if (ts === null || ts === undefined || ts === "") return "";
+    var d = ts instanceof Date ? ts : new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    try {
+      return d.toISOString();
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function primaryLogMessage(parsed, rawText) {
+    var rf = getFlat(parsed);
+    var sh = parsed.shape || "";
+    if (sh === "http.access" && rf.statusCode !== undefined && rf.statusCode !== null) {
+      var line =
+        (rf.method || "?") +
+        " " +
+        (rf.path || "") +
+        " → " +
+        rf.statusCode +
+        (rf.responseTimeMs != null ? " · " + rf.responseTimeMs + " ms" : "");
+      return line.length > MAX_PRIMARY_MSG_CHARS ? line.slice(0, MAX_PRIMARY_MSG_CHARS - 1) + "…" : line;
+    }
+    if (sh === "chat.bifrost" || (rf.upstreamModel && (rf.statusCode != null || rf.status != null))) {
+      var scB = rf.statusCode != null ? rf.statusCode : rf.status;
+      var parts = [];
+      if (scB !== undefined && scB !== null && scB !== "") parts.push(String(scB));
+      if (rf.upstreamModel) parts.push(String(rf.upstreamModel));
+      var pathHint = rf.path || "";
+      if (!pathHint && rf.target) {
+        try {
+          pathHint = new URL(String(rf.target)).pathname || "";
+        } catch (e) {
+          pathHint = "";
+        }
+      }
+      if (pathHint) parts.push(String(pathHint));
+      var baseMsg = rf.msg != null ? String(rf.msg) : rf.message != null ? String(rf.message) : "";
+      if (!baseMsg && rawText) baseMsg = String(rawText).trim();
+      var lineB = parts.length ? parts.join(" · ") : baseMsg || "—";
+      return lineB.length > MAX_PRIMARY_MSG_CHARS ? lineB.slice(0, MAX_PRIMARY_MSG_CHARS - 1) + "…" : lineB;
+    }
+    if (sh === "chat.routing" || (rf.attempt != null && rf.chainLen != null && rf.upstreamModel)) {
+      var bitsR = [];
+      if (rf.msg != null || rf.message != null) bitsR.push(String(rf.msg != null ? rf.msg : rf.message));
+      if (rf.upstreamModel) bitsR.push("model " + rf.upstreamModel);
+      if (rf.attempt != null) bitsR.push("attempt " + rf.attempt);
+      if (rf.statusCode != null) bitsR.push("HTTP " + rf.statusCode);
+      var lineR = bitsR.filter(Boolean).join(" · ") || "routing";
+      return lineR.length > MAX_PRIMARY_MSG_CHARS ? lineR.slice(0, MAX_PRIMARY_MSG_CHARS - 1) + "…" : lineR;
+    }
+    var m = "";
+    if (rf.msg != null && rf.msg !== "") m = String(rf.msg);
+    else if (rf.message != null && rf.message !== "") m = String(rf.message);
+    else if (rawText) m = String(rawText).trim();
+    if (!m) m = "—";
+    if (m.length > MAX_PRIMARY_MSG_CHARS) m = m.slice(0, MAX_PRIMARY_MSG_CHARS - 1) + "…";
+    return m;
+  }
+
+  function levelBadgeClassForSummary(parsed) {
+    var can = parsed.levelCanon;
+    if (!can) return "log-line-sum__lvl--none";
+    var safe = String(can).replace(/[^A-Z0-9_-]/gi, "");
+    return safe ? "lvl-" + safe : "log-line-sum__lvl--none";
+  }
+
+  function logSummaryHtml(ev, badgeOpt) {
+    var parsed = ev.parsed;
+    var dt = formatLogDateTimeLocal(ev.ts);
+    var iso = toIsoDatetimeAttr(ev.ts);
+    var lvlRaw = parsed.levelCanon || (parsed.levelLabel && parsed.levelLabel !== "—" ? parsed.levelLabel : "");
+    var lvlStr = lvlRaw ? String(lvlRaw).trim() : "";
+    var lvlClass = lvlStr ? levelBadgeClassForSummary(parsed) : "log-line-sum__lvl--none";
+    var lvlHtml = lvlStr
+      ? '<span class="log-line-sum__lvl ' + lvlClass + '">' + escapeHtml(lvlStr) + "</span>"
+      : '<span class="log-line-sum__lvl log-line-sum__lvl--none">—</span>';
+    var badgeHtml = "";
+    if (badgeOpt && badgeOpt.lab) {
+      badgeHtml =
+        '<span class="sum-svc-badge ' +
+        badgeOpt.cls +
+        '">' +
+        escapeHtml(badgeOpt.lab) +
+        "</span>";
+    }
+    var msg = escapeHtml(primaryLogMessage(parsed, ev.text));
+    return (
+      '<div class="log-line-sum">' +
+      '<span class="log-line-sum__meta">' +
+      '<time class="log-line-sum__time"' +
+      (iso ? ' datetime="' + escapeHtml(iso) + '"' : "") +
+      ">" +
+      escapeHtml(dt) +
+      "</time>" +
+      lvlHtml +
+      badgeHtml +
+      "</span>" +
+      '<span class="log-line-sum__msg">' +
+      msg +
+      "</span></div>"
+    );
+  }
+
+  function eventOneLiner(ev) {
+    return primaryLogMessage(ev.parsed, ev.text);
+  }
+
+  function buildLogsHref(query) {
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var q = query || {};
+      for (var k in q) {
+        if (q[k] === null || q[k] === undefined) p.delete(k);
+        else p.set(k, String(q[k]));
+      }
+      return window.location.pathname + (p.toString() ? "?" + p.toString() : "");
+    } catch (e) {
+      return "#";
+    }
+  }
+
+  function scheduleFocusTargets() {
+    window.setTimeout(function () {
+      if (focusSeq) {
+        var fs = String(focusSeq).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        var tr = tbody.querySelector("tr[data-log-seq=\"" + fs + '"]');
+        if (tr) {
+          tr.scrollIntoView({ block: "center", behavior: "smooth" });
+          tr.style.outline = "2px solid #0b57d0";
+        }
+        return;
+      }
+      if (focusConv) {
+        var id = strHash((focusPrincipal || "") + "\0" + focusConv);
+        var el = document.getElementById(id);
+        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }, 120);
+  }
+
+  function rebuildAllRows() {
+    tbody.innerHTML = "";
+    fltApp.innerHTML = '<option value="">All</option>';
+    levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
+    for (var i = 0; i < entryCache.length; i++) {
+      var ent = entryCache[i];
+      var parsed = ent.parsed;
+      ensureAppOption(parsed.app);
+      if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
+      if (viewMode === "raw") {
+        appendTableRow(parsed, false, ent.seq, ent.ts, ent.text);
+      }
+    }
+    syncFiltersFromStorage();
+    if (viewMode === "summarized") refreshSummarizedPanel();
+    applyFilters();
+    scheduleFocusTargets();
+  }
+
+  function refreshSummarizedPanel() {
+    var psu = document.getElementById("panel-summarized");
+    if (viewMode === "summarized" && psu) psu.innerHTML = renderSummarizedUnified();
+  }
+
+  function scheduleStoryRebuild() {
+    if (storyRebuildTimer) clearTimeout(storyRebuildTimer);
+    storyRebuildTimer = setTimeout(function () {
+      storyRebuildTimer = null;
+      refreshSummarizedPanel();
+      scheduleFocusTargets();
+    }, 80);
+  }
+
+  function formatInt(n) {
+    if (n == null || isNaN(n)) return "—";
+    try {
+      return new Intl.NumberFormat().format(Math.round(n));
+    } catch (e) {
+      return String(Math.round(n));
+    }
+  }
+
+  function fetchTokenLabels() {
+    fetch("/api/ui/tokens", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.tokens)) return;
+        tokenLabelByTenant = {};
+        for (var i = 0; i < data.tokens.length; i++) {
+          var row = data.tokens[i];
+          var tid =
+            row.tenant_id != null && String(row.tenant_id).trim() !== ""
+              ? String(row.tenant_id).trim()
+              : "";
+          if (!tid) continue;
+          var lb =
+            row.label != null && String(row.label).trim() !== ""
+              ? String(row.label).trim()
+              : "";
+          tokenLabelByTenant[tid] = lb || tid;
+        }
+        if (viewMode === "summarized") scheduleStoryRebuild();
+      })
+      .catch(function () {});
+  }
+
+  /** Conversation card title: "label (tenant_id) - uuid" using token label when known. */
+  function formatConversationCardTitle(tenantId, convId) {
+    var tid = String(tenantId || "").trim();
+    if (!tid) tid = "(unknown principal)";
+    var lab = tokenLabelByTenant[tid];
+    var head;
+    if (lab && lab !== tid)
+      head = escapeHtml(lab) + " (" + escapeHtml(tid) + ")";
+    else
+      head = escapeHtml(tid);
+    var c = String(convId || "");
+    var cshow = c.length > 48 ? c.slice(0, 48) + "…" : c;
+    return (
+      head +
+      ' <span style="opacity:.55">-</span> <code class="sum-mono-id" style="font-size:0.85em">' +
+      escapeHtml(cshow) +
+      "</code>"
+    );
+  }
+
+  function avatarInitials(label) {
+    var s = String(label || "?").trim();
+    if (!s) return "??";
+    var parts = s.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+    if (parts.length >= 2)
+      return (String(parts[0][0] || "") + String(parts[1][0] || ""))
+        .toUpperCase()
+        .slice(0, 2);
+    var t = s.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    return t.slice(0, 2) || "??";
+  }
+
+  function avatarHueClass(seed) {
+    var h = strHash(String(seed || ""));
+    var n = parseInt(String(h).replace(/[^\d]/g, "0"), 10) || 0;
+    var classes = ["sum-av-a", "sum-av-b", "sum-av-c", "sum-av-d", "sum-av-e", "sum-av-f"];
+    return classes[n % classes.length];
+  }
+
+  function inferServiceBadge(ev) {
+    var src = (ev.source || (ev.parsed && ev.parsed.app) || "").toLowerCase();
+    var f = getFlat(ev.parsed);
+    var sh = (ev.parsed && ev.parsed.shape) || "";
+    if (src === "qdrant" || sh === "service.qdrant" || f.service === "qdrant")
+      return { cls: "sum-svc-qdrant", lab: "qdrant" };
+    if (src === "indexer" || sh.indexOf("indexer") === 0 || f.service === "indexer")
+      return { cls: "sum-svc-indexer", lab: "indexer" };
+    if (src === "bifrost" || sh.indexOf("bifrost") >= 0 || sh.indexOf("chat.bifrost") === 0)
+      return { cls: "sum-svc-upstream", lab: "upstream" };
+    if (sh === "http.access" || (f.method && f.path)) return { cls: "sum-svc-web", lab: "web" };
+    if (sh === "chat.routing") return { cls: "sum-svc-gateway", lab: "routing" };
+    return { cls: "sum-svc-gateway", lab: "gateway" };
+  }
+
+  function formatTimeHm(ev) {
+    var ins = entryInstant({ ts: ev.ts });
+    if (!ins) return "—";
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(ins);
+    } catch (e) {
+      return ins.toTimeString().slice(0, 8);
+    }
+  }
+
+  function scrapeConversationMetrics(events) {
+    var tok = null;
+    var vec = null;
+    var tokSum = 0;
+    var tokSumCount = 0;
+    for (var i = 0; i < events.length; i++) {
+      var f = getFlat(events[i].parsed);
+      var ut =
+        f.usageTotalTokens != null
+          ? Number(f.usageTotalTokens)
+          : f["usage.total_tokens"] != null
+            ? Number(f["usage.total_tokens"])
+            : NaN;
+      if (!isNaN(ut) && ut > 0) {
+        tokSum += ut;
+        tokSumCount++;
+      }
+      if (vec == null && f.rag_hits != null) vec = Number(f.rag_hits);
+      if (vec == null && f.hits != null) vec = Number(f.hits);
+      if (vec == null && f.chunks != null) vec = Number(f.chunks);
+    }
+    if (tokSumCount > 0) tok = tokSum;
+    if (tok == null) {
+      for (var j = 0; j < events.length; j++) {
+        var f2 = getFlat(events[j].parsed);
+        var p2 = f2.usagePromptTokens != null ? Number(f2.usagePromptTokens) : NaN;
+        var c2 = f2.usageCompletionTokens != null ? Number(f2.usageCompletionTokens) : NaN;
+        if (!isNaN(p2) || !isNaN(c2)) {
+          var sumPc = (isNaN(p2) ? 0 : p2) + (isNaN(c2) ? 0 : c2);
+          if (sumPc > 0) {
+            tok = (tok || 0) + sumPc;
+          }
+        }
+      }
+    }
+    if (tok == null) {
+      for (var k = 0; k < events.length; k++) {
+        var f3 = getFlat(events[k].parsed);
+        if (f3.response_tokens_est != null) {
+          tok = Number(f3.response_tokens_est);
+          break;
+        }
+        if (f3.tokens != null) {
+          tok = Number(f3.tokens);
+          break;
+        }
+        if (f3.outgoingTokens != null) {
+          tok = Number(f3.outgoingTokens);
+          break;
+        }
+      }
+    }
+    if (tok != null && isNaN(tok)) tok = null;
+    if (vec != null && isNaN(vec)) vec = null;
+    return { tok: tok, vec: vec };
+  }
+
+  function conversationCardStatus(g, t1) {
+    if (recentConvEventsHaveError(g.events)) return { st: "error", cls: "sum-st-error" };
+    var now = Date.now();
+    if (t1 && now - t1.getTime() < 45000) return { st: "active", cls: "sum-st-active sum-pulse" };
+    return { st: "complete", cls: "sum-st-complete" };
+  }
+
+  function countWarnErrorInEntries(arr) {
+    var n = 0;
+    for (var i = 0; i < arr.length; i++) {
+      var lv = arr[i].parsed.levelCanon || "";
+      if (lv === "ERROR" || lv === "WARN") n++;
+      var sc = Number(getFlat(arr[i].parsed).statusCode);
+      if (!isNaN(sc) && sc >= 400) n++;
+    }
+    return n;
+  }
+
+  function sliceRecent(arr, n) {
+    if (!arr || !arr.length) return [];
+    var take = Math.min(n, arr.length);
+    return arr.slice(-take);
+  }
+
+  /** Card pill "error": ERROR level or HTTP status ≥400 (not WARN — avoids noisy strips). */
+  function entryHasErrorStatus(ent) {
+    var p = ent.parsed;
+    if (!p) return false;
+    if (p.levelCanon === "ERROR") return true;
+    var sc = Number(getFlat(p).statusCode);
+    if (!isNaN(sc) && sc >= 400) return true;
+    return false;
+  }
+
+  function bifrostEntryHasRateLimit(ent) {
+    var comb =
+      (ent.text || "").toLowerCase() + String(getFlat(ent.parsed).msg || "").toLowerCase();
+    return (
+      comb.indexOf("429") >= 0 ||
+      comb.indexOf("rate limit") >= 0 ||
+      comb.indexOf("rate_limit") >= 0
+    );
+  }
+
+  function countErrorSignalsInEntries(arr) {
+    var n = 0;
+    for (var i = 0; i < arr.length; i++) {
+      if (entryHasErrorStatus(arr[i])) n++;
+    }
+    return n;
+  }
+
+  function recentServiceCardHasError(name, arr) {
+    var slice = sliceRecent(arr, RECENT_CARD_STATUS_N);
+    for (var i = 0; i < slice.length; i++) {
+      if (entryHasErrorStatus(slice[i])) return true;
+      if (name === "bifrost" && bifrostEntryHasRateLimit(slice[i])) return true;
+    }
+    return false;
+  }
+
+  function recentConvEventsHaveError(events) {
+    var slice = sliceRecent(events, RECENT_CARD_STATUS_N);
+    for (var i = 0; i < slice.length; i++) {
+      var p = slice[i].parsed;
+      if (p.levelCanon === "ERROR") return true;
+      var sc = Number(getFlat(p).statusCode);
+      if (!isNaN(sc) && sc >= 400) return true;
+    }
+    return false;
+  }
+
+  function timelineBarHtml(evList) {
+    var counts = { web: 0, qdrant: 0, upstream: 0, indexer: 0, gateway: 0 };
+    for (var i = 0; i < evList.length; i++) {
+      var lab = inferServiceBadge(evList[i]).lab;
+      if (lab === "web") counts.web++;
+      else if (lab === "qdrant") counts.qdrant++;
+      else if (lab === "upstream") counts.upstream++;
+      else if (lab === "indexer") counts.indexer++;
+      else counts.gateway++;
+    }
+    var total = counts.web + counts.qdrant + counts.upstream + counts.indexer + counts.gateway || 1;
+    var cols = { web: "#42a5f5", qdrant: "#66bb6a", upstream: "#9575cd", indexer: "#ffa726", gateway: "#78909c" };
+    var html = '<div class="sum-timeline-bar">';
+    var keys = ["web", "qdrant", "upstream", "indexer", "gateway"];
+    for (var k = 0; k < keys.length; k++) {
+      var key = keys[k];
+      var pct = (counts[key] / total) * 100;
+      if (pct < 0.05) continue;
+      html +=
+        '<span class="sum-timeline-seg" style="width:' +
+        pct.toFixed(1) +
+        "%;background:" +
+        cols[key] +
+        '"></span>';
+    }
+    return html + "</div>";
+  }
+
+  function serviceWindowMs(arr) {
+    var t0 = null;
+    var t1 = null;
+    for (var i = 0; i < arr.length; i++) {
+      var ins = entryInstant(arr[i]);
+      if (ins) {
+        if (!t0 || ins.getTime() < t0.getTime()) t0 = ins;
+        if (!t1 || ins.getTime() > t1.getTime()) t1 = ins;
+      }
+    }
+    return t0 && t1 ? t1.getTime() - t0.getTime() : 0;
+  }
+
+  function bifrostSubtitle(arr) {
+    for (var i = arr.length - 1; i >= 0; i--) {
+      var raw = String(arr[i].text || "");
+      var m0 = String(getFlat(arr[i].parsed).msg || "");
+      var s = (raw + " " + m0).toLowerCase();
+      if (s.indexOf("429") >= 0 || (s.indexOf("rate") >= 0 && s.indexOf("limit") >= 0)) {
+        var retry = "5s";
+        var rm = s.match(/retry[^\d]*(\d+)\s*s/);
+        if (rm) retry = rm[1] + "s";
+        var ra = s.match(/retry-after[:\s]+(\d+)/);
+        if (ra) retry = ra[1] + "s";
+        return "Upstream 429 — rate limit hit, retrying in " + retry;
+      }
+      if (s.indexOf("upstream") >= 0 && (s.indexOf("fail") >= 0 || s.indexOf("error") >= 0)) {
+        return (m0 || raw).slice(0, 140);
+      }
+    }
+    if (!arr.length) return "";
+    var last = arr[arr.length - 1];
+    return ((getFlat(last.parsed).msg && String(getFlat(last.parsed).msg)) || (last.text || "")).slice(0, 140);
+  }
+
+  function extractBifrostRouteSummary(arr) {
+    for (var i = arr.length - 1; i >= 0; i--) {
+      var f = getFlat(arr[i].parsed);
+      if (f.path && f.method) return String(f.method) + " " + String(f.path);
+      var raw = arr[i].text || "";
+      var mm = raw.match(/\b(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s"',]+)/i);
+      if (mm) return mm[1] + " " + mm[2];
+    }
+    for (var j = arr.length - 1; j >= 0; j--) {
+      var t = (arr[j].text || "").toLowerCase();
+      if (t.indexOf("/v1/chat") >= 0) return "POST /v1/chat";
+    }
+    return "POST /v1/chat";
+  }
+
+  function bifrostVectorsHint(arr) {
+    for (var k = arr.length - 1; k >= 0; k--) {
+      var tx = (arr[k].text || "") + " " + String(getFlat(arr[k].parsed).msg || "");
+      var hm = tx.match(/(\d+)\s*hits?/i);
+      if (hm) return hm[1];
+    }
+    return "0";
+  }
+
+  function badgeForServicePanel(name, ev) {
+    if (name === "bifrost")
+      return { cls: "sum-svc-upstream sum-svc-badge-filled sum-svc-upstream-filled", lab: "upstream" };
+    return inferServiceBadge(ev);
+  }
+
+  function badgeForIndexerRunLine(ent) {
+    var src = (ent.source || "").toLowerCase();
+    var f = getFlat(ent.parsed);
+    var msg = String(f.msg || "").toLowerCase();
+    if (src === "qdrant" || msg.indexOf("qdrant") >= 0)
+      return { cls: "sum-svc-qdrant sum-svc-badge-filled sum-svc-qdrant-filled", lab: "qdrant" };
+    return { cls: "sum-svc-indexer sum-svc-badge-filled sum-svc-indexer-filled", lab: "indexer" };
+  }
+
+  function timelineBarForIndexerRun(evs) {
+    var idx = 0;
+    var qd = 0;
+    var web = 0;
+    var oth = 0;
+    for (var i = 0; i < evs.length; i++) {
+      var lab = badgeForIndexerRunLine(evs[i]).lab;
+      if (lab === "qdrant") qd++;
+      else if (lab === "indexer") idx++;
+      else if (lab === "web") web++;
+      else oth++;
+    }
+    var total = idx + qd + web + oth || 1;
+    var cols = { indexer: "#fb8c00", qdrant: "#26a69a", web: "#42a5f5", other: "#78909c" };
+    var html = '<div class="sum-timeline-bar">';
+    var pairs = [
+      [idx, "indexer"],
+      [qd, "qdrant"],
+      [web, "web"],
+      [oth, "other"]
+    ];
+    for (var p = 0; p < pairs.length; p++) {
+      var c = pairs[p][0];
+      var key = pairs[p][1];
+      var pct = (c / total) * 100;
+      if (pct < 0.05) continue;
+      html +=
+        '<span class="sum-timeline-seg" style="width:' +
+        pct.toFixed(1) +
+        "%;background:" +
+        cols[key] +
+        '"></span>';
+    }
+    return html + "</div>";
+  }
+
+  function indexerRunProgressSubtitle(lastProg, doneSeen, candStr) {
+    var lp = lastProg || {};
+    var cur =
+      lp.chunks_embedded != null
+        ? Number(lp.chunks_embedded)
+        : lp.chunks_done != null
+          ? Number(lp.chunks_done)
+          : lp.embedded_chunks != null
+            ? Number(lp.embedded_chunks)
+            : null;
+    var tot =
+      lp.chunks_total != null
+        ? Number(lp.chunks_total)
+        : lp.total_chunks != null
+          ? Number(lp.total_chunks)
+          : null;
+    if (cur != null && tot != null && !isNaN(cur) && !isNaN(tot))
+      return "Indexer uploading batch — " + cur + " of " + tot + " chunks embedded";
+    if (candStr && candStr !== "—")
+      return "Indexer uploading batch — latest counters: " + candStr + " candidates / chunks";
+    return doneSeen ? "Indexer run completed" : "Indexer uploading batch — in progress";
+  }
+
+  function convWindowMs(g) {
+    var t0 = null;
+    var t1 = null;
+    for (var ti = 0; ti < g.events.length; ti++) {
+      var ins = entryInstant({ ts: g.events[ti].ts });
+      if (ins) {
+        if (!t0 || ins.getTime() < t0.getTime()) t0 = ins;
+        if (!t1 || ins.getTime() > t1.getTime()) t1 = ins;
+      }
+    }
+    return t0 && t1 ? t1.getTime() - t0.getTime() : 0;
+  }
+
+  function renderExpandedConv(g) {
+    var evs = g.events;
+    var last3 = evs.slice(-3);
+    var le = '<ul class="sum-last-events">';
+    for (var i = 0; i < last3.length; i++) {
+      var ev = last3[i];
+      var bd = inferServiceBadge(ev);
+      le += '<li class="sum-ev-item">' + logSummaryHtml(ev, bd) + "</li>";
+    }
+    le += "</ul>";
+    var bar = timelineBarHtml(evs);
+    var spanMs = convWindowMs(g);
+    var met = scrapeConversationMetrics(evs);
+    var tokLine = met.tok != null ? formatInt(met.tok) + " tok" : "—";
+    var mini =
+      '<div class="sum-mini-row">' +
+      '<div class="sum-mini-card">Token count<strong>' +
+      escapeHtml(tokLine) +
+      '</strong></div><div class="sum-mini-card">Duration<strong>' +
+      escapeHtml(humanDurationMs(spanMs)) +
+      '</strong></div><div class="sum-mini-card">Vectors retrieved<strong>' +
+      (met.vec != null ? escapeHtml(String(met.vec)) : "—") +
+      "</strong></div></div>";
+    var full = '<div class="sum-full-log"><ul>';
+    for (var u = 0; u < evs.length; u++) {
+      var ev2 = evs[u];
+      full += '<li class="sum-ev-item">' + buildDetailsColumn(ev2.parsed, ev2.ts, ev2.text) + "</li>";
+    }
+    full += "</ul></div>";
+    return (
+      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
+      le +
+      '<div class="sum-section-label">Request timeline</div>' +
+      bar +
+      '<div class="sum-section-label">Summary</div>' +
+      mini +
+      (serviceStripHtml(evs) ? '<div class="sum-section-label">Services</div>' + serviceStripHtml(evs) : "") +
+      (contextGrowthStripHtml(evs) ? '<div class="sum-section-label">Context</div>' + contextGrowthStripHtml(evs) : "") +
+      '<div class="sum-section-label">Full event log</div>' +
+      full +
+      "</div>"
+    );
+  }
+
+  function buildConvCard(g) {
+    var t1 = null;
+    for (var ti = 0; ti < g.events.length; ti++) {
+      var ins = entryInstant({ ts: g.events[ti].ts });
+      if (ins && (!t1 || ins.getTime() > t1.getTime())) t1 = ins;
+    }
+    var cid = String(g.cid);
+    var mergedN = Array.isArray(g.cids) ? g.cids.length : 1;
+    var title = formatConversationCardTitle(g.pid, cid) + formatMergedConversationSubtitle(mergedN);
+    var lastEv = g.events[g.events.length - 1];
+    var sub =
+      '<span class="sum-sub sum-sub--clamp">' +
+      escapeHtml(primaryLogMessage(lastEv.parsed, lastEv.text)) +
+      "</span>";
+    var met = scrapeConversationMetrics(g.events);
+    var dur = humanDurationMs(convWindowMs(g));
+    var st = conversationCardStatus(g, t1);
+    var tokStr = met.tok != null ? formatInt(met.tok) + " tok" : "— tok";
+    var vecStr = met.vec != null ? formatInt(met.vec) + " vec" : "0 vec";
+    var cardKey =
+      Array.isArray(g.cids) && g.cids.length > 1
+        ? g.pid + "\0" + g.cids.slice().sort().join("\0")
+        : g.pid + "\0" + g.cid;
+    var cardId = strHash(cardKey);
+    var ini = avatarInitials(tokenLabelByTenant[g.pid] || g.pid);
+    var av = avatarHueClass(cardKey);
+    var metrics =
+      '<span class="sum-metrics">' +
+      '<span class="sum-metric">' +
+      escapeHtml(dur) +
+      "</span>" +
+      '<span class="sum-metric">' +
+      escapeHtml(tokStr) +
+      "</span>" +
+      '<span class="sum-metric">' +
+      escapeHtml(vecStr) +
+      "</span></span>";
+    return (
+      '<details class="sum-card" id="' +
+      escapeHtml(cardId) +
+      '"><summary>' +
+      '<span class="sum-avatar ' +
+      av +
+      '">' +
+      escapeHtml(ini) +
+      "</span>" +
+      '<span class="sum-main"><span class="sum-title">' +
+      title +
+      "</span>" +
+      sub +
+      "</span>" +
+      metrics +
+      '<span class="sum-status ' +
+      st.cls +
+      '">' +
+      escapeHtml(st.st) +
+      "</span>" +
+      '<span class="sum-chev"></span></summary>' +
+      renderExpandedConv(g) +
+      "</details>"
+    );
+  }
+
+  function renderExpandedService(name, arr) {
+    var isBifrost = name === "bifrost";
+    var show = arr.slice(-SUBSYS_TIMELINE_N);
+    var le = '<ul class="sum-last-events">';
+    for (var i = Math.max(0, show.length - 3); i < show.length; i++) {
+      var ent = show[i];
+      var ev = { parsed: ent.parsed, text: ent.text, ts: ent.ts, source: ent.source };
+      var bd = badgeForServicePanel(name, ev);
+      le += '<li class="sum-ev-item">' + logSummaryHtml(ev, bd) + "</li>";
+    }
+    le += "</ul>";
+    var evConv = [];
+    for (var j = 0; j < arr.length; j++) {
+      evConv.push({ parsed: arr[j].parsed, text: arr[j].text, ts: arr[j].ts, source: arr[j].source });
+    }
+    var bar = timelineBarHtml(evConv);
+    var httpN = 0;
+    var sumMs = 0;
+    var err = countWarnErrorInEntries(arr);
+    for (var k = 0; k < arr.length; k++) {
+      if (arr[k].parsed.shape === "http.access") {
+        httpN++;
+        var rt = Number(getFlat(arr[k].parsed).responseTimeMs);
+        if (!isNaN(rt)) sumMs += rt;
+      }
+    }
+    var wms = serviceWindowMs(arr);
+    var mini;
+    if (isBifrost) {
+      var routeStr = extractBifrostRouteSummary(arr);
+      var vecN = bifrostVectorsHint(arr);
+      mini =
+        '<div class="sum-mini-row">' +
+        '<div class="sum-mini-card">Method / route<strong>' +
+        escapeHtml(routeStr) +
+        '</strong></div><div class="sum-mini-card">Duration<strong>' +
+        escapeHtml(humanDurationMs(wms)) +
+        '</strong></div><div class="sum-mini-card">Vectors retrieved<strong>' +
+        escapeHtml(vecN) +
+        "</strong></div></div>";
+    } else {
+      mini =
+        '<div class="sum-mini-row">' +
+        '<div class="sum-mini-card">Lines<strong>' +
+        escapeHtml(String(arr.length)) +
+        '</strong></div><div class="sum-mini-card">HTTP Σ ms<strong>' +
+        escapeHtml(httpN ? String(Math.round(sumMs)) : "—") +
+        '</strong></div><div class="sum-mini-card">Issues<strong>' +
+        escapeHtml(String(err)) +
+        "</strong></div></div>";
+    }
+    var full = '<div class="sum-full-log"><ul>';
+    for (var u = 0; u < arr.length; u++) {
+      var ent2 = arr[u];
+      var ev2 = { parsed: ent2.parsed, text: ent2.text, ts: ent2.ts, source: ent2.source };
+      var bd2 = badgeForServicePanel(name, ev2);
+      full += '<li class="sum-ev-item">' + logSummaryHtml(ev2, bd2) + "</li>";
+    }
+    full += "</ul></div>";
+    return (
+      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
+      le +
+      '<div class="sum-section-label">Request timeline</div>' +
+      bar +
+      '<div class="sum-section-label">Summary</div>' +
+      mini +
+      '<div class="sum-section-label">Full event log</div>' +
+      full +
+      "</div>"
+    );
+  }
+
+  function serviceAvatarClass(name) {
+    switch (name) {
+      case "gateway":
+        return "sum-av-svc-gateway";
+      case "bifrost":
+        return "sum-av-svc-bifrost";
+      case "qdrant":
+        return "sum-av-svc-qdrant";
+      case "indexer":
+        return "sum-av-svc-indexer";
+      default:
+        return avatarHueClass(name);
+    }
+  }
+
+  function serviceAvatarInitials(name) {
+    switch (name) {
+      case "bifrost":
+        return "BF";
+      case "gateway":
+        return "GW";
+      case "qdrant":
+        return "QD";
+      case "indexer":
+        return "IX";
+      default:
+        return avatarInitials(name);
+    }
+  }
+
+  function buildServiceCard(name, arr) {
+    var httpN = 0;
+    var sumMs = 0;
+    for (var k = 0; k < arr.length; k++) {
+      var p = arr[k].parsed;
+      if (p.shape === "http.access") {
+        httpN++;
+        var rt = Number(getFlat(p).responseTimeMs);
+        if (!isNaN(rt)) sumMs += rt;
+      }
+    }
+    var isBifrost = name === "bifrost";
+    var lastMsg = isBifrost ? bifrostSubtitle(arr) : "";
+    if (!isBifrost) {
+      var last = arr.length ? arr[arr.length - 1] : null;
+      if (last) lastMsg = primaryLogMessage(last.parsed, last.text);
+    }
+    var st = recentServiceCardHasError(name, arr)
+      ? { st: "error", cls: "sum-st-error" }
+      : { st: "active", cls: "sum-st-active" };
+    var sid = "svc-" + strHash(name);
+    var ini = serviceAvatarInitials(name);
+    var av = serviceAvatarClass(name);
+    var title = escapeHtml(isBifrost ? "bifrost" : name);
+    var wms = serviceWindowMs(arr);
+    var metrics;
+    if (isBifrost) {
+      var vecPill = bifrostVectorsHint(arr) + " vec";
+      metrics =
+        '<span class="sum-metrics">' +
+        '<span class="sum-metric">' +
+        escapeHtml(humanDurationMs(wms)) +
+        '</span><span class="sum-metric">0 tok</span><span class="sum-metric">' +
+        escapeHtml(vecPill) +
+        "</span></span>";
+    } else {
+      metrics =
+        '<span class="sum-metrics">' +
+        '<span class="sum-metric">' +
+        escapeHtml(String(arr.length)) +
+        ' lines</span>' +
+        (httpN ? '<span class="sum-metric">' + escapeHtml(String(httpN)) + " http</span>" : "") +
+        (sumMs ? '<span class="sum-metric">' + escapeHtml(humanDurationMs(sumMs)) + " Σ</span>" : "") +
+        "</span>";
+    }
+    return (
+      '<details class="sum-card" id="' +
+      escapeHtml(sid) +
+      '"><summary>' +
+      '<span class="sum-avatar ' +
+      av +
+      '">' +
+      escapeHtml(ini) +
+      "</span>" +
+      '<span class="sum-main"><span class="sum-title">' +
+      title +
+      '</span><span class="sum-sub sum-sub--clamp">' +
+      escapeHtml(lastMsg) +
+      "</span></span>" +
+      metrics +
+      '<span class="sum-status ' +
+      st.cls +
+      '">' +
+      escapeHtml(st.st) +
+      "</span>" +
+      '<span class="sum-chev"></span></summary>' +
+      renderExpandedService(name, arr) +
+      "</details>"
+    );
+  }
+
+  function renderExpandedIndexer(run, evs, tFirst, tLast, lastProg, doneSeen, proj, phase, cand, errN) {
+    var le = '<ul class="sum-last-events">';
+    var last3 = evs.slice(-3);
+    for (var i = 0; i < last3.length; i++) {
+      var ent = last3[i];
+      var ev = { parsed: ent.parsed, text: ent.text, ts: ent.ts, source: ent.source };
+      var bd = badgeForIndexerRunLine(ent);
+      le += '<li class="sum-ev-item">' + logSummaryHtml(ev, bd) + "</li>";
+    }
+    le += "</ul>";
+    var bar = timelineBarForIndexerRun(evs);
+    var spanMs = tFirst && tLast ? tLast.getTime() - tFirst.getTime() : 0;
+    var durLabel = doneSeen ? humanDurationMs(spanMs) : "ongoing";
+    var lpV = lastProg || {};
+    var emb =
+      lpV.chunks_embedded != null
+        ? Number(lpV.chunks_embedded)
+        : lpV.embedded_chunks != null
+          ? Number(lpV.embedded_chunks)
+          : null;
+    var vecSummary =
+      emb != null && !isNaN(emb)
+        ? String(Math.round(emb))
+        : cand !== "—"
+          ? cand
+          : "0";
+    var mini =
+      '<div class="sum-mini-row">' +
+      '<div class="sum-mini-card">Method / route<strong>indexer batch</strong></div>' +
+      '<div class="sum-mini-card">Duration<strong>' +
+      escapeHtml(durLabel) +
+      '</strong></div><div class="sum-mini-card">Vectors retrieved<strong>' +
+      escapeHtml(vecSummary) +
+      "</strong></div></div>";
+    var full = '<div class="sum-full-log"><ul>';
+    for (var u = 0; u < evs.length; u++) {
+      var ent2 = evs[u];
+      var ev2 = { parsed: ent2.parsed, text: ent2.text, ts: ent2.ts, source: ent2.source };
+      var bd2 = badgeForIndexerRunLine(ent2);
+      full += '<li class="sum-ev-item">' + logSummaryHtml(ev2, bd2) + "</li>";
+    }
+    full += "</ul></div>";
+    return (
+      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
+      le +
+      '<div class="sum-section-label">Request timeline</div>' +
+      bar +
+      '<div class="sum-section-label">Summary</div>' +
+      '<div class="conv-meta" style="margin-bottom:0.35rem;color:#555">Project: ' +
+      escapeHtml(proj || "—") +
+      " · phase: " +
+      escapeHtml(phase) +
+      " · events: " +
+      escapeHtml(String(evs.length)) +
+      (errN ? " · issues: " + escapeHtml(String(errN)) : "") +
+      "</div>" +
+      mini +
+      '<div class="sum-section-label">Full event log</div>' +
+      full +
+      "</div>"
+    );
+  }
+
+  function buildIndexerCard(run) {
+    var evs = run.events;
+    var tFirst = null;
+    var tLast = null;
+    for (var t = 0; t < evs.length; t++) {
+      var ins = entryInstant(evs[t]);
+      if (ins) {
+        if (!tFirst || ins.getTime() < tFirst.getTime()) tFirst = ins;
+        if (!tLast || ins.getTime() > tLast.getTime()) tLast = ins;
+      }
+    }
+    var lastProg = null;
+    var doneSeen = false;
+    var proj = "";
+    for (var u = evs.length - 1; u >= 0; u--) {
+      var msg = String(getFlat(evs[u].parsed).msg || "").toLowerCase();
+      if (!proj) {
+        var p0 = getFlat(evs[u].parsed).project;
+        if (p0) proj = String(p0);
+      }
+      if (!lastProg && msg.indexOf("indexer.run.progress") === 0) lastProg = getFlat(evs[u].parsed);
+      if (msg.indexOf("indexer.run.done") === 0) doneSeen = true;
+    }
+    var phase = lastProg && lastProg.phase ? String(lastProg.phase) : "—";
+    var cand = lastProg && lastProg.candidates_enqueued != null ? String(lastProg.candidates_enqueued) : "—";
+    var errN = countWarnErrorInEntries(evs);
+    var errRecent = countErrorSignalsInEntries(sliceRecent(evs, RECENT_CARD_STATUS_N));
+    var sub = indexerRunProgressSubtitle(lastProg, doneSeen, cand);
+    var st =
+      errRecent > 0
+        ? { st: "error", cls: "sum-st-error" }
+        : doneSeen
+          ? { st: "complete", cls: "sum-st-complete" }
+          : { st: "indexing", cls: "sum-st-indexing" };
+    var shortId = run.id.length > 28 ? run.id.slice(0, 28) + "…" : run.id;
+    var titleInner =
+      'indexer-key:<span class="sum-mono-id">' + escapeHtml(shortId) + "</span>";
+    var spanMs = tFirst && tLast ? tLast.getTime() - tFirst.getTime() : 0;
+    var firstPill = doneSeen ? humanDurationMs(spanMs) : "ongoing";
+    var lpC = lastProg || {};
+    var embC =
+      lpC.chunks_embedded != null
+        ? Number(lpC.chunks_embedded)
+        : lpC.embedded_chunks != null
+          ? Number(lpC.embedded_chunks)
+          : null;
+    var vecPill =
+      embC != null && !isNaN(embC)
+        ? String(Math.round(embC)) + " vec"
+        : cand !== "—"
+          ? cand + " vec"
+          : "0 vec";
+    var metrics =
+      '<span class="sum-metrics">' +
+      '<span class="sum-metric">' +
+      escapeHtml(firstPill) +
+      '</span><span class="sum-metric">— tok</span><span class="sum-metric">' +
+      escapeHtml(vecPill) +
+      "</span></span>";
+    var iid = "ix-" + strHash(run.id);
+    return (
+      '<details class="sum-card" id="' +
+      escapeHtml(iid) +
+      '"><summary>' +
+      '<span class="sum-avatar sum-av-c">IX</span>' +
+      '<span class="sum-main"><span class="sum-title">' +
+      titleInner +
+      '</span><span class="sum-sub sum-sub--clamp">' +
+      escapeHtml(sub) +
+      "</span></span>" +
+      metrics +
+      '<span class="sum-status ' +
+      st.cls +
+      '">' +
+      escapeHtml(st.st) +
+      "</span>" +
+      '<span class="sum-chev"></span></summary>' +
+      renderExpandedIndexer(run, evs, tFirst, tLast, lastProg, doneSeen, proj, phase, cand, errN) +
+      "</details>"
+    );
+  }
+
+  function convLastTs(g) {
+    var mx = 0;
+    for (var u = 0; u < g.events.length; u++) {
+      var ti = entryInstant({ ts: g.events[u].ts });
+      if (ti) mx = Math.max(mx, ti.getTime());
+    }
+    return mx;
+  }
+
+  function convFirstTs(g) {
+    var mn = null;
+    for (var u = 0; u < g.events.length; u++) {
+      var ti = entryInstant({ ts: g.events[u].ts });
+      if (ti) {
+        if (mn == null || ti.getTime() < mn.getTime()) mn = ti;
+      }
+    }
+    return mn ? mn.getTime() : 0;
+  }
+
+  /** Roll up separate gateway conversation_ids for the same principal when bursts are close in time. */
+  function clusterConversationGroupsByTime(groups, gapMs) {
+    var arr = [];
+    for (var key in groups) {
+      if (!Object.prototype.hasOwnProperty.call(groups, key)) continue;
+      var gx = groups[key];
+      var tmin = convFirstTs(gx);
+      var tmax = convLastTs(gx);
+      if (!tmax) continue;
+      if (!tmin) tmin = tmax;
+      arr.push({ pid: gx.pid, cid: gx.cid, events: gx.events.slice(), tmin: tmin, tmax: tmax });
+    }
+    if (arr.length <= 1) {
+      for (var i0 = 0; i0 < arr.length; i0++) {
+        arr[i0].cids = [arr[i0].cid];
+      }
+      return arr;
+    }
+    arr.sort(function (a, b) {
+      return a.tmin - b.tmin;
+    });
+    var out = [];
+    var cur = null;
+    for (var j = 0; j < arr.length; j++) {
+      var g = arr[j];
+      if (!cur) {
+        cur = { pid: g.pid, cid: g.cid, cids: [g.cid], events: g.events.slice(), tmin: g.tmin, tmax: g.tmax };
+        continue;
+      }
+      if (g.pid === cur.pid && g.tmin - cur.tmax <= gapMs) {
+        cur.cids.push(g.cid);
+        cur.events = cur.events.concat(g.events);
+        cur.tmin = Math.min(cur.tmin, g.tmin);
+        cur.tmax = Math.max(cur.tmax, g.tmax);
+        if (g.tmax >= cur.tmax) cur.cid = g.cid;
+      } else {
+        out.push(cur);
+        cur = { pid: g.pid, cid: g.cid, cids: [g.cid], events: g.events.slice(), tmin: g.tmin, tmax: g.tmax };
+      }
+    }
+    if (cur) out.push(cur);
+    for (var k = 0; k < out.length; k++) {
+      out[k].events.sort(function (a, b) {
+        var sa = a.seq != null ? Number(a.seq) : 0;
+        var sb = b.seq != null ? Number(b.seq) : 0;
+        if (sa !== sb) return sa - sb;
+        var ta = entryInstant({ ts: a.ts });
+        var tb = entryInstant({ ts: b.ts });
+        if (!ta && !tb) return 0;
+        if (!ta) return -1;
+        if (!tb) return 1;
+        return ta.getTime() - tb.getTime();
+      });
+    }
+    out.sort(function (a, b) {
+      return b.tmax - a.tmax;
+    });
+    return out;
+  }
+
+  function formatMergedConversationSubtitle(mergedCount) {
+    if (!mergedCount || mergedCount <= 1) return "";
+    return (
+      ' <span class="muted" style="font-size:0.85em" title="Several gateway conversation ids occurred close together in time; events are rolled up here.">(' +
+      mergedCount +
+      " ids)</span>"
+    );
+  }
+
+  function renderSummarizedUnified() {
+    var groups = {};
+    for (var i = 0; i < entryCache.length; i++) {
+      var ent = entryCache[i];
+      var p = ent.parsed;
+      var f = getFlat(p);
+      var cid = f.conversation_id ? String(f.conversation_id) : "";
+      if (!cid) continue;
+      var pid = f.principal_id ? String(f.principal_id) : f.tenant ? String(f.tenant) : "";
+      if (!pid) pid = "(unknown principal)";
+      var key = pid + "\0" + cid;
+      if (!groups[key]) groups[key] = { pid: pid, cid: cid, events: [] };
+      var g = groups[key];
+      g.events.push({ parsed: p, text: ent.text || "", ts: ent.ts, seq: ent.seq });
+    }
+    var buckets = { gateway: [], qdrant: [], bifrost: [], indexer: [] };
+    for (var bi = 0; bi < entryCache.length; bi++) {
+      var entB = entryCache[bi];
+      var pB = entB.parsed;
+      var fB = getFlat(pB);
+      var svc = fB.service ? String(fB.service) : "";
+      if (!buckets[svc]) {
+        svc = entB.source || "gateway";
+        if (!buckets[svc]) svc = "gateway";
+      }
+      buckets[svc].push(entB);
+    }
+    var byRun = {};
+    for (var ri = 0; ri < entryCache.length; ri++) {
+      var entR = entryCache[ri];
+      var fR = getFlat(entR.parsed);
+      var rid = fR.index_run_id != null && fR.index_run_id !== "" ? String(fR.index_run_id) : "";
+      if (!rid) continue;
+      if (!byRun[rid]) byRun[rid] = { id: rid, events: [] };
+      byRun[rid].events.push(entR);
+    }
+    var convClusterGapMs = 42 * 60 * 1000;
+    var mergedConv = clusterConversationGroupsByTime(groups, convClusterGapMs);
+    var convTimeline = [];
+    for (var ci = 0; ci < mergedConv.length; ci++) {
+      var gx = mergedConv[ci];
+      convTimeline.push({ sort: convLastTs(gx), html: buildConvCard(gx) });
+    }
+    convTimeline.sort(function (a, b) {
+      return b.sort - a.sort;
+    });
+    var svcHtml = "";
+    var order = ["bifrost", "gateway", "indexer", "qdrant"];
+    for (var oi = 0; oi < order.length; oi++) {
+      var nm = order[oi];
+      var arr = buckets[nm];
+      if (!arr || !arr.length) continue;
+      svcHtml += buildServiceCard(nm, arr);
+    }
+    var idxTimeline = [];
+    var rks = Object.keys(byRun);
+    for (var rj = 0; rj < rks.length; rj++) {
+      var run = byRun[rks[rj]];
+      var mx = 0;
+      for (var ue = 0; ue < run.events.length; ue++) {
+        var tt = entryInstant(run.events[ue]);
+        if (tt) mx = Math.max(mx, tt.getTime());
+      }
+      idxTimeline.push({ sort: mx, html: buildIndexerCard(run) });
+    }
+    idxTimeline.sort(function (a, b) {
+      return b.sort - a.sort;
+    });
+    var body = "";
+    if (convTimeline.length) {
+      body +=
+        '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Conversations</div>';
+      for (var zc = 0; zc < convTimeline.length; zc++) body += convTimeline[zc].html;
+      body += "</div>";
+    }
+    if (svcHtml) {
+      body +=
+        '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Services</div>' +
+        svcHtml +
+        "</div>";
+    }
+    if (idxTimeline.length) {
+      body +=
+        '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Indexer runs</div>';
+      for (var zi = 0; zi < idxTimeline.length; zi++) body += idxTimeline[zi].html;
+      body += "</div>";
+    }
+    if (!body)
+      return (
+        '<p class="muted">No grouped threads in the buffer yet. Use the gateway chat path (conversation tags), supervised services, or indexer runs to populate cards; switch to <strong>Raw logs</strong> for the live stream.</p>'
+      );
+    return body;
+  }
+  function appendTableRow(parsed, follow, seq, entryTs, rawText) {
+    var tr = document.createElement("tr");
+    tr.dataset.app = parsed.app;
+    tr.dataset.level = parsed.levelCanon || "";
+    if (seq !== undefined && seq !== null) tr.dataset.logSeq = String(seq);
+    var lvlClass = "lvl-none";
+    if (parsed.levelCanon) {
+      var safe = String(parsed.levelCanon).replace(/[^A-Z0-9_-]/gi, "");
+      if (safe) lvlClass = "lvl-" + safe;
+    }
+    tr.innerHTML =
+      '<td class="col-app">' +
+      escapeHtml(parsed.app) +
+      "</td>" +
+      '<td class="col-dt col-dt-utc">' +
+      parsed.dtUtcHtml +
+      "</td>" +
+      '<td class="col-dt col-dt-local">' +
+      parsed.dtLocalHtml +
+      "</td>" +
+      '<td class="col-lvl ' +
+      lvlClass +
+      '">' +
+      escapeHtml(parsed.levelLabel) +
+      "</td>" +
+      '<td class="col-details">' +
+      buildDetailsColumn(parsed, entryTs, rawText) +
+      "</td>";
+    if (!rowMatchesFilter(tr)) tr.style.display = "none";
+    tbody.appendChild(tr);
+    while (tbody.children.length > 5000) {
+      var first = tbody.firstChild;
+      var removedH = first.offsetHeight;
+      tbody.removeChild(first);
+      if (!follow && removedH) {
+        window.scrollTo(0, Math.max(0, window.scrollY - removedH));
+      }
+    }
+    if (follow) {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    }
+  }
 
   function buildDetailsCell(extras) {
     if (!extras.length) return '<span class="muted">—</span>';
@@ -476,40 +2242,23 @@
     maxSeq = e.seq;
     var follow = nearBottom();
     var parsed = parseLogText(e.source, e.text || "", e.ts);
+    entryCache.push({
+      seq: e.seq,
+      source: e.source,
+      text: e.text || "",
+      ts: e.ts,
+      parsed: parsed
+    });
+    while (entryCache.length > 5000) entryCache.shift();
+
+    if (viewMode === "summarized") {
+      scheduleStoryRebuild();
+      if (follow) window.scrollTo(0, document.documentElement.scrollHeight);
+      return;
+    }
     ensureAppOption(parsed.app);
     if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
-
-    var tr = document.createElement("tr");
-    tr.dataset.app = parsed.app;
-    tr.dataset.level = parsed.levelCanon || "";
-
-    var lvlClass = "lvl-none";
-    if (parsed.levelCanon) {
-      var safe = String(parsed.levelCanon).replace(/[^A-Z0-9_-]/gi, "");
-      if (safe) lvlClass = "lvl-" + safe;
-    }
-
-    tr.innerHTML =
-      "<td class=\"col-app\">" + escapeHtml(parsed.app) + "</td>" +
-      "<td class=\"col-dt col-dt-utc\">" + parsed.dtUtcHtml + "</td>" +
-      "<td class=\"col-dt col-dt-local\">" + parsed.dtLocalHtml + "</td>" +
-      "<td class=\"col-lvl " + lvlClass + "\">" + escapeHtml(parsed.levelLabel) + "</td>" +
-      "<td class=\"col-details\">" + buildDetailsCell(parsed.extras) + "</td>";
-
-    if (!rowMatchesFilter(tr)) tr.style.display = "none";
-    tbody.appendChild(tr);
-
-    while (tbody.children.length > 5000) {
-      var first = tbody.firstChild;
-      var removedH = first.offsetHeight;
-      tbody.removeChild(first);
-      if (!follow && removedH) {
-        window.scrollTo(0, Math.max(0, window.scrollY - removedH));
-      }
-    }
-    if (follow) {
-      window.scrollTo(0, document.documentElement.scrollHeight);
-    }
+    appendTableRow(parsed, follow, e.seq, e.ts, e.text);
   }
 
   function applyPollPayload(data) {
@@ -528,12 +2277,16 @@
       })
       .then(function (data) {
         applyPollPayload(data);
-        statusEl.textContent = "Live (poll)";
-        statusEl.className = "";
+        if (statusEl) {
+          statusEl.textContent = "Live (poll)";
+          statusEl.className = "";
+        }
       })
       .catch(function () {
-        statusEl.textContent = "Log API error — check session";
-        statusEl.className = "err";
+        if (statusEl) {
+          statusEl.textContent = "Log API error — check session";
+          statusEl.className = "err";
+        }
       });
   }
 
@@ -556,22 +2309,26 @@
       es = new EventSource(url);
     }
     var sseFailed = window.setTimeout(function () {
-      if (statusEl.textContent.indexOf("Live") === -1) {
+      if (!statusEl || statusEl.textContent.indexOf("Live") === -1) {
         startPolling();
       }
     }, 2500);
     es.onopen = function () {
       window.clearTimeout(sseFailed);
-      statusEl.textContent = "Live (SSE)";
-      statusEl.className = "";
+      if (statusEl) {
+        statusEl.textContent = "Live (SSE)";
+        statusEl.className = "";
+      }
     };
     es.onerror = function () {
       window.clearTimeout(sseFailed);
       if (es && es.readyState === EventSource.CLOSED) {
         startPolling();
       } else {
-        statusEl.textContent = "SSE reconnecting…";
-        statusEl.className = "err";
+        if (statusEl) {
+          statusEl.textContent = "SSE reconnecting…";
+          statusEl.className = "err";
+        }
         window.setTimeout(function () {
           if (es && es.readyState !== EventSource.OPEN) {
             startPolling();
@@ -584,8 +2341,10 @@
         var row = JSON.parse(ev.data);
         appendLine(row);
       } catch (x) {
-        statusEl.textContent = "Bad frame";
-        statusEl.className = "err";
+        if (statusEl) {
+          statusEl.textContent = "Bad frame";
+          statusEl.className = "err";
+        }
       }
     };
   }
@@ -593,7 +2352,7 @@
   function startStreaming() {
     if (started) return;
     started = true;
-    statusEl.textContent = "Loading history…";
+    if (statusEl) statusEl.textContent = "Loading history…";
     fetch("/api/ui/logs?since=0", { credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
@@ -601,11 +2360,14 @@
       })
       .then(function (data) {
         applyPollPayload(data);
+        fetchTokenLabels();
         startEventSource();
       })
       .catch(function () {
-        statusEl.textContent = "Unauthorized — sign in from the shell";
-        statusEl.className = "err";
+        if (statusEl) {
+          statusEl.textContent = "Unauthorized — sign in from the shell";
+          statusEl.className = "err";
+        }
       });
   }
 
@@ -614,16 +2376,25 @@
       if (ev.origin !== window.location.origin) return;
       var d = ev.data;
       if (d && d.type === "claudia-logs-activate") {
+        if (d.view) {
+          viewMode = normalizeViewMode(String(d.view));
+          saveViewMode(viewMode);
+          syncViewSelects();
+          applyViewLayout();
+          rebuildAllRows();
+        }
         startStreaming();
       }
     });
-    statusEl.textContent = "Open the Logs tab…";
+    if (statusEl) statusEl.textContent = "Open the Logs tab…";
     setTimeout(function () {
       if (!started) startStreaming();
     }, 4000);
   } else {
     startStreaming();
   }
+  fetchTokenLabels();
+  applyViewLayout();
 })();
   </script>
 </body>

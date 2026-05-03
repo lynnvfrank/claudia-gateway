@@ -57,7 +57,7 @@ _toolchain_win_winget_pkg_installed() {
 		cmdexe="${cmdexe//\\//}"
 		[[ -f "$cmdexe" ]] || cmdexe="/c/Windows/System32/cmd.exe"
 		[[ -f "$cmdexe" ]] || return 1
-		out="$("$cmdexe" //c "winget list -e --id $id --disable-interactivity 2>nul")" || true
+		out="$("$cmdexe" //c "winget list -e --id \"$id\" --disable-interactivity 2>nul")" || true
 	fi
 	[[ -n "${out//[[:space:]]/}" ]] || return 1
 	echo "$out" | grep -qiE 'no installed package found|no packages found|no matching package|no installed package matches' && return 1
@@ -88,7 +88,7 @@ _toolchain_win_winget_install() {
 		local cmdexe="${WINDIR:-C:/Windows}/System32/cmd.exe"
 		cmdexe="${cmdexe//\\//}"
 		[[ -f "$cmdexe" ]] || cmdexe="/c/Windows/System32/cmd.exe"
-		[[ -f "$cmdexe" ]] && _toolchain_run "$cmdexe" //c "winget install -e --id $id --accept-package-agreements --accept-source-agreements --disable-interactivity"
+		[[ -f "$cmdexe" ]] && _toolchain_run "$cmdexe" //c "winget install -e --id \"$id\" --accept-package-agreements --accept-source-agreements --disable-interactivity"
 		return $?
 	}
 	if _toolchain_win_is_admin; then

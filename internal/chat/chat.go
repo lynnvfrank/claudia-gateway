@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +48,20 @@ type ProxyResult struct {
 	ErrMessage string
 }
 
+// ProxyOpts carries optional hooks for gateway features (e.g. conversation merge persistence).
+type ProxyOpts struct {
+	// OnUpstreamJSONSuccess runs before the caller writes a successful non-streaming JSON body
+	// (status 2xx). Streaming completions do not invoke this hook.
+	OnUpstreamJSONSuccess func(statusCode int, upstreamModel string, jsonBody []byte)
+}
+
+func notifyUpstreamJSONSuccess(opts *ProxyOpts, statusCode int, upstreamModel string, jsonBody []byte) {
+	if opts == nil || opts.OnUpstreamJSONSuccess == nil || len(jsonBody) == 0 || !statusOK(statusCode) {
+		return
+	}
+	opts.OnUpstreamJSONSuccess(statusCode, upstreamModel, jsonBody)
+}
+
 func estTokensFromPayload(out []byte) int {
 	n, err := tokencount.Count(string(out))
 	if err != nil {
@@ -76,7 +91,7 @@ func recordUpstreamMetrics(rec gatewaymetrics.Recorder, upstreamModel string, st
 
 // ProxyChatCompletion forwards POST /v1/chat/completions to upstream. When guard is non-nil,
 // admission is checked before the HTTP request; denial returns HTTP 429 with JSON in JSONBody.
-func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, apiKey, upstreamModel string, stream bool, body map[string]json.RawMessage, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder, guard *providerlimits.Guard) ProxyResult {
+func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, apiKey, upstreamModel string, stream bool, body map[string]json.RawMessage, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder, guard *providerlimits.Guard, opts *ProxyOpts) ProxyResult {
 	out, est, err := prepareChatPayload(upstreamModel, stream, body)
 	if err != nil {
 		return ProxyResult{Status: 500, ErrMessage: "marshal request"}
@@ -99,26 +114,34 @@ func ProxyChatCompletion(ctx context.Context, w http.ResponseWriter, baseURL, ap
 			return ProxyResult{Status: http.StatusTooManyRequests, JSONBody: b}
 		}
 	}
-	return proxyChatCompletionPayload(ctx, w, baseURL, apiKey, upstreamModel, stream, out, est, timeout, log, rec)
+	return proxyChatCompletionPayload(ctx, w, baseURL, apiKey, upstreamModel, stream, out, est, timeout, log, rec, opts)
 }
 
-func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, baseURL, apiKey, upstreamModel string, stream bool, out []byte, est int, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder) ProxyResult {
+func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, baseURL, apiKey, upstreamModel string, stream bool, out []byte, est int, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder, opts *ProxyOpts) ProxyResult {
 	url := strings.TrimSuffix(baseURL, "/") + "/v1/chat/completions"
+	path := "/v1/chat/completions"
 
 	if log != nil {
 		n, errTok := tokencount.Count(string(out))
+		reqEx := truncateRunes(string(out), 320)
 		if errTok == nil {
 			log.Info("upstream chat relay",
+				"msg", "chat.bifrost.request",
+				"path", path,
 				"upstreamModel", upstreamModel,
 				"stream", stream,
 				"target", url,
 				"outgoingTokens", n,
+				"requestBodyExcerpt", reqEx,
 			)
 		} else {
 			log.Info("upstream chat relay",
+				"msg", "chat.bifrost.request",
+				"path", path,
 				"upstreamModel", upstreamModel,
 				"stream", stream,
 				"target", url,
+				"requestBodyExcerpt", reqEx,
 			)
 			log.Debug("outgoing token count failed", "err", errTok)
 		}
@@ -139,7 +162,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if log != nil {
-			log.Info("upstream chat fetch failed", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
+			log.Info("upstream chat fetch failed", "msg", "chat.bifrost.error", "err", err, "target", url, "upstreamModel", upstreamModel, "stream", stream)
 		}
 		recordUpstreamMetrics(rec, upstreamModel, http.StatusServiceUnavailable, est)
 		return ProxyResult{Status: 503, ErrMessage: err.Error()}
@@ -148,7 +171,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 
 	if !statusOK(res.StatusCode) && !stream {
 		b, _ := io.ReadAll(res.Body)
-		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(b))
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, b, res.Header)
 		recordUpstreamMetrics(rec, upstreamModel, res.StatusCode, est)
 		return ProxyResult{Status: res.StatusCode, JSONBody: b}
 	}
@@ -170,7 +193,7 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 				},
 			})
 		}
-		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(wrap))
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, wrap, res.Header)
 		recordUpstreamMetrics(rec, upstreamModel, res.StatusCode, est)
 		return ProxyResult{Status: res.StatusCode, JSONBody: wrap}
 	}
@@ -195,19 +218,20 @@ func proxyChatCompletionPayload(ctx context.Context, w http.ResponseWriter, base
 		} else {
 			_, _ = io.Copy(&cw, res.Body)
 		}
-		logUpstreamChatResponse(log, url, http.StatusOK, upstreamModel, stream, int(cw.n))
+		logUpstreamChatResponse(log, url, http.StatusOK, upstreamModel, stream, nil, res.Header)
 		recordUpstreamMetrics(rec, upstreamModel, http.StatusOK, est)
 		return ProxyResult{Stream: true}
 	}
 
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
-		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, 0)
+		logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, nil, res.Header)
 		recordUpstreamMetrics(rec, upstreamModel, http.StatusServiceUnavailable, est)
 		return ProxyResult{Status: 503, ErrMessage: err.Error()}
 	}
-	logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, len(b))
+	logUpstreamChatResponse(log, url, res.StatusCode, upstreamModel, stream, b, res.Header)
 	recordUpstreamMetrics(rec, upstreamModel, res.StatusCode, est)
+	notifyUpstreamJSONSuccess(opts, res.StatusCode, upstreamModel, b)
 	return ProxyResult{Status: res.StatusCode, JSONBody: b}
 }
 
@@ -223,18 +247,116 @@ func (c *countWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func logUpstreamChatResponse(log *slog.Logger, url string, status int, upstreamModel string, stream bool, responseBytes int) {
+func truncateRunes(s string, max int) string {
+	if max <= 0 || s == "" {
+		return ""
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
+}
+
+func formatResponseHeadersForLog(h http.Header, maxLen int) string {
+	if h == nil || len(h) == 0 || maxLen <= 0 {
+		return ""
+	}
+	type pair struct {
+		k, v string
+	}
+	var pairs []pair
+	for k, vv := range h {
+		lk := strings.ToLower(k)
+		if lk == "set-cookie" {
+			continue
+		}
+		v := strings.Join(vv, ",")
+		if lk == "authorization" {
+			v = "[redacted]"
+		}
+		pairs = append(pairs, pair{k, v})
+	}
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].k < pairs[j].k })
+	var b strings.Builder
+	for _, p := range pairs {
+		if b.Len() > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(p.k)
+		b.WriteString(": ")
+		b.WriteString(p.v)
+		if b.Len() >= maxLen {
+			break
+		}
+	}
+	out := b.String()
+	if len(out) > maxLen {
+		out = out[:maxLen] + "…"
+	}
+	return out
+}
+
+func usageFromChatCompletionJSON(b []byte) (prompt, completion, total int, ok bool) {
+	if len(b) == 0 || !json.Valid(b) {
+		return 0, 0, 0, false
+	}
+	var root struct {
+		Usage *struct {
+			Prompt     int `json:"prompt_tokens"`
+			Completion int `json:"completion_tokens"`
+			Total      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(b, &root); err != nil || root.Usage == nil {
+		return 0, 0, 0, false
+	}
+	u := root.Usage
+	total = u.Total
+	if total <= 0 && (u.Prompt > 0 || u.Completion > 0) {
+		total = u.Prompt + u.Completion
+	}
+	if total <= 0 && u.Prompt <= 0 && u.Completion <= 0 {
+		return 0, 0, 0, false
+	}
+	return u.Prompt, u.Completion, total, true
+}
+
+func logUpstreamChatResponse(log *slog.Logger, url string, statusCode int, upstreamModel string, stream bool, respBody []byte, respHeader http.Header) {
 	if log == nil {
 		return
 	}
-	log.Info("upstream chat response",
+	path := "/v1/chat/completions"
+	args := []any{
 		"route", "POST /v1/chat/completions (upstream)",
+		"path", path,
 		"target", url,
-		"status", status,
+		"statusCode", statusCode,
 		"upstreamModel", upstreamModel,
 		"stream", stream,
-		"responseBytes", responseBytes,
-	)
+		"responseBytes", len(respBody),
+	}
+	if respHeader != nil {
+		if hdr := formatResponseHeadersForLog(respHeader, 700); hdr != "" {
+			args = append(args, "responseHeaders", hdr)
+		}
+	}
+	if len(respBody) > 0 {
+		if ex := truncateRunes(string(respBody), 400); ex != "" {
+			args = append(args, "responseBodyExcerpt", ex)
+		}
+		if p, c, tot, ok := usageFromChatCompletionJSON(respBody); ok {
+			args = append(args,
+				"usagePromptTokens", p,
+				"usageCompletionTokens", c,
+				"usageTotalTokens", tot,
+			)
+		}
+	}
+	log.Info("upstream chat response", args...)
 }
 
 type flushWriter struct {
@@ -271,7 +393,7 @@ func mustRawJSON(v any) json.RawMessage {
 }
 
 // WithVirtualModelFallback implements src/chat.ts chatWithVirtualModelFallback.
-func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initialUpstream string, fallbackChain []string, baseURL, apiKey string, stream bool, body map[string]json.RawMessage, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder, guard *providerlimits.Guard) {
+func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initialUpstream string, fallbackChain []string, baseURL, apiKey string, stream bool, body map[string]json.RawMessage, timeout time.Duration, log *slog.Logger, rec gatewaymetrics.Recorder, guard *providerlimits.Guard, opts *ProxyOpts) {
 	start := routing.StartingFallbackIndex(initialUpstream, fallbackChain)
 	var chain []string
 	if len(fallbackChain) > 0 {
@@ -303,7 +425,11 @@ func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initia
 			continue
 		}
 		if log != nil {
-			log.Debug("virtual model fallback attempt", "attempt", i+1, "upstreamModel", upstreamModel, "chainLen", len(chain))
+			if len(chain) > 1 {
+				log.Info("virtual model fallback attempt", "attempt", i+1, "upstreamModel", upstreamModel, "chainLen", len(chain))
+			} else {
+				log.Debug("virtual model fallback attempt", "attempt", i+1, "upstreamModel", upstreamModel, "chainLen", len(chain))
+			}
 		}
 		out, est, err := prepareChatPayload(upstreamModel, stream, body)
 		if err != nil {
@@ -329,11 +455,14 @@ func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initia
 				return
 			}
 		}
-		r := proxyChatCompletionPayload(ctx, w, baseURL, apiKey, upstreamModel, stream, out, est, timeout, log, rec)
+		r := proxyChatCompletionPayload(ctx, w, baseURL, apiKey, upstreamModel, stream, out, est, timeout, log, rec, opts)
 		if r.Status == http.StatusRequestEntityTooLarge {
 			excluded413[upstreamModel] = struct{}{}
 		}
 		if r.Stream {
+			if log != nil && len(chain) > 1 {
+				log.Info("virtual model routing resolved", "upstreamModel", upstreamModel, "attempt", i+1, "chainLen", len(chain), "stream", true)
+			}
 			return
 		}
 		if r.ErrMessage != "" {
@@ -346,11 +475,14 @@ func WithVirtualModelFallback(ctx context.Context, w http.ResponseWriter, initia
 		if r.JSONBody != nil {
 			if _, retry := retryStatuses[r.Status]; retry && hasMoreFallbackCandidates(chain, i, excluded413) {
 				if log != nil {
-					log.Info("retrying next fallback model", "upstreamModel", upstreamModel, "status", r.Status, "willRetry", true)
+					log.Info("retrying next fallback model", "msg", "chat.routing.fallback", "upstreamModel", upstreamModel, "status", r.Status, "willRetry", true)
 				}
 				continue
 			}
 			if _, retry := retryStatuses[r.Status]; !retry {
+				if log != nil && len(chain) > 1 {
+					log.Info("virtual model routing resolved", "upstreamModel", upstreamModel, "attempt", i+1, "chainLen", len(chain), "statusCode", r.Status, "stream", false)
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(r.Status)
 				_, _ = w.Write(r.JSONBody)

@@ -2,9 +2,9 @@
 
 This document plans a **portable Go binary** that watches configured directories, respects ignore rules, and sends **whole-file** bodies to the **Claudia Gateway** for **server-side chunking and embedding** (same strategy as [`claudia-gateway.plan.md`](claudia-gateway.plan.md): one document per request; gateway owns chunk boundaries and can change them without indexer upgrades). It complements gateway **ingest** and **indexer** APIs (`POST /v1/ingest`, `GET /v1/indexer/config`, etc.).
 
-**Related docs:** [`cli-tool.plan.md`](cli-tool.plan.md) (configuration precedence pattern), [`claudia-gateway.plan.md`](claudia-gateway.plan.md), [`overview.md`](overview.md), [`network.md`](network.md).
+**Related docs:** [`cli-tool.plan.md`](cli-tool.plan.md) (configuration precedence pattern), [`claudia-gateway.plan.md`](claudia-gateway.plan.md), [`overview.md`](overview.md), [`network.md`](network.md), [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md) (operator log UX for supervised processes).
 
-**Current code (this repo):** `claudia-index` is implemented and reports **`claudia-index v0.4.0`** (`--version`). Sources: `cmd/claudia-index`, `internal/indexer`, operator guide [`indexer.md`](indexer.md), example [`config/indexer.example.yaml`](../config/indexer.example.yaml). Makefile targets `indexer-build` / `indexer-run` / `indexer-install` and `scripts/clean.sh` / `scripts/print-make-help.sh` include the binary. **Still missing** relative to this document: durable offline queue and optional **global discovery without cwd** edge cases. **Shipped:** layered YAML, **`GET /health`** during recovery, **Mode B** per-step retries, **`GET /v1/indexer/corpus/inventory`** (path + **`content_sha256`** + optional **`client_content_hash`**) for startup reconciliation.
+**Current code (this repo):** `claudia-index` is implemented and reports **`claudia-index v0.4.0`** (`--version`). Sources: `cmd/claudia-index`, `internal/indexer`, operator guide [`indexer.md`](indexer.md), example [`config/indexer.example.yaml`](../config/indexer.example.yaml). Makefile targets `indexer-build` / `indexer-run` / `indexer-install` and `scripts/clean.sh` / `scripts/print-make-help.sh` include the binary. **Still missing** relative to this document: durable offline queue and optional **global discovery without cwd** edge cases. **Shipped:** layered YAML, **`GET /health`** during recovery, **Mode B** per-step retries, **`GET /v1/indexer/corpus/inventory`** (path + **`content_sha256`** + optional **`client_content_hash`**) for startup reconciliation. **Planned as v0.5:** richer **health and update-status** reporting, optional supervision under **`claudia serve`**, and the same optional wiring in the **desktop** (`claudia` desktop mode) bundle so indexer output can reach the gateway **operator logs** UI (see [Indexer v0.5](#indexer-v05)).
 
 ---
 
@@ -28,7 +28,7 @@ This document plans a **portable Go binary** that watches configured directories
 
 ## Versioning (indexer milestones)
 
-**Indexer and gateway v0.2 align:** the first shippable **`claudia-index`** targets **gateway v0.2** (ingest + indexer config/storage APIs). Later indexer versions may add features without a gateway bump, but **v0.2** is the shared baseline for “RAG indexing works end-to-end.” **As of the current tree**, the shipped indexer binary is **v0.4.0** and implements **v0.2 + v0.3 + most of v0.4** below; milestone headings remain the spec history.
+**Indexer and gateway v0.2 align:** the first shippable **`claudia-index`** targets **gateway v0.2** (ingest + indexer config/storage APIs). Later indexer versions may add features without a gateway bump, but **v0.2** is the shared baseline for “RAG indexing works end-to-end.” **As of the current tree**, the shipped indexer binary is **v0.4.0** and implements **v0.2 + v0.3 + most of v0.4** below; **[Indexer v0.5](#indexer-v05)** is planned (supervision + richer status). Milestone headings remain the spec history.
 
 ### Indexer v0.2 (initial release)
 
@@ -71,6 +71,42 @@ This document plans a **portable Go binary** that watches configured directories
 - **v0.4 adds:** gateway **computes hash over the bytes it actually ingested** (after decoding/normalization as defined in the contract) and returns **`content_sha256`** (name TBD) in the **ingest response** (and persists it for **corpus inventory**). Indexer **updates local bookkeeping** to that value so **server truth** can override client preflight hash when they differ (normalization, transcoding, or bug diagnosis).
 
 **Deliverables:** documented APIs for Mode B, size thresholds, error/retry semantics per chunk/session, and **response body** fields for **server-side SHA**. **Status:** gateway and client implement start/chunk/complete and ingest JSON responses include **`content_sha256`** / **`client_content_hash`**; **per-step bounded retries** (session start, each **PUT** chunk, **complete**) reuse the same backoff caps as whole-file ingest **within** one `processJob` attempt. If all attempts fail, the outer job retry may still restart the session from byte zero.
+
+### Indexer v0.5
+
+**Operator observability, supervised `claudia serve`, and desktop.** Operators (and the **log presentation layer**) should see **what the indexer is doing** without tailing a separate terminal: **health**, **update / sync status**, **backoff and recovery timing**, and **high-level progress**. The indexer runs as an **optional child** of **`claudia serve`** and of the **desktop** stack so stdout/stderr is captured the same way as BiFrost and Qdrant today.
+
+**Motivation:** today `claudia-index` is a **standalone** process logging to **`stderr`**; the gateway **`/ui/logs`** buffer only receives **`gateway`**, **`bifrost`**, and **`qdrant`** lines when using `claudia serve` (`servicelogs` writers in `cmd/claudia/serve.go`). Indexer traffic appears indirectly as **`gateway`** HTTP access logs for **`/v1/ingest`**, not as first-class **indexer** narrative. v0.5 closes that gap for supervised deployments and improves **structured** signals for summarization (see [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md)).
+
+**Scope**
+
+1. **Structured status and health reporting (indexer process)**  
+   - Emit **stable, parse-friendly** log events (prefer **`slog` JSON** on stderr for supervised mode, or document equivalent key/value fields) for milestones an operator cares about, for example:
+     - **Run lifecycle:** `indexer.run.start` / `indexer.run.ready` (roots, config fingerprint or gateway URL host only—no secrets), optional **`index_run_id`** (UUID) for UI threading.
+     - **Discovery / reconciliation:** counts after initial scan—**candidate files**, **skipped** (unchanged inventory, sync state, ignores), **enqueued for upload** (“proposed updates”); per-root breakdown optional.
+     - **Incremental watch:** watcher **attached** roots, **`debounce_ms`** effective; on **debounced** enqueue, optional **rate-limited** “file changed” summary lines (not one log per event in a storm).
+     - **Queue + workers:** periodic or threshold-based **`queue_depth`**, **`workers`**; **ingest success/fail** tallies over a window (optional).
+     - **Backoff / retry:** when **`ingest retry`** fires, include **explicit** `next_retry_in` / `delay` and **reason class** (429, 5xx, network); when **paused** for health, log **`recovery_poll_interval`**, **next_poll_at** (or equivalent), and **which probes** run (`storage/health` vs `/health`).
+   - **Security:** unchanged rules—no absolute paths in payloads to the gateway; logs may use **relative** paths consistent with today; no tokens in structured fields.
+
+2. **Supervised `claudia serve`**  
+   - **Optional** indexer child process (off by default), controlled from **`gateway.yaml`** (or dedicated snippet) and/or CLI flags, for example:
+     - Path to **`claudia-index`** binary (default: next to `claudia` or on `PATH`).
+     - **Working directory** and/or explicit **`--config`** path for layered YAML.
+     - **Environment:** inherit **`CLAUDIA_GATEWAY_URL`** / **`CLAUDIA_GATEWAY_TOKEN`** (or map from gateway’s token store path only if a safe pattern is defined—prefer env inherited from the parent process).
+   - **Supervision:** same pattern as Qdrant/BiFrost: **`context`** cancellation on gateway shutdown; **`Stdout` / `Stderr`** teed to **`logStore.Writer("indexer")`** so **`/api/ui/logs`** shows **`Application: indexer`** lines live.
+   - **Bootstrap / RAG off:** do not start the indexer when the gateway is in **bootstrap** mode or **RAG disabled** unless explicitly overridden; document behavior when storage health is **degraded** (indexer may still run and self-pause per existing recovery logic).
+
+3. **Desktop bundle (`claudia` desktop mode)**  
+   - When the **desktop** entry (`claudia serve` + webview per [`ui-tool.plan.md`](ui-tool.plan.md)) is used, **reuse the same supervision block**: if indexer supervision is enabled in config, the **desktop** process starts it and tees logs to **`servicelogs`**—no second packaging story. **Release bundles** that ship **`claudia`** + **`bifrost-http`** + **`qdrant`** should **optionally** ship **`claudia-index`** beside them and document **`gateway.yaml`** keys to turn it on.
+
+**Non-goals (v0.5)**
+
+- Replacing **gateway** ingest metrics with indexer-reported truth (gateway remains authoritative for stored corpus).
+- **Remote** log shipping (Splunk, etc.)—only in-process ring buffer + UI as today.
+- **Durable offline queue** (still [open decisions](#open-decisions) / later milestone).
+
+**Deliverables:** config schema snippet in **`config/gateway.example.yaml`** (or `indexer.supervised` block), operator notes in **`docs/indexer.md`**, and checklist items below. **Version string:** bump **`claudia-index --version`** to **v0.5.0** when this milestone ships.
 
 ### Indexer v0.8+ (configuration parity with `claudiactl`)
 
@@ -334,6 +370,14 @@ On **every startup** (and periodically during long runs), the indexer **SHOULD**
 - [x] **`--one-shot`** scan mode and **`--version`**.
 - [x] **Mid-session HTTP retries:** each Mode B step (**POST** session start, **PUT** chunk, **POST** complete) uses bounded exponential backoff (`retry_*` fields) before the worker exhausts attempts and pauses.
 
+**Indexer v0.5**
+
+- [ ] **Structured operator events:** discovery/reconciliation **summaries** (candidate / skipped / enqueued counts), **queue/worker** snapshots, **retry/backoff** and **recovery poll** timing fields suitable for [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md); optional **`index_run_id`** on run lifecycle logs.
+- [ ] **`claudia serve`:** optional supervised **`claudia-index`** subprocess with **stderr/stdout** teed to **`servicelogs`** source **`indexer`**; shutdown with gateway; gated when **bootstrap** or **RAG off** per documented rules.
+- [ ] **Gateway config + docs:** `gateway.yaml` / **`gateway.example.yaml`** (or equivalent) documents supervision flags; **`docs/indexer.md`** explains **standalone vs supervised** and env inheritance.
+- [ ] **Desktop:** desktop mode uses the **same** supervision path when enabled (single bundle story); packaging note for **`claudia-index`** next to **`claudia`**.
+- [ ] **Version:** `claudia-index --version` reports **v0.5.0** when the milestone is complete.
+
 **Indexer v0.8**
 
 - [x] Layered YAML merge: **`~/.claudia/indexer.config.yaml`** → **`<cwd>/.claudia/indexer.config.yaml`** → **`--config`** (`LoadLayeredConfig`). CLI/env overrides unchanged.
@@ -352,4 +396,4 @@ On **every startup** (and periodically during long runs), the indexer **SHOULD**
 
 ---
 
-*Plan status: **implemented through v0.4 + layered YAML + recovery `/health` + Mode B per-step retries + corpus inventory REST** (indexer binary still reports **v0.4.0**) — aligns with [`claudia-gateway.plan.md`](claudia-gateway.plan.md). **Outstanding:** durable paused queue, root README blurb, smarter **session resume** after abandoning a partially uploaded session mid-flight.*
+*Plan status: **implemented through v0.4 + layered YAML + recovery `/health` + Mode B per-step retries + corpus inventory REST** (indexer binary still reports **v0.4.0**) — aligns with [`claudia-gateway.plan.md`](claudia-gateway.plan.md). **Next (v0.5):** supervised indexer under **`claudia serve` / desktop**, **`servicelogs`** integration, and **structured health/update-status** events (see [Indexer v0.5](#indexer-v05)). **Outstanding:** durable paused queue, root README blurb, smarter **session resume** after abandoning a partially uploaded session mid-flight.*
