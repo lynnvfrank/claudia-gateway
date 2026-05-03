@@ -23,10 +23,15 @@ function Refresh-Path {
 }
 
 function Prepend-GnuWin32 {
-    $candidates = @(
-        "${env:ProgramFiles(x86)}\GnuWin32\bin",
-        "$env:ProgramFiles\GnuWin32\bin"
-    )
+    # Use GetFolderPath so we never rely on ${env:ProgramFiles(x86)} tokenization; Join-Path handles spaces.
+    $candidates = @()
+    foreach ($root in @(
+            [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86),
+            [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+        )) {
+        if ([string]::IsNullOrWhiteSpace($root)) { continue }
+        $candidates += (Join-Path $root "GnuWin32\bin")
+    }
     foreach ($d in $candidates) {
         if (Test-Path -LiteralPath (Join-Path $d "make.exe")) {
             $env:Path = "$d;$env:Path"
@@ -38,7 +43,7 @@ function Prepend-GnuWin32 {
 }
 
 if ($env:SKIP_AUTO_MAKE -eq "1") {
-    Write-Error "install-make: SKIP_AUTO_MAKE=1 — install GNU Make manually."
+    Write-Error "install-make: SKIP_AUTO_MAKE=1 - install GNU Make manually."
     exit 1
 }
 
@@ -49,12 +54,12 @@ if (Test-GnuMake) {
     exit 0
 }
 
-Write-Host "install-make: GNU Make not found — trying installers…"
+Write-Host "install-make: GNU Make not found - trying installers..."
 
 $winget = Get-Command winget -ErrorAction SilentlyContinue
 if ($winget) {
     try {
-        & winget @(
+        & "$($winget.Source)" @(
             "install", "-e", "--id", "GnuWin32.Make",
             "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"
         )
@@ -73,7 +78,7 @@ if ($winget) {
 $choco = Get-Command choco -ErrorAction SilentlyContinue
 if ($choco) {
     try {
-        & choco install make -y
+        & "$($choco.Source)" install make -y
     } catch {
         Write-Host "install-make: choco install failed: $_"
     }
@@ -88,7 +93,7 @@ if ($choco) {
 $scoop = Get-Command scoop -ErrorAction SilentlyContinue
 if ($scoop) {
     try {
-        & scoop install make
+        & "$($scoop.Source)" install make
     } catch {
         Write-Host "install-make: scoop install failed: $_"
     }
