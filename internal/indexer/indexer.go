@@ -34,6 +34,15 @@ type Indexer struct {
 	// remoteInv is populated from GET /v1/indexer/corpus/inventory during the
 	// initial scan (nil when unavailable). Keys are root-relative source paths.
 	remoteInv map[string]CorpusInventoryRow
+
+	// Operator-facing counters (indexer.* structured events / run.done rollup).
+	opsSkipCorpusClientHash int64
+	opsSkipCorpusSyncMatch  int64
+	opsSkipLocalSync        int64
+	opsIngestOK             int64
+	opsIngestFail           int64
+	opsRetry                int64
+	opsDequeued             int64
 }
 
 // Hooks is an optional set of callbacks tests can install to observe and
@@ -95,7 +104,7 @@ func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error
 		return nil, err
 	}
 	ix.lastGW.Store(cfg)
-	ix.log.Info("gateway indexer config",
+	logArgs := []any{
 		"gateway_version", cfg.GatewayVersion,
 		"embedding_model", cfg.EmbeddingModel,
 		"embedding_dim", cfg.EmbeddingDim,
@@ -105,7 +114,22 @@ func (ix *Indexer) FetchAndLogConfig(ctx context.Context) (*IndexerConfig, error
 		"max_whole_file_bytes", cfg.MaxWholeFileBytes,
 		"ingest_session_path", cfg.IngestSessionPath,
 		"corpus_inventory_path", cfg.CorpusInventoryPath,
-	)
+	}
+	if hdr := ix.cfg.DefaultIndexerHeaders(); hdr != nil {
+		if v := strings.TrimSpace(hdr["X-Claudia-Project"]); v != "" {
+			logArgs = append(logArgs, "ingest_project", v)
+		}
+		if v := strings.TrimSpace(hdr["X-Claudia-Flavor-Id"]); v != "" {
+			logArgs = append(logArgs, "flavor_id", v)
+		}
+	}
+	if v := strings.TrimSpace(ix.cfg.DefaultScope.ProjectID); v != "" {
+		logArgs = append(logArgs, "scope_project_id", v)
+	}
+	if v := strings.TrimSpace(ix.cfg.DefaultScope.WorkspaceID); v != "" {
+		logArgs = append(logArgs, "scope_workspace_id", v)
+	}
+	ix.log.Info("gateway indexer config", logArgs...)
 	return cfg, nil
 }
 
@@ -117,11 +141,11 @@ func (ix *Indexer) EnqueueInitialScan(ctx context.Context) (int, error) {
 	if err := ix.loadRemoteCorpusInventory(ctx); err != nil {
 		ix.log.Warn("corpus inventory fetch skipped", "err", err)
 	}
-	total := 0
+	var disc discoveryAgg
 	for _, r := range ix.cfg.Roots {
 		m, err := NewMatcher(r.AbsPath, ix.cfg.IgnoreExtra)
 		if err != nil {
-			return total, fmt.Errorf("ignore matcher for %s: %w", r.AbsPath, err)
+			return disc.Enqueued, fmt.Errorf("ignore matcher for %s: %w", r.AbsPath, err)
 		}
 		ix.matchers[r.ID] = m
 		cands, err := Walk(r, WalkOptions{
@@ -130,6 +154,7 @@ func (ix *Indexer) EnqueueInitialScan(ctx context.Context) (int, error) {
 			BinaryNullByteSample: ix.cfg.BinaryNullByteSample,
 			BinaryNullByteRatio:  ix.cfg.BinaryNullByteRatio,
 			OnSkip: func(rel, reason string) {
+				disc.noteSkip(reason)
 				ix.log.Debug("skip", "root", r.ID, "rel", rel, "reason", reason)
 				if ix.hooks.OnSkip != nil {
 					ix.hooks.OnSkip(rel, reason)
@@ -137,17 +162,22 @@ func (ix *Indexer) EnqueueInitialScan(ctx context.Context) (int, error) {
 			},
 		})
 		if err != nil {
-			return total, fmt.Errorf("walk %s: %w", r.AbsPath, err)
+			return disc.Enqueued, fmt.Errorf("walk %s: %w", r.AbsPath, err)
 		}
+		disc.Candidates += len(cands)
 		for _, c := range cands {
 			if !ix.queue.Enqueue(Job{Root: c.Root, RelPath: c.RelPath, AbsPath: c.AbsPath}) {
+				disc.QueueFull++
 				ix.log.Warn("queue full; dropping", "root", c.Root.ID, "rel", c.RelPath)
+			} else {
+				disc.Enqueued++
 			}
-			total++
 		}
 	}
-	ix.log.Info("initial scan complete", "msg", "indexer.run.progress", "phase", "initial_scan", "candidates_enqueued", total)
-	return total, nil
+	ix.logDiscoverySummary(&disc)
+	ix.LogQueueSnapshot("after_initial_scan")
+	ix.log.Info("initial scan complete", "msg", "indexer.run.progress", "phase", "initial_scan", "candidates_enqueued", disc.Enqueued)
+	return disc.Enqueued, nil
 }
 
 func (ix *Indexer) loadRemoteCorpusInventory(ctx context.Context) error {
@@ -167,15 +197,42 @@ func (ix *Indexer) loadRemoteCorpusInventory(ctx context.Context) error {
 		return err
 	}
 	ix.remoteInv = m
-	ix.log.Info("loaded remote corpus inventory", "sources", len(m))
+	ix.log.Info("corpus inventory loaded",
+		"msg", "indexer.reconcile.summary",
+		"phase", "inventory_loaded",
+		"remote_source_paths", len(m),
+	)
 	return nil
 }
+
+// workerDrainHeartbeatEvery is how often we emit indexer.queue.snapshot while
+// workers are draining. Skips and hashing log at DEBUG; a slow first ingest can
+// otherwise leave operators with no INFO lines for minutes.
+const workerDrainHeartbeatEvery = 30 * time.Second
 
 // RunWorkers spawns cfg.Workers goroutines that drain the queue. It returns
 // when ctx is cancelled or the queue is closed. Workers loop on retryable
 // errors per the failure-handling contract; on a fatal error they log and
 // drop the job.
 func (ix *Indexer) RunWorkers(ctx context.Context) {
+	ix.LogQueueSnapshot("run_workers_start")
+	tickCtx, tickCancel := context.WithCancel(ctx)
+	defer tickCancel()
+	go func() {
+		// time.Ticker does not fire until the first interval elapses; emit once
+		// immediately so operators (and /ui/logs) prove the drain loop is live.
+		ix.LogQueueSnapshot("worker_drain_tick")
+		t := time.NewTicker(workerDrainHeartbeatEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-tickCtx.Done():
+				return
+			case <-t.C:
+				ix.LogQueueSnapshot("worker_drain_tick")
+			}
+		}
+	}()
 	var wg sync.WaitGroup
 	for i := 0; i < ix.cfg.Workers; i++ {
 		wg.Add(1)
@@ -187,21 +244,30 @@ func (ix *Indexer) RunWorkers(ctx context.Context) {
 				if !ok {
 					return
 				}
+				atomic.AddInt64(&ix.opsDequeued, 1)
 				if err := ix.processJob(ctx, j, rng); err != nil {
 					if errors.Is(err, ErrPaused) {
-						ix.log.Warn("worker paused; awaiting health recovery", "worker", id, "rel", j.RelPath)
+						ix.log.Warn("worker paused; awaiting health recovery",
+							"msg", "indexer.worker.paused",
+							"worker", id, "rel", j.RelPath)
+						ix.LogQueueSnapshot("worker_paused_before_recovery")
 						if perr := ix.waitForRecovery(ctx); perr != nil {
 							return
 						}
 						_ = ix.queue.Enqueue(j)
+						ix.LogQueueSnapshot("worker_resumed_after_recovery")
 						continue
 					}
-					ix.log.Error("ingest failed (dropped)", "worker", id, "rel", j.RelPath, "err", err)
+					atomic.AddInt64(&ix.opsIngestFail, 1)
+					ix.log.Error("ingest failed (dropped)",
+						"msg", "indexer.job.failed",
+						"worker", id, "rel", j.RelPath, "err", err)
 				}
 			}
 		}(i)
 	}
 	wg.Wait()
+	ix.LogQueueSnapshot("run_workers_exit")
 }
 
 // processJob ingests a single file with bounded retries. It returns
@@ -220,7 +286,15 @@ func (ix *Indexer) processJob(ctx context.Context, j Job, rng *rand.Rand) error 
 			return err
 		}
 		d := Backoff(attempt, ix.cfg.RetryBaseDelay, ix.cfg.RetryMaxDelay, rng)
-		ix.log.Warn("ingest retry", "rel", j.RelPath, "attempt", attempt+1, "delay", d, "err", err)
+		atomic.AddInt64(&ix.opsRetry, 1)
+		ix.log.Warn("ingest retry",
+			"msg", "indexer.retry.scheduled",
+			"rel", j.RelPath,
+			"attempt", attempt+1,
+			"max_attempts", ix.cfg.RetryMaxAttempts,
+			"delay_ms", d.Milliseconds(),
+			"err", err,
+		)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -238,6 +312,25 @@ func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
 	if ix.cfg.MaxFileBytes > 0 && st.Size() > ix.cfg.MaxFileBytes {
 		return fmt.Errorf("file exceeds max_file_bytes: %s", j.RelPath)
 	}
+	noText, err := fileHasNoIngestableText(j.AbsPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", j.RelPath, err)
+	}
+	if noText {
+		if ix.log != nil {
+			if ix.cfg.VerboseJobLogs {
+				ix.log.Info("job skipped",
+					"msg", "indexer.job.skipped",
+					"root", j.Root.ID,
+					"rel", j.RelPath,
+					"skip_reason", "empty_or_whitespace",
+				)
+			} else {
+				ix.log.Debug("skip ingest: empty or whitespace-only document", "rel", j.RelPath)
+			}
+		}
+		return nil
+	}
 	hash, _, err := HashFile(j.AbsPath)
 	if err != nil {
 		return fmt.Errorf("hash %s: %w", j.RelPath, err)
@@ -245,12 +338,36 @@ func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
 	if ix.remoteInv != nil {
 		if row, ok := ix.remoteInv[j.RelPath]; ok {
 			if row.ClientContentHash != "" && row.ClientContentHash == hash {
-				ix.log.Debug("skip unchanged (corpus inventory)", "rel", j.RelPath)
+				atomic.AddInt64(&ix.opsSkipCorpusClientHash, 1)
+				if ix.log != nil {
+					if ix.cfg.VerboseJobLogs {
+						ix.log.Info("job skipped",
+							"msg", "indexer.job.skipped",
+							"root", j.Root.ID,
+							"rel", j.RelPath,
+							"skip_reason", "unchanged_corpus_client_hash",
+						)
+					} else {
+						ix.log.Debug("skip unchanged (corpus inventory)", "rel", j.RelPath)
+					}
+				}
 				return nil
 			}
 			if row.ClientContentHash == "" && ix.syncState != nil {
 				if ent, ok := ix.syncState.Get(j.Key()); ok && ent.ServerSHA == row.ContentSHA256 && ent.ClientSHA == hash {
-					ix.log.Debug("skip unchanged (corpus inventory + sync state)", "rel", j.RelPath)
+					atomic.AddInt64(&ix.opsSkipCorpusSyncMatch, 1)
+					if ix.log != nil {
+						if ix.cfg.VerboseJobLogs {
+							ix.log.Info("job skipped",
+								"msg", "indexer.job.skipped",
+								"root", j.Root.ID,
+								"rel", j.RelPath,
+								"skip_reason", "unchanged_corpus_sync",
+							)
+						} else {
+							ix.log.Debug("skip unchanged (corpus inventory + sync state)", "rel", j.RelPath)
+						}
+					}
 					return nil
 				}
 			}
@@ -258,7 +375,19 @@ func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
 	}
 	if ix.syncState != nil {
 		if ent, ok := ix.syncState.Get(j.Key()); ok && ent.ClientSHA == hash {
-			ix.log.Debug("skip unchanged (sync state)", "rel", j.RelPath)
+			atomic.AddInt64(&ix.opsSkipLocalSync, 1)
+			if ix.log != nil {
+				if ix.cfg.VerboseJobLogs {
+					ix.log.Info("job skipped",
+						"msg", "indexer.job.skipped",
+						"root", j.Root.ID,
+						"rel", j.RelPath,
+						"skip_reason", "unchanged_local_sync",
+					)
+				} else {
+					ix.log.Debug("skip unchanged (sync state)", "rel", j.RelPath)
+				}
+			}
 			return nil
 		}
 	}
@@ -276,6 +405,22 @@ func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
 	wholeLimit := ix.effectiveWholeFileLimit(gw)
 	useChunked := gw != nil && strings.TrimSpace(gw.IngestSessionPath) != "" &&
 		wholeLimit < maxIngest && st.Size() > wholeLimit
+
+	if ix.log != nil && ix.cfg.VerboseJobLogs {
+		transport := "whole"
+		if useChunked {
+			transport = "chunked"
+		}
+		ix.log.Info("job upload",
+			"msg", "indexer.job.upload",
+			"root", j.Root.ID,
+			"rel", j.RelPath,
+			"bytes", st.Size(),
+			"transport", transport,
+			"ingest_project", proj,
+			"flavor_id", flav,
+		)
+	}
 
 	var res *IngestResponse
 	if useChunked {
@@ -321,13 +466,17 @@ func (ix *Indexer) ingestOne(ctx context.Context, j Job) error {
 	if useChunked {
 		mode = "chunked"
 	}
+	atomic.AddInt64(&ix.opsIngestOK, 1)
 	ix.log.Info("ingested",
+		"msg", "indexer.job.ingested",
 		"root", j.Root.ID,
 		"rel", j.RelPath,
 		"mode", mode,
 		"chunks", res.Chunks,
 		"collection", res.Collection,
 		"content_sha256", serverSHA,
+		"ingest_project", proj,
+		"flavor_id", flav,
 	)
 	if ix.hooks.AfterIngest != nil {
 		ix.hooks.AfterIngest(j, res)
@@ -359,46 +508,64 @@ func (ix *Indexer) effectiveWholeFileLimit(gw *IndexerConfig) int64 {
 func (ix *Indexer) waitForRecovery(ctx context.Context) error {
 	t := time.NewTicker(ix.cfg.RecoveryPollInterval)
 	defer t.Stop()
+	pollN := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			h, err := ix.client.CheckHealth(ctx)
-			storageOK := err == nil && h != nil && h.OK
-			if err != nil {
-				ix.log.Warn("storage health probe failed", "err", err)
+			pollN++
+			h, errProbe := ix.client.CheckHealth(ctx)
+			storageOK := errProbe == nil && h != nil && h.OK
+			ragDisabled := h != nil && h.RAGDisabled
+			status, detail := "", ""
+			if h != nil {
+				status = h.Status
+				detail = h.Detail
 			}
-			if h != nil && h.RAGDisabled {
-				// No amount of waiting will fix this; surface a clear
-				// operator-facing message and abort recovery.
+			if errProbe != nil {
+				ix.log.Warn("storage health probe failed", "err", errProbe)
+			}
+			if ragDisabled {
+				ix.recoveryPollLog(pollN, false, true, status, detail, nil, errProbe)
 				ix.log.Error("gateway has RAG disabled; nothing to recover",
 					"detail", h.Message, "type", h.ErrorType,
 					"hint", "set rag.enabled=true in config/gateway.yaml and restart the claudia gateway")
 				return fmt.Errorf("gateway rejects ingest: %s (%s)", h.Message, h.ErrorType)
 			}
-			if h != nil && !storageOK && !h.RAGDisabled {
+			if h != nil && !storageOK {
 				ix.log.Warn("storage health degraded",
 					"status", h.Status, "detail", h.Detail, "http_status", h.HTTPStatus)
 			}
-			if !storageOK {
-				continue
-			}
-			if ix.cfg.RecoveryIncludeRootHealth {
+
+			recovered := storageOK
+			var rootHealthOK *bool
+			if recovered && ix.cfg.RecoveryIncludeRootHealth {
 				rh, rerr := ix.client.CheckGatewayRootHealth(ctx)
 				if rerr != nil {
 					ix.log.Warn("gateway /health probe failed", "err", rerr)
-					continue
-				}
-				if rh == nil || !rh.OK {
+					recovered = false
+				} else if rh == nil || !rh.OK {
 					if rh != nil {
 						ix.log.Warn("gateway /health not ready", "status", rh.Status, "degraded", rh.Degraded)
+						b := rh.OK
+						rootHealthOK = &b
 					}
-					continue
+					recovered = false
+				} else {
+					b := true
+					rootHealthOK = &b
 				}
+			} else if recovered {
+				b := true
+				rootHealthOK = &b
 			}
-			ix.log.Info("health recovered; resuming")
-			return nil
+
+			ix.recoveryPollLog(pollN, recovered, false, status, detail, rootHealthOK, errProbe)
+			if recovered {
+				ix.log.Info("health recovered; resuming", "msg", "indexer.recovery.resumed")
+				return nil
+			}
 		}
 	}
 }

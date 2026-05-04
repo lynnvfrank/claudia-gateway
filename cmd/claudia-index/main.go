@@ -63,16 +63,18 @@ func run() error {
 		roots       rootList
 		oneShot     bool
 		showVersion bool
+		logJSON     bool
 	)
 	flag.StringVar(&cfgPath, "config", "", "optional indexer YAML merged after ~/.claudia/indexer.config.yaml and ./.claudia/indexer.config.yaml")
 	flag.StringVar(&gatewayURL, "gateway-url", "", "override gateway URL (env "+indexer.EnvGatewayURL+")")
 	flag.Var(&roots, "root", "watch root (repeatable; overrides config 'roots')")
 	flag.BoolVar(&oneShot, "one-shot", false, "perform a single scan + ingest pass and exit")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&logJSON, "log-json", false, "emit structured JSON logs on stderr (v0.5 supervised / operator UI)")
 	flag.Parse()
 
 	if showVersion {
-		fmt.Println("claudia-index v0.4.1")
+		fmt.Println("claudia-index v0.5.0")
 		return nil
 	}
 
@@ -93,7 +95,13 @@ func run() error {
 	}
 
 	runID := uuid.NewString()
-	baseLog := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	var handler slog.Handler
+	if logJSON {
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	} else {
+		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	baseLog := slog.New(handler)
 	log := baseLog.With("index_run_id", runID, "service", "indexer")
 	client := indexer.NewGatewayClient(cfg.GatewayURL, cfg.Token, cfg.RequestTimeout)
 	client.IndexRunID = runID
@@ -102,7 +110,14 @@ func run() error {
 	defer cancel()
 
 	ix := indexer.New(cfg, client, log)
-	log.Info("indexer run start", "msg", "indexer.run.start", "roots", len(cfg.Roots))
+	log.Info("indexer run start", "msg", "indexer.run.start",
+		"roots", len(cfg.Roots),
+		"root_ids", indexer.RootIDsCSV(cfg.Roots),
+		"ingest_project", indexer.IngestProject(cfg.DefaultScope),
+		"flavor_id", strings.TrimSpace(cfg.DefaultScope.FlavorID),
+		"scope_project_id", strings.TrimSpace(cfg.DefaultScope.ProjectID),
+		"scope_workspace_id", strings.TrimSpace(cfg.DefaultScope.WorkspaceID),
+	)
 	if _, err := ix.FetchAndLogConfig(ctx); err != nil {
 		var he *indexer.HTTPError
 		if errors.As(err, &he) && he.Status == 503 && strings.Contains(strings.ToLower(he.Body), "rag is not enabled") {
@@ -133,7 +148,7 @@ func run() error {
 		}()
 		ix.RunWorkers(drainCtx)
 		ix.Queue().Close()
-		log.Info("indexer run done", "msg", "indexer.run.done", "mode", "one-shot")
+		log.Info("indexer run done", indexer.RunDoneAttrs("one-shot", ix.OpsSnapshot())...)
 		return nil
 	}
 
@@ -144,6 +159,6 @@ func run() error {
 	}
 	ix.Queue().Close()
 	<-doneWorkers
-	log.Info("indexer run stopped", "msg", "indexer.run.done", "mode", "watch")
+	log.Info("indexer run stopped", indexer.RunDoneAttrs("watch", ix.OpsSnapshot())...)
 	return nil
 }

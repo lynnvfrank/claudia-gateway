@@ -140,6 +140,133 @@ func TestUILogsPoll_returnsLinesAfterSince(t *testing.T) {
 	}
 }
 
+func TestUILogsPoll_limitReturnsTailWhenSinceZero(t *testing.T) {
+	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
+	up := bifrostStubForUILogs(t)
+	t.Cleanup(up.Close)
+
+	rt := runtimeForUILogs(t, up.URL)
+	logStore := servicelogs.New(100)
+	for _, line := range []string{"a\n", "b\n", "c\n", "d\n", "e\n"} {
+		_, _ = io.WriteString(logStore.Writer("unit"), line)
+	}
+
+	ui := NewUIOptions()
+	ui.LogStore = logStore
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, ui))
+	t.Cleanup(front.Close)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	if _, err := client.Post(front.URL+"/api/ui/login", "application/json", strings.NewReader(`{"token":"gw-ui-secret"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.Get(front.URL + "/api/ui/logs?since=0&limit=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var body logsPollResponse
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Lines) != 2 {
+		t.Fatalf("want 2 lines, got %d %+v", len(body.Lines), body.Lines)
+	}
+	if body.Lines[0].Text != "d" || body.Lines[1].Text != "e" {
+		t.Fatalf("want tail d,e got %+v", body.Lines)
+	}
+	if body.MaxSeq != 5 {
+		t.Fatalf("max_seq want 5 got %d", body.MaxSeq)
+	}
+}
+
+func TestUILogsPoll_beforeSeq_returnsOlderChunk(t *testing.T) {
+	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
+	up := bifrostStubForUILogs(t)
+	t.Cleanup(up.Close)
+
+	rt := runtimeForUILogs(t, up.URL)
+	logStore := servicelogs.New(100)
+	for _, line := range []string{"a\n", "b\n", "c\n", "d\n", "e\n"} {
+		_, _ = io.WriteString(logStore.Writer("unit"), line)
+	}
+
+	ui := NewUIOptions()
+	ui.LogStore = logStore
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, ui))
+	t.Cleanup(front.Close)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	if _, err := client.Post(front.URL+"/api/ui/login", "application/json", strings.NewReader(`{"token":"gw-ui-secret"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.Get(front.URL + "/api/ui/logs?before_seq=6&limit=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var body logsPollResponse
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Lines) != 2 {
+		t.Fatalf("want 2 lines, got %d %+v", len(body.Lines), body.Lines)
+	}
+	if body.Lines[0].Text != "d" || body.Lines[1].Text != "e" {
+		t.Fatalf("want d,e got %+v", body.Lines)
+	}
+	if body.HasOlderInBuf == nil || !*body.HasOlderInBuf {
+		t.Fatalf("expected has_older_in_buffer true (more lines below chunk)")
+	}
+}
+
+func TestUILogsPoll_sinceAndBeforeRejected(t *testing.T) {
+	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
+	up := bifrostStubForUILogs(t)
+	t.Cleanup(up.Close)
+
+	rt := runtimeForUILogs(t, up.URL)
+	logStore := servicelogs.New(10)
+	ui := NewUIOptions()
+	ui.LogStore = logStore
+	front := httptest.NewServer(NewMux(rt, testLog(), nil, ui))
+	t.Cleanup(front.Close)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	if _, err := client.Post(front.URL+"/api/ui/login", "application/json", strings.NewReader(`{"token":"gw-ui-secret"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.Get(front.URL + "/api/ui/logs?since=0&before_seq=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400 got %d", res.StatusCode)
+	}
+}
+
 func TestUILogsStream_replaysTailOnConnect(t *testing.T) {
 	t.Setenv("CLAUDIA_UPSTREAM_API_KEY", "ukey")
 	up := bifrostStubForUILogs(t)
@@ -337,7 +464,7 @@ func TestUIDesktopPage_servesShellWhenAuthed(t *testing.T) {
 	if !strings.Contains(page, "f-logs") || !strings.Contains(page, "/ui/logs") {
 		t.Fatal("expected tabbed shell markup")
 	}
-	if !strings.Contains(page, "f-stats") || !strings.Contains(page, "/ui/metrics") {
-		t.Fatal("expected stats tab / metrics iframe")
+	if strings.Contains(page, "f-stats") || strings.Contains(page, `data-tab="stats"`) {
+		t.Fatal("desktop shell should not include a Stats tab (metrics live under /ui/logs summarized view)")
 	}
 }

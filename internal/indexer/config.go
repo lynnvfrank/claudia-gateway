@@ -129,6 +129,11 @@ type FileConfig struct {
 	// v0.4: optional local overrides (see GET /v1/indexer/config for gateway defaults).
 	SyncStatePath     string `yaml:"sync_state_path"`
 	MaxWholeFileBytes int64  `yaml:"max_whole_file_bytes"` // 0 = use gateway max_whole_file_bytes only
+
+	// VerboseJobLogs, when non-nil after merge, controls per-file INFO lines
+	// (indexer.job.skipped, indexer.job.upload). When absent from all merged
+	// files, Resolve defaults to true so supervised /ui/logs shows progress.
+	VerboseJobLogs *bool `yaml:"verbose_job_logs"`
 }
 
 // Resolved is the runtime indexer configuration after merging YAML, env vars,
@@ -161,6 +166,10 @@ type Resolved struct {
 	// RecoveryIncludeRootHealth gates an extra GET /health probe while workers
 	// are paused after exhausting ingest retries (defaults true when unset in YAML).
 	RecoveryIncludeRootHealth bool
+
+	// VerboseJobLogs emits per-file INFO (skips, upload start) for /ui/logs.
+	// Defaults true when unset in YAML; set false to reduce volume.
+	VerboseJobLogs bool
 }
 
 // Root is a watched directory and its stable, slug-form identifier used in
@@ -174,6 +183,21 @@ type Root struct {
 	AbsPath string
 	// Scope is optional per-root project / flavor / workspace overrides.
 	Scope ScopeFragment
+}
+
+// RootIDsCSV returns watch-root IDs comma-separated for structured logs / UI.
+func RootIDsCSV(roots []Root) string {
+	if len(roots) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, r := range roots {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strings.TrimSpace(r.ID))
+	}
+	return b.String()
 }
 
 // LoadFile reads a YAML config file. Returns a zero-value FileConfig if path
@@ -223,6 +247,10 @@ func Resolve(fc FileConfig, env func(string) string, ov Overrides) (Resolved, er
 		BinaryNullByteRatio:  fc.BinaryNullByteRatio,
 		SyncStatePath:        strings.TrimSpace(fc.SyncStatePath),
 		MaxWholeFileBytes:    fc.MaxWholeFileBytes,
+		VerboseJobLogs:       true,
+	}
+	if fc.VerboseJobLogs != nil {
+		r.VerboseJobLogs = *fc.VerboseJobLogs
 	}
 	if fc.Defaults != nil {
 		r.DefaultScope = ScopeFragment{
@@ -463,6 +491,10 @@ func MergeFileConfig(base, overlay FileConfig) FileConfig {
 	}
 	if overlay.MaxWholeFileBytes != 0 {
 		out.MaxWholeFileBytes = overlay.MaxWholeFileBytes
+	}
+	if overlay.VerboseJobLogs != nil {
+		v := *overlay.VerboseJobLogs
+		out.VerboseJobLogs = &v
 	}
 	return out
 }

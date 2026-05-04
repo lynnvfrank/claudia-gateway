@@ -31,7 +31,7 @@ func sanitizeLoginNext(next string) string {
 	return next
 }
 
-//go:embed embedui/login.html embedui/panel.html embedui/logs.html embedui/metrics.html embedui/shell.html embedui/setup.html
+//go:embed embedui/login.html embedui/panel.html embedui/logs.html embedui/metrics.html embedui/shell.html embedui/setup.html embedui/indexer.html embedui/continue.html
 var adminEmbedUI embed.FS
 
 func bifrostAdminClient(rt *Runtime) *bifrostadmin.Client {
@@ -292,6 +292,8 @@ func (a *adminUI) handleState(w http.ResponseWriter, r *http.Request) {
 			gwOut["continue_gateway_token"] = tok
 		}
 	}
+	gwOut["indexer_supervised_config_path"] = res.IndexerSupervisedConfigPath
+	gwOut["indexer_supervised_enabled"] = res.IndexerSupervisedEnabled
 	out := map[string]any{
 		"gateway":   gwOut,
 		"providers": provOut,
@@ -324,6 +326,8 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	if a.opts.LogStore != nil {
 		mux.HandleFunc("GET /ui/logs", a.requireAuthPage(a.serveEmbed("embedui/logs.html")))
 		mux.HandleFunc("GET /ui/desktop", a.requireAuthPage(a.serveEmbed("embedui/shell.html")))
+		mux.HandleFunc("GET /ui/indexer", a.requireAuthPage(a.serveEmbed("embedui/indexer.html")))
+		mux.HandleFunc("GET /ui/continue", a.requireAuthPage(a.serveEmbed("embedui/continue.html")))
 	}
 
 	mux.HandleFunc("POST /api/ui/login", a.handleLoginPOST)
@@ -346,6 +350,15 @@ func registerAdminUI(mux *http.ServeMux, rt *Runtime, log *slog.Logger, ui *UIOp
 	mux.HandleFunc("POST /api/ui/routing/evaluate", a.requireAuthJSON(a.handleRoutingEvaluatePOST))
 	mux.HandleFunc("POST /api/ui/routing/filter_free_tier_models", a.requireAuthJSON(a.handleRoutingFilterFreeTierPOST))
 	mux.HandleFunc("POST /api/ui/routing/router_tooling", a.requireAuthJSON(a.handleRoutingRouterToolingPOST))
+
+	mux.HandleFunc("GET /api/ui/indexer/config", a.requireAuthJSON(a.handleIndexerConfigGET))
+	mux.HandleFunc("PUT /api/ui/indexer/config", a.requireAuthJSON(a.handleIndexerConfigPUT))
+	mux.HandleFunc("POST /api/ui/indexer/append-root", a.requireAuthJSON(a.handleIndexerAppendRootPOST))
+	mux.HandleFunc("POST /api/ui/indexer/remove-root", a.requireAuthJSON(a.handleIndexerRemoveRootPOST))
+	mux.HandleFunc("PUT /api/ui/indexer/root", a.requireAuthJSON(a.handleIndexerUpdateRootPUT))
+
+	mux.HandleFunc("POST /api/ui/continue/file-status", a.requireAuthJSON(a.handleContinueFileStatusPOST))
+	mux.HandleFunc("POST /api/ui/continue/write-config", a.requireAuthJSON(a.handleContinueWritePOST))
 
 	registerUILogs(mux, a)
 }

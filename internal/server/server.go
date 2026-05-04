@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
+	"html/template"
 	"log/slog"
+	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/lynn/claudia-gateway/assets"
 	"github.com/lynn/claudia-gateway/internal/chat"
 	"github.com/lynn/claudia-gateway/internal/config"
 	"github.com/lynn/claudia-gateway/internal/conversationmerge"
@@ -26,11 +29,170 @@ import (
 
 const maxBodyBytes = 25 * 1024 * 1024
 
+// publicGatewayURL is a browser-friendly base URL for this gateway (loopback when listening on all interfaces).
+func publicGatewayURL(res *config.Resolved, overlay *StatusOverlay) string {
+	if res == nil {
+		return "http://127.0.0.1:3000"
+	}
+	listen := res.ListenAddr()
+	if overlay != nil && overlay.EffectiveListen != "" {
+		listen = overlay.EffectiveListen
+	}
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		host := strings.TrimSpace(res.ListenHost)
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			host = "127.0.0.1"
+		}
+		if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+			return fmt.Sprintf("http://[%s]:%d", host, res.ListenPort)
+		}
+		return fmt.Sprintf("http://%s:%d", host, res.ListenPort)
+	}
+	if host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return fmt.Sprintf("http://[%s]:%s", host, port)
+	}
+	return fmt.Sprintf("http://%s:%s", host, port)
+}
+
+// mergedUpstreamModelStats returns merged model count (virtual + filtered upstream) and distinct provider
+// prefixes from upstream model ids, when the upstream /v1/models call succeeds.
+func mergedUpstreamModelStats(ctx context.Context, res *config.Resolved, apiKey string, timeout time.Duration, log *slog.Logger) (count int, providers []string, ok bool) {
+	if apiKey == "" || res == nil {
+		return 0, nil, false
+	}
+	_, body, fetchOK := upstream.FetchOpenAIModels(ctx, res.UpstreamBaseURL, apiKey, timeout, log)
+	if !fetchOK {
+		return 0, nil, false
+	}
+	var list map[string]any
+	if err := json.Unmarshal(body, &list); err != nil {
+		return 0, nil, false
+	}
+	data, _ := list["data"].([]any)
+	if data == nil {
+		data = []any{}
+	}
+	data = filterOpenAIModelDataByFreeTier(data, res)
+	provSet := map[string]struct{}{}
+	for _, raw := range data {
+		m, mOK := raw.(map[string]any)
+		if !mOK {
+			continue
+		}
+		id, _ := m["id"].(string)
+		prov := ""
+		if slash := strings.Index(id, "/"); slash > 0 {
+			prov = id[:slash]
+		} else if ob, ok := m["owned_by"].(string); ok {
+			prov = strings.TrimSpace(ob)
+		}
+		if prov != "" {
+			provSet[prov] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(provSet))
+	for p := range provSet {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return 1 + len(data), out, true
+}
+
+var gatewayIndexTmpl = template.Must(template.New("gatewayIndex").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Claudia Gateway — Status</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif; max-width: 48rem; margin: 1.5rem auto 2.5rem; padding: 0 1rem;
+      line-height: 1.55; color: #1a1a1a;
+      position: relative;
+      min-height: 100vh;
+    }
+    /* Large faint brand mark — behind content, fixed to the right */
+    body::before {
+      content: "";
+      position: fixed;
+      right: -4%;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(52vw, 24rem);
+      height: min(52vw, 24rem);
+      max-height: 85vh;
+      background: url("/assets/icon.png") no-repeat center right;
+      background-size: contain;
+      opacity: 0.07;
+      pointer-events: none;
+      z-index: 0;
+    }
+    body > * { position: relative; z-index: 1; }
+    h1 { font-size: 1.45rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.05rem; margin-top: 1.75rem; margin-bottom: 0.65rem; color: #222; }
+    .subtitle { color: #555; margin-top: 0; font-size: 0.95rem; }
+    .ok { color: #0d6832; font-weight: 600; }
+    .err { color: #a40000; font-weight: 600; }
+    .muted { color: #666; font-weight: 500; }
+    dl { margin: 0; display: grid; grid-template-columns: 11rem 1fr; gap: 0.35rem 1rem; align-items: baseline; }
+    dt { color: #444; font-size: 0.9rem; }
+    dd { margin: 0; }
+    a { color: #0b57d0; word-break: break-all; }
+    code { background: #f4f4f4; padding: 0.12em 0.35em; border-radius: 4px; font-size: 0.88em; }
+    .block { margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Claudia Gateway</h1>
+  <p class="subtitle">Site status</p>
+
+  <h2>Version</h2>
+  <dl>
+    <dt>Gateway version</dt><dd><code>{{.Semver}}</code></dd>
+    <dt>Virtual model</dt><dd><code>{{.VirtualModel}}</code></dd>
+  </dl>
+
+  <h2>Services</h2>
+  <dl>
+    <dt>Claudia (this gateway)</dt>
+    <dd><span class="ok">up</span> · <a href="{{.GatewayURL}}">{{.GatewayURL}}</a></dd>
+    <dt>BiFrost (upstream)</dt>
+    <dd><span class="{{.BifrostClass}}">{{if .BifrostOK}}up{{else}}down{{end}}</span> · <a href="{{.BifrostURL}}">{{.BifrostURL}}</a></dd>
+    <dt>Qdrant (vector store)</dt>
+    <dd><span class="{{.QdrantClass}}">{{.QdrantState}}</span> · <a href="{{.QdrantURL}}">{{.QdrantURL}}</a></dd>
+    <dt>Indexer (supervised)</dt>
+    <dd>config: <span class="muted">{{.IndexerConfig}}</span> · worker: <span class="{{.IndexerWorkerClass}}">{{.IndexerWorker}}</span></dd>
+  </dl>
+
+  <h2>Configuration</h2>
+  <dl>
+    <dt>Gateway tokens</dt><dd>{{.TokensCount}} configured</dd>
+    <dt>Metrics</dt><dd>{{if .MetricsEnabled}}enabled{{else}}disabled{{end}}</dd>
+    <dt>Conversation merge</dt><dd>{{if .ConversationMerge}}enabled{{else}}disabled{{end}}</dd>
+    <dt>Upstream model providers</dt><dd>{{.Providers}}</dd>
+    <dt>Models available</dt><dd>{{.ModelCount}} <span class="muted">(merged list: virtual + upstream)</span></dd>
+  </dl>
+</body>
+</html>`))
+
 // NewMux builds the v0.1 HTTP surface (src/server.ts parity). overlay configures GET /status;
 // pass nil in tests; production passes listen address and optional supervisor info.
 // ui enables operator /ui and /api/ui routes; pass nil to disable (tests).
 func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /assets/icon.png", func(w http.ResponseWriter, r *http.Request) {
+		if len(assets.IconPNG) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(assets.IconPNG)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -41,135 +203,111 @@ func NewMux(rt *Runtime, log *slog.Logger, overlay *StatusOverlay, ui *UIOptions
 			return
 		}
 		rt.Sync()
-		res, _, _ := rt.Snapshot()
-		semver := html.EscapeString(res.Semver)
-		vm := html.EscapeString(res.VirtualModelID)
-		const page = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Claudia Gateway</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 48rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.5; color: #1a1a1a; }
-    h1 { font-size: 1.5rem; }
-    h2 { font-size: 1.1rem; margin-top: 2rem; margin-bottom: 0.5rem; }
-    .ok { color: #0d6832; font-weight: 600; }
-    .err { color: #a40000; font-weight: 600; }
-    .muted { color: #555; }
-    code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; }
-    ul { padding-left: 1.2rem; }
-    a { color: #0b57d0; }
-    .prov { margin-top: 1rem; }
-    .prov h3 { font-size: 0.95rem; margin: 0 0 0.35rem 0; color: #333; text-transform: none; font-weight: 600; }
-    .prov ul { margin: 0; list-style: disc; }
-    .prov li { font-family: ui-monospace, monospace; font-size: 0.82rem; }
-  </style>
-</head>
-<body>
-  <h1>Claudia Gateway</h1>
-  <p class="ok">Up and operational.</p>
-  <p>Version <code>%s</code> · Virtual model <code>%s</code></p>
-  <p class="muted"><a href="/ui/metrics">Stats</a> — gateway usage metrics (session required)</p>
-  <h2>OpenAI-compatible API</h2>
-  <p class="muted">Send <code>Authorization: Bearer &lt;gateway token&gt;</code> on these routes.</p>
-  <ul>
-    <li><code>GET /v1/models</code> — list models (virtual Claudia model plus upstream)</li>
-    <li><code>POST /v1/chat/completions</code> — chat completions (JSON body; <code>stream: true</code> supported)</li>
-  </ul>
-  <h2>Other routes</h2>
-  <p class="muted">No gateway token required.</p>
-  <ul>
-    <li><a href="/ui"><code>GET /ui</code></a> — operator admin (redirects to login or panel)</li>
-    <li><a href="/"><code>GET /</code></a> — gateway index (this page)</li>
-    <li><a href="/health"><code>GET /health</code></a> — JSON readiness (upstream proxy probe)</li>
-    <li><a href="/status"><code>GET /status</code></a> — gateway and optional supervisor JSON (GUI / ops)</li>
-    <li><a href="/ui/models"><code>GET /ui/models</code></a> — same merged model list as <code>/v1/models</code> (for this page and tools)</li>
-    <li><a href="/ui/login"><code>GET /ui/login</code></a> — operator admin login (when UI is enabled)</li>
-    <li><a href="/ui/panel"><code>GET /ui/panel</code></a> — operator admin (session required)</li>
-    <li><a href="/ui/logs"><code>GET /ui/logs</code></a> — live service logs (session required)</li>
-    <li><a href="/ui/metrics"><code>GET /ui/metrics</code></a> — gateway upstream usage metrics (session required)</li>
-    <li><a href="/ui/desktop"><code>GET /ui/desktop</code></a> — tabbed shell: main, logs, stats, admin (session required)</li>
-  </ul>
-  <h2>Claudia's Models</h2>
-  <p id="models-status" class="muted">Loading models…</p>
-  <div id="models-root" hidden></div>
-  <script>
-(function () {
-  var statusEl = document.getElementById("models-status");
-  var rootEl = document.getElementById("models-root");
-  function showError(msg) {
-    statusEl.textContent = "Error: " + msg;
-    statusEl.className = "err";
-    rootEl.hidden = true;
-    rootEl.textContent = "";
-  }
-  fetch("/ui/models")
-    .then(function (res) {
-      return res.text().then(function (text) {
-        var data = null;
-        try {
-          data = text ? JSON.parse(text) : null;
-        } catch (e) {
-          throw new Error("Invalid JSON from server (" + res.status + ")");
-        }
-        return { res: res, data: data };
-      });
-    })
-    .then(function (x) {
-      if (!x.res.ok) {
-        var msg = (x.data && x.data.error && x.data.error.message) || ("HTTP " + x.res.status);
-        showError(msg);
-        return;
-      }
-      var items = (x.data && x.data.data) || [];
-      if (!Array.isArray(items)) {
-        showError("Unexpected response shape");
-        return;
-      }
-      statusEl.textContent = items.length + " model(s) from upstream (virtual model included).";
-      statusEl.className = "muted";
-      var byProv = {};
-      for (var i = 0; i < items.length; i++) {
-        var m = items[i] || {};
-        var id = m.id || "";
-        var prov = "other";
-        var slash = id.indexOf("/");
-        if (slash > 0) prov = id.slice(0, slash);
-        else if (m.owned_by) prov = String(m.owned_by);
-        if (!byProv[prov]) byProv[prov] = [];
-        byProv[prov].push(id);
-      }
-      var names = Object.keys(byProv).sort();
-      rootEl.textContent = "";
-      for (var j = 0; j < names.length; j++) {
-        var p = names[j];
-        var ids = byProv[p].slice().sort();
-        var section = document.createElement("section");
-        section.className = "prov";
-        var h = document.createElement("h3");
-        h.textContent = p;
-        section.appendChild(h);
-        var ul = document.createElement("ul");
-        for (var k = 0; k < ids.length; k++) {
-          var li = document.createElement("li");
-          li.textContent = ids[k];
-          ul.appendChild(li);
-        }
-        section.appendChild(ul);
-        rootEl.appendChild(section);
-      }
-      rootEl.hidden = false;
-    })
-    .catch(function (e) {
-      showError(e.message || String(e));
-    });
-})();
-  </script>
-</body>
-</html>`
+		res, tokStore, _ := rt.Snapshot()
+		ctx := r.Context()
+		apiKey := rt.UpstreamAPIKey()
+
+		gwURL := publicGatewayURL(res, overlay)
+		bifrostURL := strings.TrimSuffix(res.UpstreamBaseURL, "/")
+		bifrostOK, _, _ := upstream.ProbeHealth(ctx, res.HealthUpstreamURL, apiKey, healthTimeout(res), log)
+		bifrostClass := "err"
+		if bifrostOK {
+			bifrostClass = "ok"
+		}
+
+		qdrantURL := strings.TrimSuffix(res.RAG.QdrantURL, "/")
+		qdrantState := "disabled (RAG off)"
+		qClass := "muted"
+		if res.RAG.Enabled {
+			if rt.RAG() == nil {
+				qdrantState = "unavailable"
+				qClass = "err"
+			} else if err := rt.RAG().StoreHealth(ctx); err != nil {
+				qdrantState = "down"
+				qClass = "err"
+			} else {
+				qdrantState = "up"
+				qClass = "ok"
+			}
+		}
+
+		idxScope := res.IndexerSupervisedEnabled && (res.RAG.Enabled || res.IndexerSupervisedStartWhenRAGDisabled)
+		idxConfig := "disabled"
+		idxWorker := "—"
+		if res.IndexerSupervisedEnabled {
+			idxConfig = "enabled"
+			if !idxScope {
+				idxWorker = "not running (out of scope)"
+			} else if overlay != nil && overlay.Supervisor != nil {
+				if overlay.Supervisor.IndexerSupervised {
+					idxWorker = "up"
+				} else {
+					idxWorker = "down"
+				}
+			} else {
+				idxWorker = "unknown"
+			}
+		}
+		idxWorkerClass := "muted"
+		switch idxWorker {
+		case "up":
+			idxWorkerClass = "ok"
+		case "down":
+			idxWorkerClass = "err"
+		}
+
+		modelCount := "unavailable"
+		providers := "—"
+		if n, provs, ok := mergedUpstreamModelStats(ctx, res, apiKey, healthTimeout(res), log); ok {
+			modelCount = strconv.Itoa(n)
+			if len(provs) > 0 {
+				providers = strings.Join(provs, ", ")
+			} else {
+				providers = "(none)"
+			}
+		} else if apiKey == "" {
+			providers = "set upstream API key to query upstream"
+		}
+
+		data := struct {
+			Semver, VirtualModel string
+			GatewayURL           string
+			BifrostURL           string
+			BifrostOK            bool
+			BifrostClass         string
+			QdrantURL            string
+			QdrantState          string
+			QdrantClass          string
+			IndexerConfig        string
+			IndexerWorker        string
+			IndexerWorkerClass   string
+			TokensCount          int
+			MetricsEnabled       bool
+			ConversationMerge    bool
+			Providers            string
+			ModelCount           string
+		}{
+			Semver:             res.Semver,
+			VirtualModel:       res.VirtualModelID,
+			GatewayURL:         gwURL,
+			BifrostURL:         bifrostURL,
+			BifrostOK:          bifrostOK,
+			BifrostClass:       bifrostClass,
+			QdrantURL:          qdrantURL,
+			QdrantState:        qdrantState,
+			QdrantClass:        qClass,
+			IndexerConfig:      idxConfig,
+			IndexerWorker:      idxWorker,
+			IndexerWorkerClass: idxWorkerClass,
+			TokensCount:        tokStore.Count(),
+			MetricsEnabled:     res.MetricsEnabled,
+			ConversationMerge:  res.ConversationMerge.Enabled,
+			Providers:          providers,
+			ModelCount:         modelCount,
+		}
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(fmt.Sprintf(page, semver, vm)))
+		_ = gatewayIndexTmpl.Execute(w, data)
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -10,8 +10,10 @@ import (
 )
 
 type logsPollResponse struct {
-	Lines  []servicelogs.Entry `json:"lines"`
-	MaxSeq uint64              `json:"max_seq"`
+	Lines         []servicelogs.Entry `json:"lines"`
+	MaxSeq        uint64              `json:"max_seq"`
+	BufferMinSeq  uint64              `json:"buffer_min_seq,omitempty"`
+	HasOlderInBuf *bool               `json:"has_older_in_buffer,omitempty"`
 }
 
 func (a *adminUI) handleLogsPoll(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +26,57 @@ func (a *adminUI) handleLogsPoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "logs unavailable", http.StatusNotFound)
 		return
 	}
+	hasSince := r.URL.Query().Get("since") != ""
+	hasBefore := r.URL.Query().Get("before_seq") != ""
+	if hasSince && hasBefore {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "use either since or before_seq, not both"})
+		return
+	}
+
+	var limit int
+	if ls := r.URL.Query().Get("limit"); ls != "" {
+		v, err := strconv.Atoi(ls)
+		if err != nil || v < 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid limit"})
+			return
+		}
+		limit = v
+		if limit > servicelogs.DefaultMaxLines {
+			limit = servicelogs.DefaultMaxLines
+		}
+	}
+
+	bufMin := store.MinSeq()
+	resp := logsPollResponse{BufferMinSeq: bufMin}
+
+	if hasBefore {
+		bs := r.URL.Query().Get("before_seq")
+		beforeSeq, err := strconv.ParseUint(bs, 10, 64)
+		if err != nil || beforeSeq <= 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid before_seq"})
+			return
+		}
+		if limit <= 0 {
+			limit = 300
+		}
+		lines := store.EntriesBefore(beforeSeq, limit)
+		resp.Lines = lines
+		_, resp.MaxSeq = store.EntriesAfter(0)
+		if len(lines) > 0 {
+			v := lines[0].Seq > bufMin
+			resp.HasOlderInBuf = &v
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	var since uint64
 	if s := r.URL.Query().Get("since"); s != "" {
 		var err error
@@ -36,8 +89,17 @@ func (a *adminUI) handleLogsPoll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lines, maxSeq := store.EntriesAfter(since)
+	if limit > 0 && len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	resp.Lines = lines
+	resp.MaxSeq = maxSeq
+	if since == 0 && len(lines) > 0 {
+		v := lines[0].Seq > bufMin
+		resp.HasOlderInBuf = &v
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(logsPollResponse{Lines: lines, MaxSeq: maxSeq})
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (a *adminUI) handleLogsStream(w http.ResponseWriter, r *http.Request) {
