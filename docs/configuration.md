@@ -109,8 +109,14 @@ BiFrost bootstrap file. Provider keys use **`env.VAR`** for secrets.
 
 **Per-key `models`:** In BiFrost, an **empty** or **omitted** `models` list means the key may be used for **any** model for that provider (minus **`blacklisted_models`** if set). **`"models": ["*"]` is not a wildcard** — it is treated as the literal model name `*`, so chat requests for real model ids will fail with *no keys found that support model*. Use no `models` field (or `[]`) when you want full catalog access without enumerating models.
 
-## Logging semantics (v0.1)
+## Logging semantics
+
+### Baseline (v0.1)
 
 - **INFO**: each HTTP response (method, path, status, duration, redacted `Authorization` prefix).
 - **INFO**: upstream chat probe summary (status, model, stream flag).
 - **DEBUG**: routing rule match, config path resolution, reload events, upstream relay details.
+
+### Correlation (v0.2.1+)
+
+Structured logs may include **`request_id`** (middleware), **`service`**, chat **`conversation_id`** (header **`X-Claudia-Conversation-Id`** or gateway-generated), **`principal_id`**, and stable **`msg`** slugs on ingest/RAG/indexer paths. Ingest/indexer flows may carry **`index_run_id`**. Operator-facing breakdown: [log-presentation-layer.plan.md](log-presentation-layer.plan.md).

@@ -4,6 +4,6 @@
 
 **BiFrost** holds **provider API keys** and talks to Groq, Gemini, and other backends per **`config/bifrost.config.json`**. Claudia calls the upstream **only over HTTP**.
 
-**Qdrant** can be supervised alongside BiFrost via **`claudia serve`** for **v0.2+ RAG**. In **v0.1** the gateway does **not** read or write Qdrant.
+**Qdrant** is used by the gateway when **`rag.enabled`** is **true** in **`config/gateway.yaml`**: query-time retrieval for the virtual model, **`POST /v1/ingest`**, and indexer endpoints. Supervise it with **`claudia serve`** (typical local stack). With **`indexer.supervised.enabled`**, the same supervisor can start **`claudia-index`** for workspace indexing.
 
-**v0.1** delivers: virtual model + fallback chain, YAML tokens and routing policy with **mtime reload**, **`GET /health`**, structured logging, and operator documentation. **v0.2** adds ingest, indexer APIs, and query-time RAG — see the plan roadmap.
+**Shipped in v0.2.x:** virtual model + fallback chain (unchanged from v0.1), YAML tokens and routing policy with **mtime reload**, **`GET /health`** (upstream + optional Qdrant when RAG is on), **ingestion**, **indexer REST**, **`claudia-index`**, optional **supervised indexer**, correlated logging and logs UI (**v0.2.1**), and shell/indexer/Continue operator pages (**v0.2.2**). Summary: **[releases-v0.2.x.md](releases-v0.2.x.md)**.

@@ -1,6 +1,6 @@
 # Claudia Gateway
 
-**v0.1** — OpenAI-compatible **Go** gateway in front of **BiFrost**: virtual model `Claudia-<semver>`, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and `GET /health`. Optional **Qdrant** via `claudia serve` targets **v0.2** RAG; the gateway does not call it in v0.1.
+**v0.2.x** — OpenAI-compatible **Go** gateway in front of **BiFrost**: virtual model `Claudia-<semver>`, YAML **tokens** and **routing policy** with mtime reload, **sequential fallback** on 429/5xx, and `GET /health`. With **`rag.enabled`**, the gateway uses **Qdrant** for retrieval, **`POST /v1/ingest`**, and **indexer REST**; **`claudia serve`** can supervise **BiFrost**, **Qdrant**, and optionally **`claudia-index`**. See **[docs/releases-v0.2.x.md](docs/releases-v0.2.x.md)** for v0.2.0–v0.2.2 deliverables.
 
 ## Quick start
 
@@ -196,6 +196,7 @@ Build snapshot artifacts with **GoReleaser**.
 ## Documentation
 
 - **Index:** [docs/README.md](docs/README.md)
+- **v0.2.0–v0.2.2 releases:** [docs/releases-v0.2.x.md](docs/releases-v0.2.x.md)
 - **Overview / ports:** [docs/overview.md](docs/overview.md), [docs/network.md](docs/network.md)
 - **Installation:** [docs/installation.md](docs/installation.md)
 - **Configuration:** [docs/configuration.md](docs/configuration.md)
@@ -213,7 +214,9 @@ Build snapshot artifacts with **GoReleaser**.
 | Version | Where to read |
 |---------|---------------|
 | **v0.1** | [Working notes](docs/version-v0.1.md); [Go + BiFrost migration plan](docs/go-bifrost-migration-plan.md) |
-| **v0.2+** | [Release roadmap](docs/claudia-gateway.plan.md#release-roadmap) in [docs/claudia-gateway.plan.md](docs/claudia-gateway.plan.md) |
+| **v0.1.1** | [Tool router, metrics, quotas](docs/version-v0.1.1.md) |
+| **v0.2.0 – v0.2.2** | [Shipped features](docs/releases-v0.2.x.md); [v0.2 capability plan](docs/version-v0.2.md) |
+| **Later** | [Release roadmap](docs/claudia-gateway.plan.md#release-roadmap) in [docs/claudia-gateway.plan.md](docs/claudia-gateway.plan.md) |
 
 The plan file still describes the original LiteLLM + Compose product shape for requirements; the in-tree implementation is **Go + BiFrost** as documented above and in `docs/`.
 

@@ -1,5 +1,7 @@
 # Claudia — toward v0.2 (implementation plan)
 
+**Status:** The capabilities below are **shipped** in the **v0.2.0** baseline and subsequent patches (**v0.2.1** logging/UI/conversation merge, **v0.2.2** supervised indexer + shell). See **[releases-v0.2.x.md](releases-v0.2.x.md)** for a concise release-by-release list.
+
 This document pulls together **everything scoped to product v0.2** from [`claudia-gateway.plan.md`](claudia-gateway.plan.md) (authoritative product roadmap), [`overview.md`](overview.md), [`network.md`](network.md), [`configuration.md`](configuration.md), and cross-links the **file indexer** work in a **separate** plan: [`indexer.plan.md`](indexer.plan.md).
 
 **Tone:** normative items below track **locked** product decisions in the gateway plan; where the **in-tree** stack differs from the original LiteLLM + TypeScript + Compose description, treat this document as the **capability target** and align the Go gateway + BiFrost implementation to the same **HTTP contracts** and **behavior**. See the implementation note at the top of [`claudia-gateway.plan.md`](claudia-gateway.plan.md).

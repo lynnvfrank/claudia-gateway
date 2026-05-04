@@ -1,4 +1,4 @@
-# Log presentation layer — acceptance (branch `version-0.2.1`)
+# Log presentation layer — acceptance (v0.2.1)
 
 Automated checks and manual acceptance for [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md) phases implemented on this branch.
 

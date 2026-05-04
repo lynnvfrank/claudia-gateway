@@ -1,4 +1,4 @@
-# VS Code Continue — Claudia Gateway (v0.1)
+# VS Code Continue — Claudia Gateway (v0.2.x)
 
 Use **Continue** with an **OpenAI-compatible** provider pointed at **Claudia Gateway**, not directly at LiteLLM.
 
@@ -6,7 +6,7 @@ Use **Continue** with an **OpenAI-compatible** provider pointed at **Claudia Gat
 
 1. **`apiBase`** — Gateway URL including the OpenAI API prefix, e.g. `http://localhost:3000/v1` (adjust host/port if you publish differently).
 2. **`apiKey`** — A **gateway token** from `config/tokens.yaml` (same string as `Authorization: Bearer …`).
-3. **`model`** — The virtual id from **`GET /v1/models`**, e.g. **`Claudia-0.1.0`** (must match `gateway.semver` in `config/gateway.yaml`).
+3. **`model`** — The virtual id from **`GET /v1/models`**, e.g. **`Claudia-0.2.0`** (must match `gateway.semver` in `config/gateway.yaml`). The gateway also serves a **Continue** helper at **`/ui/continue`** (after login) to validate files and write snippets.
 
 Continue reference: [Continue configuration](https://docs.continue.dev/reference).
 

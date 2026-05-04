@@ -5,7 +5,7 @@
 - **IDE / Continue** → **Claudia Gateway** (`POST /v1/chat/completions`, `GET /v1/models`) with `Authorization: Bearer <gateway token>`.
 - **Claudia Gateway** → **BiFrost** (`/v1/chat/completions`, `/v1/models`) with `Authorization: Bearer <CLAUDIA_UPSTREAM_API_KEY>` (BiFrost often accepts a placeholder unless governance keys are enabled).
 - **BiFrost** → providers using **`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc. per **`config/bifrost.config.json`**.
-- **v0.2+**: **Claudia** → **Qdrant** for retrieval and indexer-backed workflows. **v0.1**: Qdrant is unused by the gateway unless you call it yourself.
+- **RAG (`rag.enabled`)**: **Claudia** → **Qdrant** for retrieval; **Claudia** ← **`claudia-index`** (or other clients) via **`POST /v1/ingest`** and indexer APIs. Without RAG, the gateway does not call Qdrant.
 
 ## Typical local ports
 

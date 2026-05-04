@@ -12,7 +12,7 @@ chunks locally.
 See [`docs/indexer.plan.md`](indexer.plan.md) for the full product plan and
 non-goals; this document is the operator-facing quick start.
 
-## Supervised mode (`claudia serve` / desktop) — v0.5
+## Supervised mode (`claudia serve` / desktop) — indexer plan v0.5 / gateway v0.2.2+
 
 When **`indexer.supervised.enabled: true`** is set in **`config/gateway.yaml`**
 (and RAG is enabled, or **`start_when_rag_disabled: true`**), **`claudia serve`**

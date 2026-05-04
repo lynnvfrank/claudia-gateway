@@ -7,13 +7,14 @@ Phase 3 of [go-bifrost-migration-plan.md](go-bifrost-migration-plan.md): one com
 | Piece | Role |
 |-------|------|
 | **Parent** | Go `claudia serve` — HTTP gateway (`config/gateway.yaml`, tokens, routing). |
-| **Child (optional)** | **Qdrant** native binary — **`QDRANT__STORAGE__STORAGE_PATH`**, **`QDRANT__SERVICE__HOST`**, **`QDRANT__SERVICE__HTTP_PORT`**, **`QDRANT__SERVICE__GRPC_PORT`** (defaults **6333** / **6334**). Readiness: **`GET /readyz`**. Omit by leaving **`-qdrant-bin`** empty. |
+| **Child (optional)** | **Qdrant** native binary — **`QDRANT__STORAGE__STORAGE_PATH`**, **`QDRANT__SERVICE__HOST`**, **`QDRANT__SERVICE__HTTP_PORT`**, **`QDRANT__SERVICE__GRPC_PORT`** (defaults **6333** / **6334**). Readiness: **`GET /readyz`**. Omit by leaving **`-qdrant-bin`** empty. When **`rag.enabled`** is **true**, the gateway uses Qdrant for RAG; supervise Qdrant for a full local stack. |
 | **Child** | BiFrost HTTP binary (`bifrost-http`) — started with **`-app-dir`**, **`-host`**, **`-port`**, **`-log-level`**, **`-log-style`**. **`APP_HOST`** / **`APP_PORT`** are also set for compatibility. Working directory = **data dir**. |
+| **Child (optional)** | **`claudia-index`** — started when **`indexer.supervised`** is configured in **`gateway.yaml`** (see [indexer.md](indexer.md) supervised mode). Receives **`CLAUDIA_GATEWAY_URL`** and a merged **`--config`** file; stderr can be structured JSON (**`--log-json`**). |
 | **Config copy** | Your `bifrost.config.json` is copied to **`<bifrost-data-dir>/config.json`** on each start. |
 
 Claudia’s upstream URL is **overridden** to **`http://<upstream-host>:<bifrost-port>`** (default **`http://127.0.0.1:8080`**) so the running gateway always targets the supervised BiFrost instance.
 
-The gateway exposes **`GET /status`** (JSON, no auth — same sensitivity as **`/health`**) with **`supervisor.active: true`**, BiFrost/Qdrant listen hints, and upstream probe results. The Fyne **`claudia-gui`** polls this endpoint; see [gui-testing.md](gui-testing.md).
+The gateway exposes **`GET /status`** (JSON, no auth — same sensitivity as **`/health`**) with **`supervisor.active: true`**, BiFrost/Qdrant listen hints, and upstream probe results. The desktop shell and operators can poll this endpoint; see [gui-testing.md](gui-testing.md).
 
 ## Obtaining the BiFrost binary
 
@@ -51,7 +52,7 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, etc.) are read from the
 
 ## Qdrant binary
 
-The gateway does **not** call Qdrant in **v0.1**; supervision is for **v0.2+ RAG** and a full local stack.
+Supervision is for a full local stack; the gateway **calls Qdrant** when **`rag.enabled`** is **true** (**v0.2+**). Without RAG, Qdrant may still be supervised but the gateway does not require it.
 
 - **Pinned version:** **`QDRANT_RELEASE`** in repo-root **`deps.lock`** (used by **`scripts/qdrant-from-release.sh`**, **`scripts/release-snapshot-qdrant.sh`**, and GoReleaser).
 - **Local install:** **`make claudia-install`** (includes Qdrant) or **`bash scripts/qdrant-from-release.sh`** alone → **`./bin/qdrant`** or **`qdrant.exe`** (see **`scripts/qdrant-from-release.sh`**).
@@ -65,7 +66,7 @@ Add YAML only when you want settings that are easier to express in a file (for e
 
 A message that **`./static`** does not exist refers to Qdrant’s built-in **dashboard** static files. A release binary started with **cwd** in the storage directory usually has no **`./static`** there, so the web UI is not served. That is common for minimal or repackaged builds.
 
-For this repository, Qdrant is optional; the gateway in **v0.1** does not depend on it. Most use is via the HTTP API on the configured port (default **6333**), for example **`GET /readyz`**, not the dashboard.
+For this repository, Qdrant is optional when **RAG is off**. With **RAG on**, the gateway depends on Qdrant for ingest and retrieval. Most operational checks use the HTTP API on the configured port (default **6333**), for example **`GET /readyz`**, not the dashboard.
 
 **Summary:** These warnings are **safe to ignore** for local development unless you want a custom Qdrant file-based configuration or the full web UI—in which case follow Qdrant’s docs and use a build or layout that includes the **`static`** assets.
 
