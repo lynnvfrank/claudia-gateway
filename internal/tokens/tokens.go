@@ -109,3 +109,14 @@ func (s *Store) Validate(bearer string) *Record {
 	}
 	return nil
 }
+
+// Count returns the number of configured gateway tokens (non-empty token + tenant_id rows).
+func (s *Store) Count() int {
+	if s == nil {
+		return 0
+	}
+	s.ReloadIfStale()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.byToken)
+}

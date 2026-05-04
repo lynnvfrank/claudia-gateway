@@ -55,6 +55,13 @@ type Resolved struct {
 	// gates ingest, indexer REST, retrieval, and the /health Qdrant probe.
 	RAG RAG
 
+	// IndexerSupervised* configures optional claudia-index child under claudia serve / desktop (v0.5).
+	IndexerSupervisedEnabled              bool
+	IndexerSupervisedBin                  string // empty → resolve next to claudia binary or PATH
+	IndexerSupervisedConfigPath           string // absolute path to single merged --config file
+	IndexerSupervisedStartWhenRAGDisabled bool
+	IndexerSupervisedLogJSON              bool
+
 	// ConversationMerge joins chat requests into one logical conversation_id per tenant
 	// and RAG scope using embeddings + similarity (requires metrics SQLite + embeddings API).
 	ConversationMerge ConversationMerge
@@ -102,6 +109,16 @@ type gatewayDoc struct {
 		MigrationsDir string `yaml:"migrations_dir"`
 	} `yaml:"metrics"`
 	RAG ragDoc `yaml:"rag"`
+
+	Indexer struct {
+		Supervised struct {
+			Enabled              *bool  `yaml:"enabled"`
+			Bin                  string `yaml:"bin"`
+			ConfigPath           string `yaml:"config_path"`
+			StartWhenRAGDisabled *bool  `yaml:"start_when_rag_disabled"`
+			LogJSON              *bool  `yaml:"log_json"`
+		} `yaml:"supervised"`
+	} `yaml:"indexer"`
 
 	ConversationMerge conversationMergeDoc `yaml:"conversation_merge"`
 }
@@ -307,39 +324,57 @@ func LoadGatewayYAML(filePath string, log *slog.Logger) (*Resolved, error) {
 		mergeCfg.Enabled = false
 	}
 
+	idxSupEnabled := doc.Indexer.Supervised.Enabled != nil && *doc.Indexer.Supervised.Enabled
+	idxStartWhenRAGOff := doc.Indexer.Supervised.StartWhenRAGDisabled != nil && *doc.Indexer.Supervised.StartWhenRAGDisabled
+	idxLogJSON := doc.Indexer.Supervised.LogJSON != nil && *doc.Indexer.Supervised.LogJSON
+	idxCfgRel := strings.TrimSpace(doc.Indexer.Supervised.ConfigPath)
+	if idxCfgRel == "" {
+		// Same layout as metrics.sqlite: repo `config/` → data under ../data/gateway/
+		idxCfgRel = filepath.Join("..", "data", "gateway", "indexer.supervised.yaml")
+	}
+	idxCfgPath := filepath.Join(baseDir, idxCfgRel)
+	if filepath.IsAbs(idxCfgRel) {
+		idxCfgPath = idxCfgRel
+	}
+
 	if log != nil {
 		log.Debug("resolved gateway config paths", "filePath", filePath, "tokensPath", tokensPath, "routingPolicyPath", routingPath)
 	}
 
 	return &Resolved{
-		Semver:                        semver,
-		VirtualModelID:                "Claudia-" + semver,
-		ListenPort:                    listenPort,
-		ListenHost:                    listenHost,
-		LogLevel:                      logLevel,
-		UpstreamBaseURL:               upBase,
-		UpstreamAPIKeyEnv:             apiKeyEnv,
-		UpstreamAPIKey:                apiKey,
-		HealthUpstreamURL:             healthURL,
-		HealthTimeoutMs:               ht,
-		ChatTimeoutMs:                 ct,
-		TokensPath:                    tokensPath,
-		RoutingPolicyPath:             routingPath,
-		FallbackChain:                 chain,
-		GatewayYAMLPath:               filePath,
-		ProviderFreeTierPath:          ftPath,
-		FilterFreeTierModels:          filterFT,
-		ProviderFreeTierSpec:          ftSpec,
-		MetricsEnabled:                metricsEnabled,
-		MetricsSQLitePath:             metricsSQLite,
-		MetricsMigrationsDir:          metricsMig,
-		ProviderLimitsPath:            limitsPath,
-		ProviderLimitsSpec:            limitsSpec,
-		RouterModels:                  routerModels,
-		ToolRouterEnabled:             toolRouterOn,
-		ToolRouterConfidenceThreshold: toolThresh,
-		RAG:                           rag,
-		ConversationMerge:             mergeCfg,
+		Semver:                                semver,
+		VirtualModelID:                        "Claudia-" + semver,
+		ListenPort:                            listenPort,
+		ListenHost:                            listenHost,
+		LogLevel:                              logLevel,
+		UpstreamBaseURL:                       upBase,
+		UpstreamAPIKeyEnv:                     apiKeyEnv,
+		UpstreamAPIKey:                        apiKey,
+		HealthUpstreamURL:                     healthURL,
+		HealthTimeoutMs:                       ht,
+		ChatTimeoutMs:                         ct,
+		TokensPath:                            tokensPath,
+		RoutingPolicyPath:                     routingPath,
+		FallbackChain:                         chain,
+		GatewayYAMLPath:                       filePath,
+		ProviderFreeTierPath:                  ftPath,
+		FilterFreeTierModels:                  filterFT,
+		ProviderFreeTierSpec:                  ftSpec,
+		MetricsEnabled:                        metricsEnabled,
+		MetricsSQLitePath:                     metricsSQLite,
+		MetricsMigrationsDir:                  metricsMig,
+		ProviderLimitsPath:                    limitsPath,
+		ProviderLimitsSpec:                    limitsSpec,
+		RouterModels:                          routerModels,
+		ToolRouterEnabled:                     toolRouterOn,
+		ToolRouterConfidenceThreshold:         toolThresh,
+		RAG:                                   rag,
+		ConversationMerge:                     mergeCfg,
+		IndexerSupervisedEnabled:              idxSupEnabled,
+		IndexerSupervisedBin:                  strings.TrimSpace(doc.Indexer.Supervised.Bin),
+		IndexerSupervisedConfigPath:           idxCfgPath,
+		IndexerSupervisedStartWhenRAGDisabled: idxStartWhenRAGOff,
+		IndexerSupervisedLogJSON:              idxLogJSON,
 	}, nil
 }
 

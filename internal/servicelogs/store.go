@@ -4,13 +4,23 @@ package servicelogs
 import (
 	"bytes"
 	"io"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 // DefaultMaxLines is the default ring buffer capacity (oldest dropped).
-const DefaultMaxLines = 10000
+// Keep operator UI responsive: large snapshots block the WebView when rendering history.
+// The logs UI loads a small tail first (see INITIAL_TAIL_LIMIT in embedui/logs.html) and
+// backfills older entries on demand; total ring size stays bounded by DefaultMaxLines.
+const DefaultMaxLines = 5000
+
+// MaxIndexerLinesPerSource caps lines attributed to the indexer subprocess so verbose
+// per-file logs cannot crowd out gateway, bifrost, qdrant, and chat traffic.
+const MaxIndexerLinesPerSource = DefaultMaxLines / 4
+
+const sourceIndexer = "indexer"
 
 // Entry is one logical log line with a stable sequence number for polling.
 type Entry struct {
@@ -60,6 +70,17 @@ func (s *Store) add(source, text string) {
 
 	s.mu.Lock()
 	s.lines = append(s.lines, ent)
+	idxCap := MaxIndexerLinesPerSource
+	if s.maxLines < DefaultMaxLines {
+		idxCap = s.maxLines / 4
+		if idxCap < 1 {
+			idxCap = 1
+		}
+	}
+	if idxCap > s.maxLines {
+		idxCap = s.maxLines
+	}
+	trimSourceToMax(&s.lines, sourceIndexer, idxCap)
 	if len(s.lines) > s.maxLines {
 		overflow := len(s.lines) - s.maxLines
 		s.lines = append([]Entry(nil), s.lines[overflow:]...)
@@ -91,6 +112,78 @@ func (s *Store) Snapshot() []Entry {
 }
 
 // EntriesAfter returns entries with Seq > afterSeq, and the highest Seq in the buffer (or afterSeq if empty).
+func trimSourceToMax(lines *[]Entry, source string, max int) {
+	if max < 1 {
+		return
+	}
+	for countEntriesWithSource(*lines, source) > max {
+		if !removeFirstWithSource(lines, source) {
+			break
+		}
+	}
+}
+
+func countEntriesWithSource(lines []Entry, source string) int {
+	n := 0
+	for _, e := range lines {
+		if e.Source == source {
+			n++
+		}
+	}
+	return n
+}
+
+func removeFirstWithSource(lines *[]Entry, source string) bool {
+	sl := *lines
+	for i, e := range sl {
+		if e.Source == source {
+			*lines = append(sl[:i], sl[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// MinSeq returns the lowest Seq still in the ring buffer, or 0 if empty.
+func (s *Store) MinSeq() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.lines) == 0 {
+		return 0
+	}
+	return s.lines[0].Seq
+}
+
+// EntriesBefore returns up to limit entries with Seq strictly less than beforeSeq,
+// oldest first (the newest-backed chunk below the cursor — i.e. the last limit lines
+// before beforeSeq in chronological order).
+func (s *Store) EntriesBefore(beforeSeq uint64, limit int) []Entry {
+	if beforeSeq <= 1 || limit <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var buf []Entry
+	for _, e := range s.lines {
+		if e.Seq > 0 && e.Seq < beforeSeq {
+			buf = append(buf, e)
+		}
+	}
+	slices.SortFunc(buf, func(a, b Entry) int {
+		if a.Seq < b.Seq {
+			return -1
+		}
+		if a.Seq > b.Seq {
+			return 1
+		}
+		return 0
+	})
+	if len(buf) > limit {
+		buf = buf[len(buf)-limit:]
+	}
+	return buf
+}
+
 func (s *Store) EntriesAfter(afterSeq uint64) (entries []Entry, maxSeq uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

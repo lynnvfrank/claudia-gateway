@@ -6,6 +6,27 @@ import (
 	"runtime"
 )
 
+func defaultSupervisorIndexerBin() string {
+	dir := executableDir()
+	if dir == "" {
+		if runtime.GOOS == "windows" {
+			return "claudia-index.exe"
+		}
+		return "claudia-index"
+	}
+	names := []string{"claudia-index"}
+	if runtime.GOOS == "windows" {
+		names = []string{"claudia-index.exe", "claudia-index"}
+	}
+	if p := firstExistingFile(dir, names); p != "" {
+		return p
+	}
+	if runtime.GOOS == "windows" {
+		return "claudia-index.exe"
+	}
+	return "claudia-index"
+}
+
 func defaultSupervisorBifrostBin() string {
 	dir := executableDir()
 	if dir == "" {

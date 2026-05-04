@@ -50,6 +50,53 @@ func TestStore_maxLinesEvictsOldest(t *testing.T) {
 	}
 }
 
+func TestIndexerCap_trimsOldestIndexerLines(t *testing.T) {
+	s := New(100)
+	wIdx := s.Writer("indexer")
+	wGw := s.Writer("gateway")
+	for i := range 80 {
+		_, _ = io.WriteString(wIdx, fmt.Sprintf("ix-%d\n", i))
+	}
+	for i := range 80 {
+		_, _ = io.WriteString(wGw, fmt.Sprintf("gw-%d\n", i))
+	}
+	got := s.Snapshot()
+	idx := 0
+	gw := 0
+	for _, e := range got {
+		if e.Source == "indexer" {
+			idx++
+		}
+		if e.Source == "gateway" {
+			gw++
+		}
+	}
+	if idx > 25 {
+		t.Fatalf("indexer lines %d > small-store cap 25", idx)
+	}
+	if gw < 20 {
+		t.Fatalf("gateway crowded out: only %d gateway lines", gw)
+	}
+	if len(got) != 100 {
+		t.Fatalf("want len 100 got %d", len(got))
+	}
+}
+
+func TestEntriesBefore_chunk(t *testing.T) {
+	s := New(100)
+	for i := range 10 {
+		s.add("x", fmt.Sprintf("L%d", i))
+	}
+	// seq 1..10; ask for lines before 8 with limit 3 => seq 5,6,7
+	got := s.EntriesBefore(8, 3)
+	if len(got) != 3 {
+		t.Fatalf("got %#v", got)
+	}
+	if got[0].Text != "L4" || got[1].Text != "L5" || got[2].Text != "L6" {
+		t.Fatalf("want L4,L5,L6 got %#v", got)
+	}
+}
+
 func TestEntriesAfter_cursor(t *testing.T) {
 	s := New(100)
 	s.add("x", "a")

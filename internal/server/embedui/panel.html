@@ -17,7 +17,6 @@
     .err { color: #a40000; font-size: 0.85rem; margin-top: 0.4rem; white-space: pre-wrap; }
     .toolbar { margin: 1rem 0; }
     a { color: #0b57d0; }
-    #continue-block { width: 100%; min-height: 10rem; font-family: ui-monospace, monospace; font-size: 0.8rem; box-sizing: border-box; padding: 0.5rem; }
     .warn { font-size: 0.85rem; color: #555; margin-top: 0.5rem; }
     ul.key-rows { list-style: none; padding-left: 0; margin: 0.5rem 0; }
     ul.key-rows li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.5rem; margin-bottom: 0.4rem; }
@@ -115,12 +114,6 @@
     <button type="button" id="rt-eval">Dry-run router</button>
     <pre id="rt-eval-out" style="background:#f4f4f4;padding:0.75rem;border-radius:6px;font-size:0.78rem;overflow:auto;max-height:14rem;">—</pre>
   </section>
-
-  <h2>VS Code Continue</h2>
-  <p>Copy into <code>~/.continue/config.yaml</code> (or merge under <code>models</code>). <code>apiKey</code> is the gateway token you used to sign in here. Do not commit this snippet.</p>
-  <textarea id="continue-block" readonly></textarea>
-  <button type="button" id="btn-copy-continue">Copy snippet</button>
-  <p class="warn">Examples and context: see the repo <code>vscode-continue/</code> directory (e.g. on GitHub <code>github.com/lynn/claudia-gateway</code>).</p>
 
   <script>
 (function () {
@@ -258,7 +251,6 @@
 
     loadGatewayTokens();
 
-    var base = gw.public_base_url || "http://127.0.0.1:3000";
     var vm = gw.virtual_model_id || "Claudia-0.1.0";
     var rtVmEl = document.getElementById("rt-vm");
     if (rtVmEl) rtVmEl.textContent = vm;
@@ -308,24 +300,6 @@
     if (rtt && !rtt.dataset.touched) {
       rtt.value = gw.tool_router_confidence_threshold != null ? String(gw.tool_router_confidence_threshold) : "0.5";
     }
-    var ver = gw.semver != null && String(gw.semver) !== "" ? String(gw.semver) : "0.1.0";
-    var tok = gw.continue_gateway_token != null ? String(gw.continue_gateway_token) : "";
-    var yml = [
-      "name: Claudia",
-      "version: " + JSON.stringify(ver),
-      "schema: v1",
-      "models:",
-      "  - name: Cℓαudια",
-      "    model: " + vm,
-      "    provider: openai",
-      "    apiKey: " + JSON.stringify(tok),
-      "    apiBase: " + base + "/v1",
-      "    roles:",
-      "      - chat",
-      "      - edit",
-      "      - apply"
-    ].join("\n");
-    document.getElementById("continue-block").value = yml;
   }
 
   async function postJSON(url, body, errEl) {
@@ -465,12 +439,6 @@
       document.getElementById("ollama-val").value = "";
       loadState();
     }
-  });
-
-  document.getElementById("btn-copy-continue").addEventListener("click", function () {
-    var t = document.getElementById("continue-block");
-    t.select();
-    document.execCommand("copy");
   });
 
   var rtFb = document.getElementById("rt-fallback-yaml");

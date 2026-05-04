@@ -94,6 +94,13 @@ func (q *Queue) Len() int {
 	return len(q.items)
 }
 
+// Cap returns the configured capacity (0 means unbounded).
+func (q *Queue) Cap() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.cap
+}
+
 // Close wakes every blocked Dequeue caller; subsequent Enqueue calls fail.
 func (q *Queue) Close() {
 	q.mu.Lock()

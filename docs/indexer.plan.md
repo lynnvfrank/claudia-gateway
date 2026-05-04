@@ -4,7 +4,7 @@ This document plans a **portable Go binary** that watches configured directories
 
 **Related docs:** [`cli-tool.plan.md`](cli-tool.plan.md) (configuration precedence pattern), [`claudia-gateway.plan.md`](claudia-gateway.plan.md), [`overview.md`](overview.md), [`network.md`](network.md), [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md) (operator log UX for supervised processes).
 
-**Current code (this repo):** `claudia-index` is implemented and reports **`claudia-index v0.4.0`** (`--version`). Sources: `cmd/claudia-index`, `internal/indexer`, operator guide [`indexer.md`](indexer.md), example [`config/indexer.example.yaml`](../config/indexer.example.yaml). Makefile targets `indexer-build` / `indexer-run` / `indexer-install` and `scripts/clean.sh` / `scripts/print-make-help.sh` include the binary. **Still missing** relative to this document: durable offline queue and optional **global discovery without cwd** edge cases. **Shipped:** layered YAML, **`GET /health`** during recovery, **Mode B** per-step retries, **`GET /v1/indexer/corpus/inventory`** (path + **`content_sha256`** + optional **`client_content_hash`**) for startup reconciliation. **Planned as v0.5:** richer **health and update-status** reporting, optional supervision under **`claudia serve`**, and the same optional wiring in the **desktop** (`claudia` desktop mode) bundle so indexer output can reach the gateway **operator logs** UI (see [Indexer v0.5](#indexer-v05)).
+**Current code (this repo):** `claudia-index` is implemented and reports **`claudia-index v0.5.0`** (`--version`). Sources: `cmd/claudia-index`, `internal/indexer`, operator guide [`indexer.md`](indexer.md), example [`config/indexer.example.yaml`](../config/indexer.example.yaml). Makefile targets `indexer-build` / `indexer-run` / `indexer-install` and `scripts/clean.sh` / `scripts/print-make-help.sh` include the binary. **Still missing** relative to this document: durable offline queue and optional **global discovery without cwd** edge cases. **Shipped:** layered YAML, **`GET /health`** during recovery, **Mode B** per-step retries, **`GET /v1/indexer/corpus/inventory`**, **v0.5** optional supervision under **`claudia serve`** / **desktop** with **`--log-json`**, single supervised **`config_path`**, BFF **`/api/ui/indexer/*`**, native folder picker (`claudiaPickFolder`) in the desktop webview, and operator **logs** tee (**`Application: indexer`**). **Planned beyond v0.5:** richer **health and update-status** reporting (structured progress fields), optional remote log shipping.
 
 ---
 
@@ -372,11 +372,11 @@ On **every startup** (and periodically during long runs), the indexer **SHOULD**
 
 **Indexer v0.5**
 
-- [ ] **Structured operator events:** discovery/reconciliation **summaries** (candidate / skipped / enqueued counts), **queue/worker** snapshots, **retry/backoff** and **recovery poll** timing fields suitable for [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md); optional **`index_run_id`** on run lifecycle logs.
-- [ ] **`claudia serve`:** optional supervised **`claudia-index`** subprocess with **stderr/stdout** teed to **`servicelogs`** source **`indexer`**; shutdown with gateway; gated when **bootstrap** or **RAG off** per documented rules.
-- [ ] **Gateway config + docs:** `gateway.yaml` / **`gateway.example.yaml`** (or equivalent) documents supervision flags; **`docs/indexer.md`** explains **standalone vs supervised** and env inheritance.
-- [ ] **Desktop:** desktop mode uses the **same** supervision path when enabled (single bundle story); packaging note for **`claudia-index`** next to **`claudia`**.
-- [ ] **Version:** `claudia-index --version` reports **v0.5.0** when the milestone is complete.
+- [x] **Structured operator events:** discovery/reconciliation **summaries** (candidate / skipped / enqueued counts), **queue/worker** snapshots, **retry/backoff** and **recovery poll** timing fields suitable for [`log-presentation-layer.plan.md`](log-presentation-layer.plan.md); **`index_run_id`** on every line via slog `With`. See **`docs/indexer.md` § Structured operator logs** and `internal/indexer/ops_events.go` + milestone `msg` values in `internal/indexer/indexer.go` / `cmd/claudia-index/main.go`.
+- [x] **`claudia serve`:** optional supervised **`claudia-index`** subprocess with **stderr/stdout** teed to **`servicelogs`** source **`indexer`**; shutdown with gateway; gated when **bootstrap** or **RAG off** unless **`start_when_rag_disabled`**.
+- [x] **Gateway config + docs:** `gateway.yaml` / **`gateway.example.yaml`** documents supervision flags; operator UI **`/ui/indexer`** + **`/api/ui/indexer/*`** for the single supervised **`config_path`** file.
+- [x] **Desktop:** desktop webview **`claudiaPickFolder`** (native directory dialog via **`dlgs`**) for the Indexer tab; same supervision path as **`claudia serve`** when enabled.
+- [x] **Version:** `claudia-index --version` reports **v0.5.0**.
 
 **Indexer v0.8**
 
@@ -396,4 +396,4 @@ On **every startup** (and periodically during long runs), the indexer **SHOULD**
 
 ---
 
-*Plan status: **implemented through v0.4 + layered YAML + recovery `/health` + Mode B per-step retries + corpus inventory REST** (indexer binary still reports **v0.4.0**) — aligns with [`claudia-gateway.plan.md`](claudia-gateway.plan.md). **Next (v0.5):** supervised indexer under **`claudia serve` / desktop**, **`servicelogs`** integration, and **structured health/update-status** events (see [Indexer v0.5](#indexer-v05)). **Outstanding:** durable paused queue, root README blurb, smarter **session resume** after abandoning a partially uploaded session mid-flight.*
+*Plan status: **implemented through v0.5 supervision** (optional child under **`claudia serve` / desktop**, **`servicelogs`** **`indexer`** source, **`--log-json`**, single supervised **`config_path`**, UI + native folder picker). **Structured operator events (v0.5 checklist):** discovery / reconcile / queue / retry / recovery / run-done counters are logged as JSON **slog** lines (`msg` slugs). **Outstanding:** durable paused queue, root README blurb, smarter **session resume** after abandoning a partially uploaded session mid-flight.*

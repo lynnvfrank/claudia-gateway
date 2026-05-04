@@ -37,6 +37,20 @@ func gatewayPublicURL(ln net.Addr) string {
 	return fmt.Sprintf("http://%s:%s", host, port)
 }
 
+func gatewayPublicURLFromResolved(res *config.Resolved) string {
+	if res == nil {
+		return "http://127.0.0.1:3000"
+	}
+	host := strings.TrimSpace(res.ListenHost)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		return fmt.Sprintf("http://[%s]:%d", host, res.ListenPort)
+	}
+	return fmt.Sprintf("http://%s:%d", host, res.ListenPort)
+}
+
 func panelURLFromListenAddr(ln net.Addr) string {
 	return gatewayPublicURL(ln) + "/ui/panel"
 }
@@ -105,6 +119,7 @@ func runServe(args []string, openWebview bool) {
 	childCtx, stopChildren := context.WithCancel(context.Background())
 	var qdrantWait chan error
 	var bifrostWaitErr chan error
+	var indexerWait chan error
 
 	if !bootstrap {
 		if qBin != "" {
@@ -190,6 +205,42 @@ func runServe(args []string, openWebview bool) {
 				os.Exit(1)
 			}
 		}
+
+		idxScope := res.IndexerSupervisedEnabled && (res.RAG.Enabled || res.IndexerSupervisedStartWhenRAGDisabled)
+		if idxScope {
+			idxBin := strings.TrimSpace(res.IndexerSupervisedBin)
+			if idxBin == "" {
+				idxBin = defaultSupervisorIndexerBin()
+			}
+			wd, werr := os.Getwd()
+			if werr != nil {
+				if log != nil {
+					log.Warn("indexer supervised: getwd", "err", werr)
+				}
+			} else {
+				idxSink := logStore.Writer("indexer")
+				gwLocal := gatewayPublicURLFromResolved(res)
+				idxProc, ierr := supervisor.StartIndexer(childCtx, supervisor.IndexerConfig{
+					Bin:        idxBin,
+					ConfigPath: res.IndexerSupervisedConfigPath,
+					WorkDir:    wd,
+					GatewayURL: gwLocal,
+					LogJSON:    res.IndexerSupervisedLogJSON,
+					Stdout:     platform.StdoutTee(idxSink),
+					Stderr:     platform.StderrTee(idxSink),
+				}, log)
+				if ierr != nil {
+					if log != nil {
+						log.Warn("indexer supervised not started", "err", ierr, "bin", idxBin)
+					}
+				} else {
+					indexerWait = make(chan error, 1)
+					go func() {
+						indexerWait <- idxProc.Wait()
+					}()
+				}
+			}
+		}
 	} else if log != nil {
 		log.Info("claudia serve: bootstrap mode (create gateway token at /ui/setup, then restart)", "tokens_path", res.TokensPath)
 	}
@@ -199,12 +250,18 @@ func runServe(args []string, openWebview bool) {
 	if qBin != "" {
 		qdrantHTTP = fmt.Sprintf("%s:%d", strings.TrimSpace(*qdrantHealthHost), *qdrantHTTPPort)
 	}
+	idxPath := ""
+	if indexerWait != nil {
+		idxPath = res.IndexerSupervisedConfigPath
+	}
 	overlay := &server.StatusOverlay{
 		EffectiveListen: addr,
 		Supervisor: &server.SupervisorInfo{
-			BifrostListen:    fmt.Sprintf("%s:%d", strings.TrimSpace(*bifrostBind), *bifrostPort),
-			QdrantSupervised: qBin != "" && !bootstrap,
-			QdrantHTTP:       qdrantHTTP,
+			BifrostListen:     fmt.Sprintf("%s:%d", strings.TrimSpace(*bifrostBind), *bifrostPort),
+			QdrantSupervised:  qBin != "" && !bootstrap,
+			QdrantHTTP:        qdrantHTTP,
+			IndexerSupervised: indexerWait != nil,
+			IndexerConfigPath: idxPath,
 		},
 	}
 	if bootstrap {
@@ -292,7 +349,7 @@ func runServe(args []string, openWebview bool) {
 				log.Warn("http shutdown", "err", err)
 			}
 		}()
-		log.Info("claudia serve: gateway listening", "addr", ln.Addr().String(), "ui", entryURL, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "config", path)
+		log.Info("claudia serve: gateway listening", "addr", ln.Addr().String(), "ui", entryURL, "upstream", upstreamURL, "bifrost_data", *bifrostDataDir, "qdrant_supervised", qBin != "", "indexer_supervised", indexerWait != nil, "config", path)
 		runDesktopWebview(openWebview, entryURL, stopRoot, rootCtx)
 		serveErr = <-serveErrCh
 	}
@@ -306,6 +363,11 @@ func runServe(args []string, openWebview bool) {
 	if bifrostWaitErr != nil {
 		if werr := <-bifrostWaitErr; werr != nil && log != nil {
 			log.Debug("bifrost process finished", "err", werr)
+		}
+	}
+	if indexerWait != nil {
+		if werr := <-indexerWait; werr != nil && log != nil {
+			log.Debug("indexer process finished", "err", werr)
 		}
 	}
 

@@ -6,10 +6,18 @@
   <title>Claudia</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; overflow: hidden; }
+    /* Flex column avoids calc(navHeight) mismatch that can overflow and confuse WebView hit-testing. */
+    body {
+      display: flex;
+      flex-direction: column;
+    }
     #tabs {
+      flex: 0 0 auto;
       display: flex; gap: 0; background: #f0f0f0; border-bottom: 1px solid #ccc;
       padding: 0 0.25rem; align-items: stretch;
+      position: relative;
+      z-index: 2;
     }
     #tabs button {
       border: none; background: transparent; padding: 0.6rem 1rem; cursor: pointer;
@@ -17,17 +25,29 @@
     }
     #tabs button:hover { background: #e5e5e5; }
     #tabs button.active { border-bottom-color: #0b57d0; font-weight: 600; color: #0b57d0; }
-    #frame-wrap { height: calc(100% - 42px); position: relative; }
-    /* Opacity stacking instead of display:none so each iframe keeps its scroll position when tabs switch. */
+    #frame-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+    }
+    /*
+     * Only mount one iframe in the hit-test tree at a time. WebView2 can still deliver
+     * clicks to stacked opacity:0/visibility:hidden iframes.
+     * display:none removes inactive frames from hit-testing; scroll state is preserved when shown again in Chromium.
+     */
     iframe {
-      position: absolute; inset: 0; width: 100%; height: 100%; border: none;
-      opacity: 0;
-      pointer-events: none;
+      display: none;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
       z-index: 0;
     }
     iframe.visible {
-      opacity: 1;
-      pointer-events: auto;
+      display: block;
       z-index: 1;
     }
   </style>
@@ -35,15 +55,18 @@
 <body>
   <nav id="tabs" role="tablist">
     <button type="button" role="tab" data-tab="main" class="active" aria-selected="true">Main</button>
+    <button type="button" role="tab" data-tab="indexer" aria-selected="false">Indexer</button>
+    <button type="button" role="tab" data-tab="continue" aria-selected="false">VS Code Continue</button>
     <button type="button" role="tab" data-tab="logs" aria-selected="false">Logs</button>
-    <button type="button" role="tab" data-tab="stats" aria-selected="false">Stats</button>
     <button type="button" role="tab" data-tab="admin" aria-selected="false">Admin</button>
   </nav>
   <div id="frame-wrap">
     <iframe id="f-main" class="visible" title="Gateway main" src="/"></iframe>
-    <iframe id="f-logs" title="Logs" src="/ui/logs?embed=1"></iframe>
-    <iframe id="f-stats" title="Stats" src="/ui/metrics?embed=1"></iframe>
-    <iframe id="f-admin" title="Admin" src="/ui/panel"></iframe>
+    <!-- Lazy src: defer loading until first shown so embeds are not laid out at 0×0 while hidden. -->
+    <iframe id="f-indexer" title="Indexer" data-lazy-src="/ui/indexer"></iframe>
+    <iframe id="f-continue" title="VS Code Continue" data-lazy-src="/ui/continue"></iframe>
+    <iframe id="f-logs" title="Logs" data-lazy-src="/ui/logs?embed=1"></iframe>
+    <iframe id="f-admin" title="Admin" data-lazy-src="/ui/panel"></iframe>
   </div>
   <script>
 (function () {
@@ -51,8 +74,9 @@
   var tabs = document.querySelectorAll("#tabs button");
   var frames = {
     main: document.getElementById("f-main"),
+    indexer: document.getElementById("f-indexer"),
+    continue: document.getElementById("f-continue"),
     logs: document.getElementById("f-logs"),
-    stats: document.getElementById("f-stats"),
     admin: document.getElementById("f-admin")
   };
   function notifyLogsActive() {
@@ -63,13 +87,33 @@
       }
     } catch (e) {}
   }
+  function ensureLazyFrame(name) {
+    var fr = frames[name];
+    if (!fr) return;
+    var lazy = fr.getAttribute("data-lazy-src");
+    if (!lazy) return;
+    var cur = "";
+    try {
+      cur = fr.getAttribute("src") || "";
+    } catch (e) {}
+    if (cur && cur !== "about:blank") return;
+    fr.src = lazy;
+  }
   function show(name) {
     if (name === "main") {
       /* Always show gateway root (same origin → e.g. http://127.0.0.1:3000/) */
       frames.main.src = "/";
     }
+    ensureLazyFrame(name);
     Object.keys(frames).forEach(function (k) {
-      frames[k].classList.toggle("visible", k === name);
+      var fr = frames[k];
+      var vis = k === name;
+      fr.classList.toggle("visible", vis);
+      if (!vis) {
+        try {
+          if (fr.contentWindow && fr.contentWindow.blur) fr.contentWindow.blur();
+        } catch (e) {}
+      }
     });
     tabs.forEach(function (b) {
       var on = b.getAttribute("data-tab") === name;
@@ -88,7 +132,8 @@
   });
   tabs.forEach(function (btn) {
     btn.addEventListener("click", function () {
-      show(btn.getAttribute("data-tab"));
+      var tabName = btn.getAttribute("data-tab");
+      show(tabName);
     });
   });
 })();

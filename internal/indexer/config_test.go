@@ -88,6 +88,41 @@ func TestResolve_AppliesDefaults(t *testing.T) {
 	if !r.RecoveryIncludeRootHealth {
 		t.Fatal("expected RecoveryIncludeRootHealth default true")
 	}
+	if !r.VerboseJobLogs {
+		t.Fatal("expected VerboseJobLogs default true")
+	}
+}
+
+func TestResolve_VerboseJobLogsFalse(t *testing.T) {
+	dir := t.TempDir()
+	env := func(k string) string {
+		if k == EnvGatewayToken {
+			return "tok"
+		}
+		return ""
+	}
+	f := false
+	r, err := Resolve(FileConfig{
+		GatewayURL:     "http://x",
+		Roots:          FlexibleRoots{{Path: dir}},
+		VerboseJobLogs: &f,
+	}, env, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.VerboseJobLogs {
+		t.Fatal("expected VerboseJobLogs false from YAML")
+	}
+}
+
+func TestMergeFileConfig_VerboseJobLogsOverlay(t *testing.T) {
+	f := false
+	a := FileConfig{GatewayURL: "http://a", Roots: FlexibleRoots{{Path: "/x"}}}
+	b := FileConfig{VerboseJobLogs: &f}
+	out := MergeFileConfig(a, b)
+	if out.VerboseJobLogs == nil || *out.VerboseJobLogs != false {
+		t.Fatalf("overlay should set verbose_job_logs false, got %+v", out.VerboseJobLogs)
+	}
 }
 
 func TestResolve_RecoveryIncludeRootHealthFalse(t *testing.T) {
@@ -237,5 +272,14 @@ roots:
 	}
 	if r.Roots[1].Scope.ProjectID != "webapp" || r.Roots[1].Scope.FlavorID != "webflav" {
 		t.Fatalf("resolved root1 scope=%+v", r.Roots[1].Scope)
+	}
+}
+
+func TestRootIDsCSV(t *testing.T) {
+	if got := RootIDsCSV(nil); got != "" {
+		t.Fatalf("empty roots: %q", got)
+	}
+	if got := RootIDsCSV([]Root{{ID: "a"}, {ID: "b"}}); got != "a,b" {
+		t.Fatalf("got %q", got)
 	}
 }

@@ -6,6 +6,17 @@
   <title>Claudia — Logs</title>
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 0.75rem; background: #fff; color: #1a1a1a; min-height: 100vh; box-sizing: border-box; font-size: 0.85rem; }
+    /* Desktop shell (/ui/desktop): iframe viewport must use % height, not vh — 100vh inside an iframe
+       can match the outer window and overflow the iframe, breaking hit-testing on the parent tab bar (WebView). */
+    html.logs-embedded,
+    html.logs-embedded body {
+      height: 100%;
+      max-height: 100%;
+    }
+    html.logs-embedded body {
+      min-height: 0 !important;
+      overflow-x: hidden;
+    }
     /* Summarized: single scroll (conversation list). Avoid document + panel both scrolling — toolbar sits below the feed. */
     body.logs-summarized {
       height: 100vh;
@@ -13,17 +24,88 @@
       display: flex;
       flex-direction: column;
     }
+    html.logs-embedded body.logs-summarized {
+      height: 100%;
+      max-height: 100%;
+    }
     body.logs-summarized #raw-bottom-toolbar {
       flex-shrink: 0;
       margin-top: 0;
     }
     #raw-bottom-toolbar {
       margin-top: 1rem; padding: 0.65rem 0 0.25rem 0; border-top: 1px solid #ccc;
-      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; font-size: 0.8rem;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 0.5rem 1rem; font-size: 0.8rem;
     }
     #raw-bottom-toolbar label { display: flex; align-items: center; gap: 0.35rem; color: #333; }
     #raw-bottom-toolbar select { background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 0.2rem 0.4rem; font-size: 0.8rem; }
     body.logs-raw #raw-bottom-toolbar { border-top-color: #ccc; }
+    body.logs-raw-logs {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    html.logs-embedded body.logs-raw-logs {
+      height: 100%;
+      max-height: 100%;
+    }
+    body.logs-raw-logs #raw-bottom-toolbar {
+      flex-shrink: 0;
+      margin-top: 0;
+    }
+    body.logs-raw-logs #filters-bar {
+      flex-shrink: 0;
+    }
+    #panel-raw-logs {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    /* display:flex above beats [hidden] unless forced — same pattern as #filters-bar */
+    #panel-raw-logs[hidden] { display: none !important; }
+    .raw-logs-copy-wrap {
+      display: none;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem 0.75rem;
+    }
+    body.logs-raw-logs .raw-logs-copy-wrap { display: flex; }
+    #raw-logs-copy-btn {
+      font-size: 0.8rem;
+      padding: 0.35rem 0.65rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fff;
+      color: #1a1a1a;
+      cursor: pointer;
+    }
+    #raw-logs-copy-btn:hover { background: #f0f4fa; border-color: #90caf9; }
+    #raw-logs-copy-btn:active { background: #e3f2fd; }
+    #raw-logs-copy-status { font-size: 0.78rem; min-height: 1.2em; }
+    #raw-logs-textarea {
+      flex: 1 1 auto;
+      min-height: 12rem;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0.5rem 0.55rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      line-height: 1.35;
+      color: #1a1a1a;
+      background: #fafafa;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      resize: none;
+      white-space: pre;
+      overflow-wrap: normal;
+      overflow-x: auto;
+      overflow-y: auto;
+      tab-size: 2;
+    }
     #filters-bar { margin-top: 0.85rem; margin-bottom: 1rem; padding-top: 0.65rem; border-top: 1px solid #ccc; display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem 1.25rem; }
     /* #filters-bar uses display:flex; that beats the HTML [hidden] default — force hide when summarized. */
     #filters-bar[hidden] { display: none !important; }
@@ -107,11 +189,16 @@
     .story-events summary { cursor: pointer; color: #333; }
     .indexer-run-card { border: 1px solid #7e57c2; border-radius: 6px; padding: 0.5rem 0.65rem; margin: 0.5rem 0; background: #faf8ff; }
     .indexer-run-card h4 { margin: 0 0 0.25rem 0; font-size: 0.85rem; }
+    .indexer-run-kv { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.2rem 0.75rem; margin: 0.25rem 0 0.6rem 0; font-size: 0.82rem; }
+    .indexer-run-kv dt { margin: 0; color: #555; font-weight: 600; }
+    .indexer-run-kv dd { margin: 0; font-family: ui-monospace, monospace; word-break: break-word; }
+    .sum-title-indexer-head { font-weight: 700; }
     .deep-link { font-size: 0.72rem; margin-left: 0.35rem; }
     .deep-link a { color: #0b57d0; }
 
     /* —— Summarized unified feed (light theme cards) —— */
     #panel-summarized { max-height: calc(100vh - 5.5rem); overflow-y: auto; padding: 0.15rem 0 1rem 0; }
+    html.logs-embedded #panel-summarized { max-height: calc(100% - 5.5rem); }
     body.logs-summarized #panel-summarized {
       flex: 1 1 auto;
       min-height: 0;
@@ -167,6 +254,26 @@
     .sum-card:not([open]) .sum-chev::before { content: "›"; font-size: 1.1rem; line-height: 1; }
     .sum-card[open] .sum-chev::before { content: "⌄"; font-size: 0.85rem; }
     .sum-body { padding: 0.65rem 0.85rem 0.85rem; font-size: 0.78rem; }
+    /* Expanded body: light tint from summary avatar hue; keep body text dark */
+    .sum-card[open] > .sum-body {
+      color: #111;
+    }
+    .sum-card[open]:has(.sum-avatar.sum-av-a) > .sum-body { background: #e5f6fb; }
+    .sum-card[open]:has(.sum-avatar.sum-av-b) > .sum-body { background: #fcecf2; }
+    .sum-card[open]:has(.sum-avatar.sum-av-c) > .sum-body { background: #fff4e6; }
+    .sum-card[open]:has(.sum-avatar.sum-av-d) > .sum-body { background: #e8f4fd; }
+    .sum-card[open]:has(.sum-avatar.sum-av-e) > .sum-body { background: #eceff1; }
+    .sum-card[open]:has(.sum-avatar.sum-av-f) > .sum-body { background: #f6edf9; }
+    .sum-card[open]:has(.sum-avatar.sum-av-svc-gateway) > .sum-body { background: #e3f2fd; }
+    .sum-card[open]:has(.sum-avatar.sum-av-svc-bifrost) > .sum-body { background: #ede7f6; }
+    .sum-card[open]:has(.sum-avatar.sum-av-svc-qdrant) > .sum-body { background: #e0f2f1; }
+    .sum-card[open]:has(.sum-avatar.sum-av-svc-indexer) > .sum-body { background: #fff0e0; }
+    .sum-card[open] > .sum-body .sum-section-label { color: #333; }
+    .sum-card[open] > .sum-body .sum-mini-card { color: #222; }
+    .sum-card[open] > .sum-body .sum-mini-card .sum-mini-sub { color: #444; }
+    .sum-card[open] > .sum-body .sum-mini-card strong { color: #000; }
+    .sum-card[open] > .sum-body .indexer-run-kv dt { color: #333; }
+    .sum-card[open] > .sum-body .indexer-run-kv dd { color: #111; }
     .sum-section-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em; color: #888; margin: 0.5rem 0 0.35rem 0; text-transform: uppercase; }
     .sum-section-label:first-child { margin-top: 0; }
     .sum-feed-section { margin-bottom: 1.15rem; }
@@ -208,6 +315,9 @@
       font-size: 0.72rem; color: #555;
     }
     .sum-mini-card strong { display: block; color: #1a1a1a; font-size: 0.8rem; margin-top: 0.15rem; }
+    .sum-mini-card .sum-mini-sub {
+      display: block; margin-top: 0.12rem; font-size: 0.68rem; color: #777; line-height: 1.3;
+    }
     .sum-full-log { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; padding: 0.45rem 0.55rem; max-height: 14rem; overflow-y: auto; }
     .sum-full-log ul { margin: 0; padding: 0; list-style: none; }
     .sum-full-log li.sum-ev-item { margin: 0; padding: 0.35rem 0; border-bottom: 1px solid #eee; }
@@ -233,12 +343,36 @@
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
       word-break: break-word; font-size: 0.78rem; color: #222; line-height: 1.35;
     }
+    /* Bifrost service card: full log uses buildDetailsColumn + room for long upstream lines */
+    .sum-full-log.sum-full-log--bifrost .log-line-sum__msg {
+      -webkit-line-clamp: 12;
+      max-height: none;
+    }
     .sum-last-events li.sum-ev-item .log-line-sum { margin: 0; }
     .sum-sub--clamp {
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
       word-break: break-word;
     }
     .log-fields-block { margin-top: 0.35rem; font-size: 0.78rem; }
+    /* Gateway metrics tables (same data as /ui/metrics) inside summarized card */
+    .sum-metrics-table-wrap { overflow-x: auto; margin: 0.35rem 0 0.75rem; }
+    /* Recent upstream calls: cap height like .sum-full-log on other summary cards */
+    .sum-metrics-table-wrap.sum-metrics-events-scroll {
+      max-height: 14rem;
+      overflow-y: auto;
+      margin-bottom: 0;
+    }
+    .sum-metrics-table {
+      width: 100%; border-collapse: collapse; font-size: 0.76rem; background: #fff;
+      border: 1px solid #ddd; border-radius: 6px; overflow: hidden;
+    }
+    .sum-metrics-table th, .sum-metrics-table td {
+      text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee; vertical-align: top;
+    }
+    .sum-metrics-table th { background: #f4f4f4; font-weight: 600; color: #333; }
+    .sum-metrics-table tr:last-child td { border-bottom: none; }
+    .sum-metrics-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .sum-metrics-table code { font-size: 0.72rem; }
   </style>
 </head>
 <body>
@@ -266,6 +400,9 @@
   </div>
   </div>
   <div id="panel-summarized" hidden></div>
+  <div id="panel-raw-logs" hidden>
+    <textarea id="raw-logs-textarea" readonly spellcheck="false" aria-label="Raw log lines"></textarea>
+  </div>
   <div id="filters-bar" hidden>
     <span class="filters-heading">Filters</span>
     <div id="filters">
@@ -290,14 +427,25 @@
     <label>View
       <select id="view-mode" title="Log presentation mode">
         <option value="summarized">Summarized</option>
-        <option value="raw">Raw logs</option>
+        <option value="raw">StructuredLogs</option>
+        <option value="raw_logs">Raw Logs</option>
       </select>
     </label>
+    <div class="raw-logs-copy-wrap">
+      <button type="button" id="raw-logs-copy-btn" title="Copy filtered log text to the clipboard">
+        Copy to clipboard
+      </button>
+      <span id="raw-logs-copy-status" class="muted" aria-live="polite"></span>
+    </div>
   </div>
   <script>
 (function () {
   var params = new URLSearchParams(window.location.search);
   var embedded = params.get("embed") === "1" || window.self !== window.top;
+  if (embedded) {
+    document.documentElement.classList.add("logs-embedded");
+    document.body.classList.add("logs-embedded");
+  }
   var focusPrincipal = (params.get("principal") || "").trim();
   var focusConv = (params.get("conversation") || params.get("conv") || "").trim();
   var focusSeq = (params.get("seq") || "").trim();
@@ -309,7 +457,6 @@
   var FLT_APP_LS = "claudia_logs_flt_app";
   var FLT_LEVEL_LS = "claudia_logs_flt_level";
   var CONV_RECENT_N = 5;
-  var SUBSYS_TIMELINE_N = 8;
   /** Last N events used for summary-strip status pills ("error" vs active/complete). Matches Last-events preview depth. */
   var RECENT_CARD_STATUS_N = 3;
   var entryCache = [];
@@ -320,11 +467,27 @@
   var stickPx = 160;
   var es = null;
   var pollTimer = null;
+  /** SQLite gateway metrics snapshot for summarized “Gateway usage” card (/api/ui/metrics). */
+  var metricsCache = null;
+  var metricsPollTimer = null;
+  var METRICS_POLL_MS = 12000;
   var started = false;
+  /** Dedup live + historical loads (seq may overlap SSE vs poll). */
+  var seenSeq = {};
+  /** Match server ring + UI budget; trim oldest when exceeded. */
+  var CLIENT_CACHE_MAX = 5500;
+  var INITIAL_TAIL_LIMIT = 400;
+  var BACKFILL_CHUNK = 300;
+  var RENDER_CHUNK = 80;
+  var minLoadedSeq = 0;
+  var bufferMinSeqFromServer = 0;
+  var olderFetchBusy = false;
+  var ssePending = [];
+  var sseFlushScheduled = false;
   var levelOptionSet = { "": true, "(none)": true, DEBUG: true, INFO: true, WARN: true, ERROR: true };
 
   function normalizeViewMode(v) {
-    if (v === "summarized" || v === "raw") return v;
+    if (v === "summarized" || v === "raw" || v === "raw_logs") return v;
     /* Legacy URL / localStorage */
     if (v === "detailed") return "raw";
     if (v === "summary" || v === "conversations" || v === "subsystems" || v === "indexer-runs") return "summarized";
@@ -447,9 +610,9 @@
     return out;
   }
 
-  function buildDetailsColumn(parsed, entryTs, rawText) {
+  function buildDetailsColumn(parsed, entryTs, rawText, badgeOpt) {
     var evLike = { parsed: parsed, text: rawText != null && rawText !== undefined ? rawText : "", ts: entryTs };
-    var top = logSummaryHtml(evLike, null);
+    var top = logSummaryHtml(evLike, badgeOpt !== undefined ? badgeOpt : null);
     var grid = buildDetailsCell(parsed.extras);
     return top + '<div class="log-fields-block">' + grid + "</div>";
   }
@@ -459,6 +622,11 @@
     var sh = el.scrollHeight;
     var y = window.scrollY + window.innerHeight;
     return sh - y <= stickPx;
+  }
+
+  function nearBottomTextarea(ta) {
+    if (!ta) return true;
+    return ta.scrollHeight - ta.scrollTop - ta.clientHeight <= stickPx;
   }
 
   function escapeHtml(s) {
@@ -768,7 +936,96 @@
     return tr.dataset.level === fl;
   }
 
+  function entryMatchesFilters(parsed) {
+    var fa = fltApp.value;
+    var fl = fltLevel.value;
+    var app = parsed.app || "";
+    var lvl = parsed.levelCanon || "";
+    if (fa && app !== fa) return false;
+    if (!fl) return true;
+    if (fl === "(none)") return !lvl || lvl === "";
+    return lvl === fl;
+  }
+
+  function formatRawLogLine(ent) {
+    var t = ent.text != null ? String(ent.text) : "";
+    return t;
+  }
+
+  function rebuildRawLogsTextarea(opts) {
+    opts = opts || {};
+    var ta = document.getElementById("raw-logs-textarea");
+    if (!ta) return;
+    var lines = [];
+    for (var i = 0; i < entryCache.length; i++) {
+      var ent = entryCache[i];
+      if (entryMatchesFilters(ent.parsed)) lines.push(formatRawLogLine(ent));
+    }
+    ta.value = lines.join("\n");
+    if (opts.scrollBottom !== false) {
+      window.requestAnimationFrame(function () {
+        ta.scrollTop = ta.scrollHeight;
+      });
+    }
+  }
+
+  function appendRawLineToTextarea(ent, follow) {
+    var ta = document.getElementById("raw-logs-textarea");
+    if (!ta) return;
+    var line = formatRawLogLine(ent);
+    if (ta.value) ta.value += "\n";
+    ta.value += line;
+    if (follow) {
+      window.requestAnimationFrame(function () {
+        ta.scrollTop = ta.scrollHeight;
+      });
+    }
+  }
+
+  function copyRawLogsToClipboard() {
+    var ta = document.getElementById("raw-logs-textarea");
+    var statusElCopy = document.getElementById("raw-logs-copy-status");
+    if (!ta) return;
+    var text = ta.value;
+    function setStatus(msg) {
+      if (statusElCopy) statusElCopy.textContent = msg || "";
+    }
+    function flash(ok) {
+      setStatus(ok ? "Copied" : "Copy failed");
+      window.setTimeout(function () {
+        setStatus("");
+      }, 2500);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        flash(true);
+      }).catch(function () {
+        try {
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          flash(true);
+        } catch (e) {
+          flash(false);
+        }
+      });
+      return;
+    }
+    try {
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      flash(true);
+    } catch (e) {
+      flash(false);
+    }
+  }
+
   function applyFilters() {
+    if (viewMode === "raw_logs") {
+      rebuildRawLogsTextarea({ scrollBottom: true });
+      return;
+    }
     // tbody.rows = log rows only; querySelectorAll("tr") also matched inner details <tr>s.
     var rows = tbody.rows;
     for (var i = 0; i < rows.length; i++) {
@@ -825,24 +1082,41 @@
     applyFilters();
   });
 
+  var rawLogsCopyBtn = document.getElementById("raw-logs-copy-btn");
+  if (rawLogsCopyBtn) {
+    rawLogsCopyBtn.addEventListener("click", function () {
+      copyRawLogsToClipboard();
+    });
+  }
+
   function applyViewLayout() {
     var classic = document.getElementById("panel-classic");
     var psu = document.getElementById("panel-summarized");
+    var prl = document.getElementById("panel-raw-logs");
     if (!classic || !psu) return;
     try {
       document.body.classList.toggle("logs-raw", viewMode === "raw");
       document.body.classList.toggle("logs-summarized", viewMode === "summarized");
+      document.body.classList.toggle("logs-raw-logs", viewMode === "raw_logs");
     } catch (x) {}
     if (viewMode === "summarized") {
       classic.hidden = true;
       psu.hidden = false;
+      if (prl) prl.hidden = true;
       if (filtersBar) filtersBar.hidden = true;
       refreshSummarizedPanel();
+    } else if (viewMode === "raw_logs") {
+      classic.hidden = true;
+      psu.hidden = true;
+      if (prl) prl.hidden = false;
+      if (filtersBar) filtersBar.hidden = false;
     } else {
       classic.hidden = false;
       psu.hidden = true;
+      if (prl) prl.hidden = true;
       if (filtersBar) filtersBar.hidden = false;
     }
+    syncMetricsPolling();
   }
 
   function getFlat(parsed) {
@@ -1035,6 +1309,32 @@
     else if (rf.message != null && rf.message !== "") m = String(rf.message);
     else if (rawText) m = String(rawText).trim();
     if (!m) m = "—";
+    var slug = m.toLowerCase();
+    if (rf.service === "indexer" || slug.indexOf("indexer.") === 0) {
+      var bitsIx = [m];
+      if (rf.phase) bitsIx.push("phase " + rf.phase);
+      if (rf.rel) bitsIx.push(String(rf.rel));
+      if (rf.root != null && String(rf.root).trim() !== "") bitsIx.push("root " + rf.root);
+      if (rf.chunks != null && rf.chunks !== "") bitsIx.push("chunks " + rf.chunks);
+      if (rf.candidates_enqueued != null) bitsIx.push("candidates " + rf.candidates_enqueued);
+      if (rf.candidates_discovered != null) bitsIx.push("discovered " + rf.candidates_discovered);
+      if (slug.indexOf("indexer.run.done") === 0 && rf.mode) bitsIx.push("mode " + rf.mode);
+      if (slug.indexOf("indexer.run.done") === 0 && rf.ingest_completed != null)
+        bitsIx.push("ingested " + rf.ingest_completed);
+      if (slug.indexOf("indexer.run.done") === 0 && rf.ingest_failed_dropped != null)
+        bitsIx.push("failed " + rf.ingest_failed_dropped);
+      if (rf.collection) bitsIx.push("collection " + rf.collection);
+      if (rf.flavor_id) bitsIx.push("flavor " + rf.flavor_id);
+      if (rf.ingest_project) bitsIx.push("project " + rf.ingest_project);
+      if (rf.roots != null) bitsIx.push("roots " + rf.roots);
+      if (rf.root_ids) bitsIx.push("root_ids " + rf.root_ids);
+      if (rf.queue_depth != null) bitsIx.push("queue_depth " + rf.queue_depth);
+      if (rf.worker != null) bitsIx.push("worker " + rf.worker);
+      if (rf.attempt != null) bitsIx.push("attempt " + rf.attempt);
+      if (rf.delay_ms != null) bitsIx.push("delay_ms " + rf.delay_ms);
+      if (rf.err) bitsIx.push("err " + String(rf.err).replace(/\s+/g, " ").slice(0, 200));
+      m = bitsIx.join(" · ");
+    }
     if (m.length > MAX_PRIMARY_MSG_CHARS) m = m.slice(0, MAX_PRIMARY_MSG_CHARS - 1) + "…";
     return m;
   }
@@ -1135,13 +1435,48 @@
     }
     syncFiltersFromStorage();
     if (viewMode === "summarized") refreshSummarizedPanel();
-    applyFilters();
+    else if (viewMode === "raw_logs") rebuildRawLogsTextarea({ scrollBottom: true });
+    else applyFilters();
     scheduleFocusTargets();
+    if (viewMode === "raw" && !focusSeq && !focusConv) {
+      window.requestAnimationFrame(function () {
+        window.scrollTo(0, document.documentElement.scrollHeight);
+      });
+    }
+    if (viewMode === "raw_logs" && !focusSeq && !focusConv) {
+      window.requestAnimationFrame(function () {
+        var ta = document.getElementById("raw-logs-textarea");
+        if (ta) ta.scrollTop = ta.scrollHeight;
+      });
+    }
   }
 
   function refreshSummarizedPanel() {
     var psu = document.getElementById("panel-summarized");
-    if (viewMode === "summarized" && psu) psu.innerHTML = renderSummarizedUnified();
+    if (viewMode !== "summarized" || !psu) return;
+    var prevScrollTop = psu.scrollTop;
+    var prevScrollH = psu.scrollHeight;
+    var nearPanelBottom =
+      psu.scrollHeight - psu.scrollTop - psu.clientHeight <= stickPx;
+    var openIds = [];
+    try {
+      var openEls = psu.querySelectorAll("details.sum-card[open]");
+      for (var oi = 0; oi < openEls.length; oi++) {
+        var oid = openEls[oi].id;
+        if (oid) openIds.push(oid);
+      }
+    } catch (e) {}
+    psu.innerHTML = renderSummarizedUnified();
+    for (var ri = 0; ri < openIds.length; ri++) {
+      var d = document.getElementById(openIds[ri]);
+      if (d && d.tagName === "DETAILS") d.open = true;
+    }
+    if (nearPanelBottom) {
+      psu.scrollTop = psu.scrollHeight;
+    } else if (prevScrollH > 0) {
+      var dh = psu.scrollHeight - prevScrollH;
+      psu.scrollTop = Math.max(0, prevScrollTop + dh);
+    }
   }
 
   function scheduleStoryRebuild() {
@@ -1160,6 +1495,217 @@
     } catch (e) {
       return String(Math.round(n));
     }
+  }
+
+  function aggregateRollupRows(rows) {
+    if (!rows || !rows.length) return { models: 0, tokens: 0, calls: 0 };
+    var seen = {};
+    var tokens = 0;
+    var calls = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var mid = r.model_id != null ? String(r.model_id) : "";
+      if (mid) seen[mid] = true;
+      tokens += Number(r.est_tokens) || 0;
+      calls += Number(r.calls) || 0;
+    }
+    var nm = 0;
+    for (var k in seen) {
+      if (Object.prototype.hasOwnProperty.call(seen, k)) nm++;
+    }
+    return { models: nm, tokens: tokens, calls: calls };
+  }
+
+  function formatCompactTok(n) {
+    if (n == null || isNaN(n)) return "—";
+    var x = Number(n);
+    if (x < 0) return "—";
+    if (x >= 1000000) return (x / 1000000).toFixed(2).replace(/\.?0+$/, "") + "M";
+    if (x >= 100000) return Math.round(x / 1000) + "k";
+    if (x >= 10000) return (x / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+    if (x >= 1000) return (x / 1000).toFixed(2).replace(/0+$/, "").replace(/\.$/, "") + "k";
+    return formatInt(x);
+  }
+
+  function metricsRollupTableHtml(rows) {
+    if (!rows || !rows.length) {
+      return '<p class="muted">No rows for this window yet.</p>';
+    }
+    var h =
+      '<div class="sum-metrics-table-wrap"><table class="sum-metrics-table"><thead><tr><th>Provider</th><th>Model</th><th>HTTP</th><th class="num">Calls</th><th class="num">Est. tokens</th></tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      h +=
+        "<tr><td>" +
+        escapeHtml(r.provider) +
+        '</td><td><code class="sum-mono-id">' +
+        escapeHtml(r.model_id) +
+        '</code></td><td>' +
+        escapeHtml(r.status) +
+        '</td><td class="num">' +
+        escapeHtml(r.calls) +
+        '</td><td class="num">' +
+        escapeHtml(r.est_tokens) +
+        "</td></tr>";
+    }
+    h += "</tbody></table></div>";
+    return h;
+  }
+
+  function metricsEventsTableHtml(rows) {
+    if (!rows || !rows.length) {
+      return '<p class="muted">No events recorded yet.</p>';
+    }
+    var h =
+      '<div class="sum-metrics-table-wrap sum-metrics-events-scroll"><table class="sum-metrics-table"><thead><tr><th>Time (UTC)</th><th>Provider</th><th>Model</th><th>HTTP</th><th class="num">Est. tokens</th></tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      h +=
+        "<tr><td>" +
+        escapeHtml(r.occurred_at) +
+        "</td><td>" +
+        escapeHtml(r.provider) +
+        '</td><td><code class="sum-mono-id">' +
+        escapeHtml(r.model_id) +
+        '</code></td><td>' +
+        escapeHtml(r.status) +
+        '</td><td class="num">' +
+        escapeHtml(r.est_tokens) +
+        "</td></tr>";
+    }
+    h += "</tbody></table></div>";
+    return h;
+  }
+
+  function fetchGatewayMetrics() {
+    fetch("/api/ui/metrics?limit=150", { credentials: "same-origin" })
+      .then(function (res) {
+        if (res.status === 401) return null;
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        metricsCache = data;
+        if (viewMode === "summarized") refreshSummarizedPanel();
+      })
+      .catch(function (e) {
+        metricsCache = {
+          metrics_store_open: false,
+          message: e && e.message ? String(e.message) : String(e)
+        };
+        if (viewMode === "summarized") refreshSummarizedPanel();
+      });
+  }
+
+  function syncMetricsPolling() {
+    if (metricsPollTimer) {
+      try {
+        clearInterval(metricsPollTimer);
+      } catch (x) {}
+      metricsPollTimer = null;
+    }
+    if (viewMode !== "summarized") return;
+    fetchGatewayMetrics();
+    metricsPollTimer = setInterval(fetchGatewayMetrics, METRICS_POLL_MS);
+  }
+
+  function buildGatewayUsageCardHtml() {
+    var data = metricsCache;
+    var loading = !data;
+    var storeOpen = !!(data && data.metrics_store_open);
+    var lastModel = "—";
+    var minAgg = { models: 0, tokens: 0 };
+    var dayAgg = { models: 0, tokens: 0 };
+    var lblMin = "";
+    var lblDay = "";
+    if (data && data.minute_rollups) minAgg = aggregateRollupRows(data.minute_rollups);
+    if (data && data.day_rollups) dayAgg = aggregateRollupRows(data.day_rollups);
+    if (data && data.recent_events && data.recent_events.length && data.recent_events[0].model_id)
+      lastModel = String(data.recent_events[0].model_id);
+    if (data && data.current_minute_utc) lblMin = String(data.current_minute_utc);
+    if (data && data.current_day_utc) lblDay = String(data.current_day_utc);
+
+    var sub = loading
+      ? '<span class="sum-sub sum-sub--clamp muted">Loading gateway metrics…</span>'
+      : '<span class="sum-sub sum-sub--clamp">Last model <code class="sum-mono-id">' +
+        escapeHtml(bifrostShortModelLabel(lastModel)) +
+        "</code></span>";
+
+    var minPill =
+      "min · " +
+      (loading ? "…" : formatInt(minAgg.models) + " mdls · " + formatCompactTok(minAgg.tokens) + " tok");
+    var dayPill =
+      "day · " +
+      (loading ? "…" : formatInt(dayAgg.models) + " mdls · " + formatCompactTok(dayAgg.tokens) + " tok");
+
+    var metrics =
+      '<span class="sum-metrics">' +
+      '<span class="sum-metric" title="Distinct upstream models · summed est. tokens (UTC minute rollup)">' +
+      escapeHtml(minPill) +
+      '</span><span class="sum-metric" title="Distinct upstream models · summed est. tokens (UTC calendar day rollup)">' +
+      escapeHtml(dayPill) +
+      "</span></span>";
+
+    var st = loading
+      ? { st: "…", cls: "sum-st-monitor" }
+      : storeOpen
+        ? { st: "live", cls: "sum-st-monitor" }
+        : { st: "off", cls: "sum-st-error" };
+
+    var expandedInner = "";
+    if (loading) {
+      expandedInner = '<p class="muted">Fetching /api/ui/metrics…</p>';
+    } else if (!storeOpen) {
+      expandedInner =
+        '<p class="muted">' + escapeHtml(data.message || "Metrics store is not available.") + "</p>";
+    } else {
+      expandedInner = "";
+      if (data.now_utc) {
+        expandedInner +=
+          '<p class="muted" style="margin:0 0 0.65rem;font-size:0.72rem">Updated ' +
+          escapeHtml(data.now_utc) +
+          "</p>";
+      }
+      expandedInner +=
+        '<div class="sum-section-label">Current UTC minute · ' +
+        escapeHtml(lblMin) +
+        "</div>" +
+        metricsRollupTableHtml(data.minute_rollups || []) +
+        '<div class="sum-section-label">Current UTC day · ' +
+        escapeHtml(lblDay) +
+        "</div>" +
+        metricsRollupTableHtml(data.day_rollups || []) +
+        '<div class="sum-section-label">Recent upstream calls</div>' +
+        metricsEventsTableHtml(data.recent_events || []);
+    }
+
+    return (
+      '<details class="sum-card" id="gw-usage-metrics">' +
+      "<summary>" +
+      '<span class="sum-avatar sum-av-svc-gateway">GW</span>' +
+      '<span class="sum-main"><span class="sum-title">Upstream metrics</span>' +
+      sub +
+      "</span>" +
+      metrics +
+      '<span class="sum-status ' +
+      st.cls +
+      '">' +
+      escapeHtml(st.st) +
+      '</span><span class="sum-chev"></span></summary>' +
+      '<div class="sum-body">' +
+      expandedInner +
+      "</div></details>"
+    );
+  }
+
+  function buildGatewayUsageFeedSection() {
+    return (
+      '<div class="sum-feed-section">' +
+      '<div class="sum-section-label sum-feed-section-title">Gateway usage</div>' +
+      buildGatewayUsageCardHtml() +
+      "</div>"
+    );
   }
 
   function fetchTokenLabels() {
@@ -1428,10 +1974,46 @@
     return t0 && t1 ? t1.getTime() - t0.getTime() : 0;
   }
 
-  function bifrostSubtitle(arr) {
+  function bifrostLastRelayRequestFlat(arr) {
     for (var i = arr.length - 1; i >= 0; i--) {
-      var raw = String(arr[i].text || "");
-      var m0 = String(getFlat(arr[i].parsed).msg || "");
+      var f = getFlat(arr[i].parsed);
+      var msg = String(f.msg != null ? f.msg : f.message != null ? f.message : "").trim();
+      if (msg === "chat.bifrost.request") return f;
+    }
+    return null;
+  }
+
+  /** One-line summary for collapsed bifrost card from a chat.bifrost.request row (no body excerpt / raw JSON). */
+  function summarizeBifrostRelayRequest(f) {
+    if (!f) return "";
+    var model = bifrostShortModelLabel(f.upstreamModel != null ? String(f.upstreamModel).trim() : "—");
+    var stream =
+      f.stream === true || f.stream === "true"
+        ? "SSE"
+        : f.stream === false || f.stream === "false"
+          ? "JSON"
+          : "";
+    var path = f.path != null && String(f.path).trim() !== "" ? String(f.path).trim() : "/v1/chat/completions";
+    var ot = Number(f.outgoingTokens);
+    var tokStr = !isNaN(ot) && ot > 0 ? formatInt(Math.round(ot)) + " tok out" : "";
+    var bits = ["Last relay", "POST", path];
+    if (model && model !== "—") bits.push(model);
+    if (stream) bits.push(stream);
+    if (tokStr) bits.push(tokStr);
+    var line = bits.join(" · ");
+    if (line.length > 220) line = line.slice(0, 217) + "…";
+    return line;
+  }
+
+  /** Collapsed-card subtitle: prefer recent alerts, else last upstream relay request summary, else last response hint. */
+  function bifrostCollapsedCardSubtitle(arr) {
+    if (!arr.length) return "";
+    var tailN = Math.min(12, arr.length);
+    var t0 = Math.max(0, arr.length - tailN);
+    var ti;
+    for (ti = arr.length - 1; ti >= t0; ti--) {
+      var raw = String(arr[ti].text || "");
+      var m0 = String(getFlat(arr[ti].parsed).msg || "");
       var s = (raw + " " + m0).toLowerCase();
       if (s.indexOf("429") >= 0 || (s.indexOf("rate") >= 0 && s.indexOf("limit") >= 0)) {
         var retry = "5s";
@@ -1439,39 +2021,139 @@
         if (rm) retry = rm[1] + "s";
         var ra = s.match(/retry-after[:\s]+(\d+)/);
         if (ra) retry = ra[1] + "s";
-        return "Upstream 429 — rate limit hit, retrying in " + retry;
-      }
-      if (s.indexOf("upstream") >= 0 && (s.indexOf("fail") >= 0 || s.indexOf("error") >= 0)) {
-        return (m0 || raw).slice(0, 140);
+        return "429 rate-limit — retry in " + retry;
       }
     }
-    if (!arr.length) return "";
-    var last = arr[arr.length - 1];
-    return ((getFlat(last.parsed).msg && String(getFlat(last.parsed).msg)) || (last.text || "")).slice(0, 140);
+    for (ti = arr.length - 1; ti >= t0; ti--) {
+      var fe = getFlat(arr[ti].parsed);
+      var merr = String(fe.msg != null ? fe.msg : "").trim();
+      if (merr === "chat.bifrost.error" || merr.indexOf("bifrost.error") >= 0) {
+        var es = String(fe.err != null ? fe.err : "").replace(/\s+/g, " ").trim();
+        if (!es && arr[ti].text) {
+          try {
+            var jo = tryParseJSONObject(arr[ti].text);
+            if (jo && jo.err != null && jo.err !== "") {
+              es = typeof jo.err === "object" ? JSON.stringify(jo.err).slice(0, 120) : String(jo.err);
+            }
+          } catch (x) {}
+        }
+        if (es.length > 140) es = es.slice(0, 138) + "…";
+        return "Upstream fetch failed" + (es ? ": " + es : "");
+      }
+    }
+    var reqF = bifrostLastRelayRequestFlat(arr);
+    if (reqF) return summarizeBifrostRelayRequest(reqF);
+    for (var rj = arr.length - 1; rj >= 0; rj--) {
+      var fr = getFlat(arr[rj].parsed);
+      if (String(fr.msg || "").trim() === "upstream chat response") {
+        var sc = fr.statusCode != null && fr.statusCode !== "" ? String(fr.statusCode) : "—";
+        var ut = Number(fr.usageTotalTokens);
+        var up = Number(fr.usagePromptTokens);
+        var uc = Number(fr.usageCompletionTokens);
+        var uTot = !isNaN(ut) && ut > 0 ? ut : (!isNaN(up) || !isNaN(uc) ? (isNaN(up) ? 0 : up) + (isNaN(uc) ? 0 : uc) : 0);
+        var uS = uTot > 0 ? formatInt(Math.round(uTot)) + " tok usage" : "";
+        var mod = bifrostShortModelLabel(fr.upstreamModel != null ? String(fr.upstreamModel).trim() : "—");
+        var bits = ["Last response", "HTTP " + sc];
+        if (mod && mod !== "—") bits.push(mod);
+        if (uS) bits.push(uS);
+        return bits.join(" · ");
+      }
+    }
+    return "No upstream chat relay in buffer";
   }
 
-  function extractBifrostRouteSummary(arr) {
-    for (var i = arr.length - 1; i >= 0; i--) {
-      var f = getFlat(arr[i].parsed);
-      if (f.path && f.method) return String(f.method) + " " + String(f.path);
-      var raw = arr[i].text || "";
-      var mm = raw.match(/\b(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s"',]+)/i);
-      if (mm) return mm[1] + " " + mm[2];
+  /** Aggregate metrics for the bifrost service card from gateway upstream relay / response logs. */
+  function bifrostCardMetrics(arr) {
+    var reqN = 0;
+    var resN = 0;
+    var errN = 0;
+    var streamOn = 0;
+    var streamOff = 0;
+    var outgoingSum = 0;
+    var usageSum = 0;
+    var bytesSum = 0;
+    var sc2xx = 0;
+    var scErr = 0;
+    var modelCounts = {};
+    var rlN = 0;
+
+    for (var i = 0; i < arr.length; i++) {
+      var ent = arr[i];
+      var f = getFlat(ent.parsed);
+      var sh = ent.parsed.shape || "";
+      var msg = String(f.msg != null ? f.msg : f.message != null ? f.message : "").trim();
+
+      if (bifrostEntryHasRateLimit(ent)) rlN++;
+
+      if (msg === "chat.bifrost.request") {
+        reqN++;
+        var ot = Number(f.outgoingTokens);
+        if (!isNaN(ot) && ot > 0) outgoingSum += ot;
+        if (f.stream === true || f.stream === "true") streamOn++;
+        else if (f.stream === false || f.stream === "false") streamOff++;
+        var umr = f.upstreamModel != null && String(f.upstreamModel).trim() !== "" ? String(f.upstreamModel).trim() : "";
+        if (umr) modelCounts[umr] = (modelCounts[umr] || 0) + 1;
+      } else if (msg === "chat.bifrost.error" || msg.indexOf("bifrost.error") >= 0) {
+        errN++;
+      } else if (msg === "upstream chat response") {
+        resN++;
+        var ut = Number(f.usageTotalTokens);
+        var up = Number(f.usagePromptTokens);
+        var uc = Number(f.usageCompletionTokens);
+        if (!isNaN(ut) && ut > 0) usageSum += ut;
+        else {
+          var uPart = (isNaN(up) ? 0 : up) + (isNaN(uc) ? 0 : uc);
+          if (uPart > 0) usageSum += uPart;
+        }
+        var rb = Number(f.responseBytes);
+        if (!isNaN(rb) && rb > 0) bytesSum += rb;
+      }
+
+      var sc = Number(f.statusCode);
+      if (!isNaN(sc) && sc > 0) {
+        if (sh === "http.access" || msg === "upstream chat response" || msg === "chat.bifrost.error") {
+          if (sc >= 200 && sc < 300) sc2xx++;
+          else if (sc >= 400) scErr++;
+        }
+      }
     }
-    for (var j = arr.length - 1; j >= 0; j--) {
-      var t = (arr[j].text || "").toLowerCase();
-      if (t.indexOf("/v1/chat") >= 0) return "POST /v1/chat";
+
+    var topModel = "";
+    var topC = 0;
+    for (var mk in modelCounts) {
+      if (!Object.prototype.hasOwnProperty.call(modelCounts, mk)) continue;
+      var c = modelCounts[mk];
+      if (c > topC) {
+        topC = c;
+        topModel = mk;
+      } else if (c === topC && topModel && mk.localeCompare(topModel) < 0) {
+        topModel = mk;
+      }
     }
-    return "POST /v1/chat";
+    if (!topModel) topModel = "—";
+
+    return {
+      reqN: reqN,
+      resN: resN,
+      errN: errN,
+      streamOn: streamOn,
+      streamOff: streamOff,
+      outgoingSum: outgoingSum,
+      usageSum: usageSum,
+      bytesSum: bytesSum,
+      sc2xx: sc2xx,
+      scErr: scErr,
+      topModel: topModel,
+      rlN: rlN
+    };
   }
 
-  function bifrostVectorsHint(arr) {
-    for (var k = arr.length - 1; k >= 0; k--) {
-      var tx = (arr[k].text || "") + " " + String(getFlat(arr[k].parsed).msg || "");
-      var hm = tx.match(/(\d+)\s*hits?/i);
-      if (hm) return hm[1];
-    }
-    return "0";
+  function bifrostShortModelLabel(model) {
+    if (!model || model === "—") return "—";
+    var parts = String(model).split("/");
+    var tail = parts[parts.length - 1] || model;
+    if (tail.length > 36) return tail.slice(0, 34) + "…";
+    return tail;
   }
 
   function badgeForServicePanel(name, ev) {
@@ -1548,6 +2230,359 @@
     return doneSeen ? "Indexer run completed" : "Indexer uploading batch — in progress";
   }
 
+  /** Primary log `msg` / `message` (slog may put the human title in one and the slug in the other, or duplicate keys). */
+  function indexerFlatMsg(fl) {
+    return String(fl.msg != null ? fl.msg : fl.message != null ? fl.message : "")
+      .toLowerCase()
+      .trim();
+  }
+
+  /** Per-file / operator slugs for expanded indexer Summary (service + run cards). */
+  function indexerStructuredRollupCounts(entries) {
+    var upload = 0,
+      ingested = 0,
+      skipped = 0,
+      failed = 0,
+      retry = 0,
+      paused = 0,
+      snapshots = 0;
+    var relSet = {};
+    var workers = null;
+    var queueDepth = null;
+    for (var i = 0; i < entries.length; i++) {
+      var f = getFlat(entries[i].parsed);
+      var m = indexerFlatMsg(f);
+      if (m === "indexer.job.upload") {
+        upload++;
+        if (f.rel) relSet[String(f.rel)] = 1;
+      } else if (m === "indexer.job.ingested" || m === "ingested") {
+        ingested++;
+        if (f.rel) relSet[String(f.rel)] = 1;
+      } else if (m === "indexer.job.skipped") {
+        skipped++;
+        if (f.rel) relSet[String(f.rel)] = 1;
+      } else if (m.indexOf("indexer.job.failed") === 0) failed++;
+      else if (m.indexOf("indexer.retry") === 0) retry++;
+      else if (m.indexOf("indexer.worker.paused") === 0) paused++;
+      else if (m.indexOf("indexer.queue.snapshot") === 0) snapshots++;
+    }
+    for (var j = entries.length - 1; j >= 0; j--) {
+      var fj = getFlat(entries[j].parsed);
+      var mj = indexerFlatMsg(fj);
+      if (mj.indexOf("indexer.queue.snapshot") === 0) {
+        if (fj.workers != null && fj.workers !== "") workers = Number(fj.workers);
+        if (fj.queue_depth != null && fj.queue_depth !== "") queueDepth = Number(fj.queue_depth);
+        break;
+      }
+    }
+    return {
+      upload: upload,
+      ingested: ingested,
+      skipped: skipped,
+      failed: failed,
+      retry: retry,
+      paused: paused,
+      snapshots: snapshots,
+      uniqRel: Object.keys(relSet).length,
+      workers: workers,
+      queueDepth: queueDepth
+    };
+  }
+
+  function indexerStructuredRollupMiniHtml(entries) {
+    var r = indexerStructuredRollupCounts(entries);
+    var workersStr = r.workers != null && !isNaN(r.workers) ? formatInt(Math.round(r.workers)) : "—";
+    var depthStr = r.queueDepth != null && !isNaN(r.queueDepth) ? formatInt(Math.round(r.queueDepth)) : "—";
+    var flow = formatInt(r.upload) + " · " + formatInt(r.ingested) + " · " + formatInt(r.skipped);
+    var errs = formatInt(r.failed) + " · " + formatInt(r.retry) + " · " + formatInt(r.paused);
+    return (
+      '<div class="sum-mini-row">' +
+      '<div class="sum-mini-card">Upload · ingested · skipped<strong>' +
+      escapeHtml(flow) +
+      '</strong><span class="sum-mini-sub">' +
+      escapeHtml(formatInt(r.uniqRel) + " unique rel") +
+      "</span></div>" +
+      '<div class="sum-mini-card">Failed · retries · pauses<strong>' +
+      escapeHtml(errs) +
+      '</strong></div>' +
+      '<div class="sum-mini-card">Workers · queue depth (latest snapshot)<strong>' +
+      escapeHtml(workersStr + " · " + depthStr) +
+      '</strong><span class="sum-mini-sub">' +
+      escapeHtml(formatInt(r.snapshots) + " snapshot lines") +
+      "</span></div></div>"
+    );
+  }
+
+  function gatewayServicePanelMiniHtml(arr) {
+    var httpN = 0,
+      sumMs = 0,
+      ingestOk = 0,
+      chatN = 0,
+      ragN = 0;
+    var err = countWarnErrorInEntries(arr);
+    for (var k = 0; k < arr.length; k++) {
+      var p = arr[k].parsed;
+      var f = getFlat(p);
+      if (p.shape === "http.access") {
+        httpN++;
+        var rt = Number(f.responseTimeMs);
+        if (!isNaN(rt)) sumMs += rt;
+      }
+      var msg = String(f.msg != null ? f.msg : f.message != null ? f.message : "").toLowerCase();
+      if (msg === "ingest.complete") ingestOk++;
+      if (msg.indexOf("chat.") === 0 || msg === "chat.request") chatN++;
+      if (msg.indexOf("rag.") === 0) ragN++;
+    }
+    return (
+      '<div class="sum-mini-row">' +
+      '<div class="sum-mini-card">HTTP · Σ ms<strong>' +
+      escapeHtml(formatInt(httpN) + " · " + (httpN ? String(Math.round(sumMs)) : "—")) +
+      '</strong></div>' +
+      '<div class="sum-mini-card">ingest.complete · RAG · chat slugs<strong>' +
+      escapeHtml(formatInt(ingestOk) + " · " + formatInt(ragN) + " · " + formatInt(chatN)) +
+      '</strong></div>' +
+      '<div class="sum-mini-card">Warn+error lines<strong>' +
+      escapeHtml(String(err)) +
+      '</strong><span class="sum-mini-sub">' +
+      escapeHtml(formatInt(arr.length) + " lines") +
+      "</span></div></div>"
+    );
+  }
+
+  /** Gateway DEBUG traces for RAG (counts entire buffer — same window as service cards). */
+  function rollupGatewayRagPipeline() {
+    var ragQuery = 0,
+      ragEmbed = 0,
+      ragHitLines = 0,
+      embedMsSum = 0;
+    for (var i = 0; i < entryCache.length; i++) {
+      var f = getFlat(entryCache[i].parsed);
+      var msg = String(f.msg != null ? f.msg : f.message != null ? f.message : "").toLowerCase();
+      if (msg === "rag.query") ragQuery++;
+      if (msg === "rag.embed") {
+        ragEmbed++;
+        var em = Number(f.elapsed_ms != null ? f.elapsed_ms : f.elapsedMs);
+        if (!isNaN(em)) embedMsSum += em;
+      }
+      if (msg === "rag.hit") ragHitLines++;
+    }
+    return {
+      ragQuery: ragQuery,
+      ragEmbed: ragEmbed,
+      ragHitLines: ragHitLines,
+      embedMsSum: embedMsSum
+    };
+  }
+
+  /** Classify Qdrant REST traffic from structured http.access rows (subprocess buffer). */
+  function qdrantHttpPathRollup(arr) {
+    var searchN = 0,
+      upsertN = 0,
+      scrollN = 0;
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i].parsed;
+      if (p.shape !== "http.access") continue;
+      var f = getFlat(p);
+      var path = String(f.path || "").toLowerCase();
+      var method = String(f.method || "").toUpperCase();
+      if (path.indexOf("/points/search") >= 0) {
+        searchN++;
+        continue;
+      }
+      if (path.indexOf("/points/scroll") >= 0) {
+        scrollN++;
+        continue;
+      }
+      if (
+        method === "PUT" &&
+        path.indexOf("/collections/") >= 0 &&
+        path.indexOf("/points") >= 0 &&
+        path.indexOf("/points/search") < 0 &&
+        path.indexOf("/points/scroll") < 0
+      ) {
+        upsertN++;
+      }
+    }
+    return { searchN: searchN, upsertN: upsertN, scrollN: scrollN };
+  }
+
+  function qdrantServicePanelMiniHtml(arr) {
+    var rg = rollupGatewayRagPipeline();
+    var qh = qdrantHttpPathRollup(arr);
+    var httpN = 0,
+      sumMs = 0;
+    for (var k = 0; k < arr.length; k++) {
+      if (arr[k].parsed.shape === "http.access") {
+        httpN++;
+        var rt = Number(getFlat(arr[k].parsed).responseTimeMs);
+        if (!isNaN(rt)) sumMs += rt;
+      }
+    }
+    var err = countWarnErrorInEntries(arr);
+    var ragTriple =
+      formatInt(rg.ragQuery) + " · " + formatInt(rg.ragEmbed) + " · " + formatInt(rg.ragHitLines);
+    var embedMsStr = rg.embedMsSum > 0 ? String(Math.round(rg.embedMsSum)) + " ms" : "—";
+    var restTriple =
+      formatInt(qh.searchN) + " · " + formatInt(qh.upsertN) + " · " + formatInt(qh.scrollN);
+    var httpSigma =
+      formatInt(httpN) + " · " + (httpN ? String(Math.round(sumMs)) : "—");
+    var vecRestSub =
+      formatInt(arr.length) +
+      " lines · " +
+      err +
+      " warn/err · HTTP " +
+      httpSigma +
+      " req·Σms";
+    return (
+      '<div class="sum-mini-row">' +
+      '<div class="sum-mini-card">RAG retrieval (gateway)<strong>' +
+      escapeHtml(ragTriple) +
+      '</strong><span class="sum-mini-sub">searches · query embeds · hit rows logged</span></div>' +
+      '<div class="sum-mini-card">Σ query embed time<strong>' +
+      escapeHtml(embedMsStr) +
+      '</strong><span class="sum-mini-sub">rag.embed elapsed_ms (embedding API)</span></div>' +
+      '<div class="sum-mini-card">Vector REST (Qdrant process)<strong>' +
+      escapeHtml(restTriple) +
+      '</strong><span class="sum-mini-sub">search · upsert · scroll · ' +
+      escapeHtml(vecRestSub) +
+      "</span></div></div>"
+    );
+  }
+
+  function flatLooksLikeIndexerRunStart(fl) {
+    var m = indexerFlatMsg(fl);
+    if (m === "indexer.run.start" || m === "indexer run start") return true;
+    if (String(fl.service || "").toLowerCase() !== "indexer") return false;
+    return fl.root_ids !== undefined && fl.root_ids !== null && fl.roots !== undefined;
+  }
+
+  function flatLooksLikeIndexerRunDone(fl) {
+    var m = indexerFlatMsg(fl);
+    if (m.indexOf("indexer.run.done") === 0) return true;
+    if (m === "indexer run done" || m === "indexer run stopped") return true;
+    return (
+      String(fl.service || "").toLowerCase() === "indexer" &&
+      fl.ingest_completed != null &&
+      fl.mode != null &&
+      String(fl.mode).trim() !== ""
+    );
+  }
+
+  function flatLooksLikeIndexerRunProgress(fl) {
+    var m = indexerFlatMsg(fl);
+    if (m.indexOf("indexer.run.progress") === 0 || m === "indexer.run.progress") return true;
+    if (m === "initial scan complete") return true;
+    return fl.phase != null && String(fl.phase).trim() !== "" && fl.candidates_enqueued != null;
+  }
+
+  function flatLooksLikeIndexerJobIngested(fl) {
+    var m = indexerFlatMsg(fl);
+    if (String(fl.service || "").toLowerCase() !== "indexer") return false;
+    if (m !== "indexer.job.ingested" && m !== "ingested") return false;
+    return fl.chunks != null;
+  }
+
+  /** Rolls up indexer.run.start / progress / done / job lines for summarized cards. */
+  function collectIndexerRunMeta(runId, evs) {
+    var start = null;
+    for (var i = 0; i < evs.length; i++) {
+      var fi = getFlat(evs[i].parsed);
+      if (flatLooksLikeIndexerRunStart(fi)) {
+        start = fi;
+        break;
+      }
+    }
+    var lastProg = null;
+    var doneFlat = null;
+    var doneSeen = false;
+    var lastRel = "";
+    var tenantId = "";
+    for (var u = evs.length - 1; u >= 0; u--) {
+      var fR = getFlat(evs[u].parsed);
+      var mg = indexerFlatMsg(fR);
+      if (!tenantId && (fR.principal_id || fR.tenant || fR.tenant_id))
+        tenantId = String(fR.principal_id || fR.tenant || fR.tenant_id || "").trim();
+      if (!lastRel && fR.rel) lastRel = String(fR.rel);
+      if (!lastProg && flatLooksLikeIndexerRunProgress(fR)) lastProg = fR;
+      if (flatLooksLikeIndexerRunDone(fR)) {
+        doneSeen = true;
+        if (!doneFlat) doneFlat = fR;
+      }
+    }
+    var vectorsSum = 0;
+    for (var j = 0; j < evs.length; j++) {
+      var fj = getFlat(evs[j].parsed);
+      if (flatLooksLikeIndexerJobIngested(fj)) {
+        var cj = Number(fj.chunks);
+        if (!isNaN(cj)) vectorsSum += cj;
+      }
+    }
+    var lpEmb =
+      lastProg &&
+      (lastProg.chunks_embedded != null
+        ? Number(lastProg.chunks_embedded)
+        : lastProg.embedded_chunks != null
+          ? Number(lastProg.embedded_chunks)
+          : NaN);
+    var vectorsStored = null;
+    if (vectorsSum > 0) vectorsStored = vectorsSum;
+    else if (!isNaN(lpEmb) && lpEmb > 0) vectorsStored = Math.round(lpEmb);
+
+    var ok = 0;
+    var fail = 0;
+    if (doneFlat) {
+      var oc = Number(doneFlat.ingest_completed);
+      var fc = Number(doneFlat.ingest_failed_dropped);
+      ok = !isNaN(oc) ? oc : 0;
+      fail = !isNaN(fc) ? fc : 0;
+    } else {
+      for (var k = 0; k < evs.length; k++) {
+        var fk = getFlat(evs[k].parsed);
+        var mk = indexerFlatMsg(fk);
+        if (mk === "indexer.job.ingested" || mk === "ingested") ok++;
+        else if (mk === "indexer.job.failed" || mk.indexOf("ingest failed (dropped)") === 0) fail++;
+      }
+    }
+
+    var ws = start && start.scope_workspace_id ? String(start.scope_workspace_id).trim() : "";
+    var sp = start && start.scope_project_id ? String(start.scope_project_id).trim() : "";
+    var ip = start && start.ingest_project ? String(start.ingest_project).trim() : "";
+    var flavor = start && start.flavor_id ? String(start.flavor_id).trim() : "";
+    var rootIds = start && start.root_ids != null ? String(start.root_ids).trim() : "";
+
+    for (var bx = 0; bx < evs.length; bx++) {
+      var fb = getFlat(evs[bx].parsed);
+      if (String(fb.service || "").toLowerCase() !== "indexer") continue;
+      if (!ws && fb.scope_workspace_id) ws = String(fb.scope_workspace_id).trim();
+      if (!sp && fb.scope_project_id) sp = String(fb.scope_project_id).trim();
+      if (!ip && fb.ingest_project) ip = String(fb.ingest_project).trim();
+      if (!flavor && fb.flavor_id) flavor = String(fb.flavor_id).trim();
+      if (!rootIds && fb.root_ids != null) rootIds = String(fb.root_ids).trim();
+    }
+
+    var projectId = sp || ip || "—";
+    var filepath = lastRel || (rootIds ? rootIds : "—");
+
+    var userLab = tenantId ? tokenLabelByTenant[tenantId] || tenantId : "—";
+
+    return {
+      runId: runId,
+      start: start,
+      userLabel: userLab,
+      tenantId: tenantId,
+      workspaceId: ws || "—",
+      projectId: projectId,
+      flavorId: flavor || "—",
+      filepath: filepath,
+      doneSeen: doneSeen,
+      doneFlat: doneFlat,
+      lastProg: lastProg,
+      vectorsStored: vectorsStored,
+      okCount: ok,
+      failCount: fail
+    };
+  }
+
   function convWindowMs(g) {
     var t0 = null;
     var t1 = null;
@@ -1563,14 +2598,6 @@
 
   function renderExpandedConv(g) {
     var evs = g.events;
-    var last3 = evs.slice(-3);
-    var le = '<ul class="sum-last-events">';
-    for (var i = 0; i < last3.length; i++) {
-      var ev = last3[i];
-      var bd = inferServiceBadge(ev);
-      le += '<li class="sum-ev-item">' + logSummaryHtml(ev, bd) + "</li>";
-    }
-    le += "</ul>";
     var bar = timelineBarHtml(evs);
     var spanMs = convWindowMs(g);
     var met = scrapeConversationMetrics(evs);
@@ -1585,14 +2612,13 @@
       (met.vec != null ? escapeHtml(String(met.vec)) : "—") +
       "</strong></div></div>";
     var full = '<div class="sum-full-log"><ul>';
-    for (var u = 0; u < evs.length; u++) {
+    for (var u = evs.length - 1; u >= 0; u--) {
       var ev2 = evs[u];
       full += '<li class="sum-ev-item">' + buildDetailsColumn(ev2.parsed, ev2.ts, ev2.text) + "</li>";
     }
     full += "</ul></div>";
     return (
-      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
-      le +
+      '<div class="sum-body">' +
       '<div class="sum-section-label">Request timeline</div>' +
       bar +
       '<div class="sum-section-label">Summary</div>' +
@@ -1670,66 +2696,103 @@
 
   function renderExpandedService(name, arr) {
     var isBifrost = name === "bifrost";
-    var show = arr.slice(-SUBSYS_TIMELINE_N);
-    var le = '<ul class="sum-last-events">';
-    for (var i = Math.max(0, show.length - 3); i < show.length; i++) {
-      var ent = show[i];
-      var ev = { parsed: ent.parsed, text: ent.text, ts: ent.ts, source: ent.source };
-      var bd = badgeForServicePanel(name, ev);
-      le += '<li class="sum-ev-item">' + logSummaryHtml(ev, bd) + "</li>";
-    }
-    le += "</ul>";
     var evConv = [];
     for (var j = 0; j < arr.length; j++) {
       evConv.push({ parsed: arr[j].parsed, text: arr[j].text, ts: arr[j].ts, source: arr[j].source });
     }
     var bar = timelineBarHtml(evConv);
-    var httpN = 0;
-    var sumMs = 0;
-    var err = countWarnErrorInEntries(arr);
-    for (var k = 0; k < arr.length; k++) {
-      if (arr[k].parsed.shape === "http.access") {
-        httpN++;
-        var rt = Number(getFlat(arr[k].parsed).responseTimeMs);
-        if (!isNaN(rt)) sumMs += rt;
-      }
-    }
     var wms = serviceWindowMs(arr);
     var mini;
     if (isBifrost) {
-      var routeStr = extractBifrostRouteSummary(arr);
-      var vecN = bifrostVectorsHint(arr);
+      var bx = bifrostCardMetrics(arr);
+      var flowLine = formatInt(bx.reqN) + " · " + formatInt(bx.resN) + " · " + formatInt(bx.errN);
+      var tokLine = "—";
+      if (bx.outgoingSum > 0 || bx.usageSum > 0) {
+        tokLine =
+          (bx.outgoingSum > 0 ? formatInt(Math.round(bx.outgoingSum)) + " out" : "— out") +
+          " → " +
+          (bx.usageSum > 0 ? formatInt(Math.round(bx.usageSum)) + " usage" : "— usage");
+      }
+      var streamLine = "—";
+      if (bx.streamOn > 0 || bx.streamOff > 0) {
+        streamLine =
+          (bx.streamOn > 0 ? formatInt(bx.streamOn) + " stream" : "") +
+          (bx.streamOn > 0 && bx.streamOff > 0 ? " · " : "") +
+          (bx.streamOff > 0 ? formatInt(bx.streamOff) + " JSON" : "");
+      }
+      var httpBits = [];
+      if (bx.sc2xx > 0) httpBits.push(formatInt(bx.sc2xx) + "×2xx");
+      if (bx.scErr > 0) httpBits.push(formatInt(bx.scErr) + "×err");
+      if (bx.rlN > 0) httpBits.push(formatInt(bx.rlN) + "×rate-limit");
+      var modelHttp =
+        escapeHtml(bifrostShortModelLabel(bx.topModel)) +
+        (httpBits.length ? " · " + escapeHtml(httpBits.join(" · ")) : "");
+      var streamSub =
+        streamLine !== "—"
+          ? streamLine
+          : wms > 0
+            ? humanDurationMs(wms) + " in buffer"
+            : "—";
+      var bytesSub =
+        bx.bytesSum > 0 ? formatInt(Math.round(bx.bytesSum)) + " B response bodies" : "";
       mini =
         '<div class="sum-mini-row">' +
-        '<div class="sum-mini-card">Method / route<strong>' +
-        escapeHtml(routeStr) +
-        '</strong></div><div class="sum-mini-card">Duration<strong>' +
-        escapeHtml(humanDurationMs(wms)) +
-        '</strong></div><div class="sum-mini-card">Vectors retrieved<strong>' +
-        escapeHtml(vecN) +
-        "</strong></div></div>";
+        '<div class="sum-mini-card">Relay (req · res · err)<strong>' +
+        escapeHtml(flowLine) +
+        '</strong></div><div class="sum-mini-card">Tokens (out → usage)<strong>' +
+        escapeHtml(tokLine) +
+        "</strong>" +
+        (bytesSub ? '<span class="sum-mini-sub">' + escapeHtml(bytesSub) + "</span>" : "") +
+        '</div><div class="sum-mini-card">Model · stream · HTTP<strong>' +
+        modelHttp +
+        '</strong><span class="sum-mini-sub">' +
+        escapeHtml(streamSub) +
+        "</span></div></div>";
+    } else if (name === "indexer") {
+      mini = indexerStructuredRollupMiniHtml(arr);
+    } else if (name === "gateway") {
+      mini = gatewayServicePanelMiniHtml(arr);
+    } else if (name === "qdrant") {
+      mini = qdrantServicePanelMiniHtml(arr);
     } else {
+      var httpN2 = 0,
+        sumMs2 = 0,
+        err2 = countWarnErrorInEntries(arr);
+      for (var k2 = 0; k2 < arr.length; k2++) {
+        if (arr[k2].parsed.shape === "http.access") {
+          httpN2++;
+          var rt2 = Number(getFlat(arr[k2].parsed).responseTimeMs);
+          if (!isNaN(rt2)) sumMs2 += rt2;
+        }
+      }
       mini =
         '<div class="sum-mini-row">' +
         '<div class="sum-mini-card">Lines<strong>' +
         escapeHtml(String(arr.length)) +
-        '</strong></div><div class="sum-mini-card">HTTP Σ ms<strong>' +
-        escapeHtml(httpN ? String(Math.round(sumMs)) : "—") +
-        '</strong></div><div class="sum-mini-card">Issues<strong>' +
-        escapeHtml(String(err)) +
+        '</strong></div><div class="sum-mini-card">HTTP · Σ ms<strong>' +
+        escapeHtml(formatInt(httpN2) + " · " + (httpN2 ? String(Math.round(sumMs2)) : "—")) +
+        '</strong></div><div class="sum-mini-card">Warn+error lines<strong>' +
+        escapeHtml(String(err2)) +
         "</strong></div></div>";
     }
-    var full = '<div class="sum-full-log"><ul>';
-    for (var u = 0; u < arr.length; u++) {
+    var fullLogClass = isBifrost ? "sum-full-log sum-full-log--bifrost" : "sum-full-log";
+    var full = '<div class="' + fullLogClass + '"><ul>';
+    for (var u = arr.length - 1; u >= 0; u--) {
       var ent2 = arr[u];
       var ev2 = { parsed: ent2.parsed, text: ent2.text, ts: ent2.ts, source: ent2.source };
       var bd2 = badgeForServicePanel(name, ev2);
-      full += '<li class="sum-ev-item">' + logSummaryHtml(ev2, bd2) + "</li>";
+      if (isBifrost) {
+        full +=
+          '<li class="sum-ev-item sum-ev-item--bifrost-detail">' +
+          buildDetailsColumn(ent2.parsed, ent2.ts, ent2.text, bd2) +
+          "</li>";
+      } else {
+        full += '<li class="sum-ev-item">' + logSummaryHtml(ev2, bd2) + "</li>";
+      }
     }
     full += "</ul></div>";
     return (
-      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
-      le +
+      '<div class="sum-body">' +
       '<div class="sum-section-label">Request timeline</div>' +
       bar +
       '<div class="sum-section-label">Summary</div>' +
@@ -1782,7 +2845,7 @@
       }
     }
     var isBifrost = name === "bifrost";
-    var lastMsg = isBifrost ? bifrostSubtitle(arr) : "";
+    var lastMsg = isBifrost ? bifrostCollapsedCardSubtitle(arr) : "";
     if (!isBifrost) {
       var last = arr.length ? arr[arr.length - 1] : null;
       if (last) lastMsg = primaryLogMessage(last.parsed, last.text);
@@ -1797,13 +2860,39 @@
     var wms = serviceWindowMs(arr);
     var metrics;
     if (isBifrost) {
-      var vecPill = bifrostVectorsHint(arr) + " vec";
+      var bxC = bifrostCardMetrics(arr);
+      var pill1 =
+        formatInt(bxC.reqN) +
+        "↑ " +
+        formatInt(bxC.resN) +
+        "↓" +
+        (bxC.errN > 0 ? " ·" + formatInt(bxC.errN) + "✗" : "");
+      var pill2 =
+        bxC.outgoingSum > 0 || bxC.usageSum > 0
+          ? formatInt(Math.round(bxC.outgoingSum)) + "→" + formatInt(Math.round(bxC.usageSum))
+          : formatInt(arr.length) + " lines";
+      var pill3 = bifrostShortModelLabel(bxC.topModel);
+      if (pill3.length > 24) pill3 = pill3.slice(0, 22) + "…";
       metrics =
         '<span class="sum-metrics">' +
         '<span class="sum-metric">' +
-        escapeHtml(humanDurationMs(wms)) +
-        '</span><span class="sum-metric">0 tok</span><span class="sum-metric">' +
-        escapeHtml(vecPill) +
+        escapeHtml(pill1) +
+        '</span><span class="sum-metric">' +
+        escapeHtml(pill2) +
+        '</span><span class="sum-metric">' +
+        escapeHtml(pill3) +
+        "</span></span>";
+    } else if (name === "qdrant") {
+      var rgQ = rollupGatewayRagPipeline();
+      var qhQ = qdrantHttpPathRollup(arr);
+      metrics =
+        '<span class="sum-metrics">' +
+        '<span class="sum-metric">' +
+        escapeHtml(formatInt(rgQ.ragQuery) + " retrieve") +
+        '</span><span class="sum-metric">' +
+        escapeHtml(formatInt(qhQ.searchN) + " search") +
+        '</span><span class="sum-metric">' +
+        escapeHtml(formatInt(arr.length) + " lines") +
         "</span></span>";
     } else {
       metrics =
@@ -1841,7 +2930,7 @@
     );
   }
 
-  function renderExpandedIndexer(run, evs, tFirst, tLast, lastProg, doneSeen, proj, phase, cand, errN) {
+  function renderExpandedIndexer(run, evs, meta) {
     var le = '<ul class="sum-last-events">';
     var last3 = evs.slice(-3);
     for (var i = 0; i < last3.length; i++) {
@@ -1852,31 +2941,41 @@
     }
     le += "</ul>";
     var bar = timelineBarForIndexerRun(evs);
-    var spanMs = tFirst && tLast ? tLast.getTime() - tFirst.getTime() : 0;
-    var durLabel = doneSeen ? humanDurationMs(spanMs) : "ongoing";
-    var lpV = lastProg || {};
-    var emb =
-      lpV.chunks_embedded != null
-        ? Number(lpV.chunks_embedded)
-        : lpV.embedded_chunks != null
-          ? Number(lpV.embedded_chunks)
-          : null;
-    var vecSummary =
-      emb != null && !isNaN(emb)
-        ? String(Math.round(emb))
-        : cand !== "—"
-          ? cand
-          : "0";
-    var mini =
+    var jobRollup = indexerStructuredRollupMiniHtml(evs);
+    var vecLabel =
+      meta.vectorsStored != null && !isNaN(meta.vectorsStored)
+        ? formatInt(Math.round(meta.vectorsStored))
+        : "0";
+    var okf = formatInt(meta.okCount) + " | " + formatInt(meta.failCount);
+    var miniVec =
       '<div class="sum-mini-row">' +
-      '<div class="sum-mini-card">Method / route<strong>indexer batch</strong></div>' +
-      '<div class="sum-mini-card">Duration<strong>' +
-      escapeHtml(durLabel) +
-      '</strong></div><div class="sum-mini-card">Vectors retrieved<strong>' +
-      escapeHtml(vecSummary) +
+      '<div class="sum-mini-card">Vectors stored<strong>' +
+      escapeHtml(vecLabel) +
+      '</strong></div><div class="sum-mini-card">Gateway OK | error lines<strong>' +
+      escapeHtml(okf) +
       "</strong></div></div>";
+    var summaryRows =
+      '<dl class="indexer-run-kv">' +
+      "<dt>Index run id</dt><dd><code>" +
+      escapeHtml(run.id) +
+      "</code></dd>" +
+      "<dt>User</dt><dd>" +
+      escapeHtml(meta.userLabel) +
+      "</dd>" +
+      "<dt>Workspace id</dt><dd>" +
+      escapeHtml(meta.workspaceId) +
+      "</dd>" +
+      "<dt>Project id</dt><dd>" +
+      escapeHtml(meta.projectId) +
+      "</dd>" +
+      "<dt>Flavor id</dt><dd>" +
+      escapeHtml(meta.flavorId) +
+      "</dd>" +
+      "<dt>File path</dt><dd>" +
+      escapeHtml(meta.filepath) +
+      "</dd></dl>";
     var full = '<div class="sum-full-log"><ul>';
-    for (var u = 0; u < evs.length; u++) {
+    for (var u = evs.length - 1; u >= 0; u--) {
       var ent2 = evs[u];
       var ev2 = { parsed: ent2.parsed, text: ent2.text, ts: ent2.ts, source: ent2.source };
       var bd2 = badgeForIndexerRunLine(ent2);
@@ -1884,20 +2983,15 @@
     }
     full += "</ul></div>";
     return (
-      '<div class="sum-body"><div class="sum-section-label">Last events</div>' +
-      le +
+      '<div class="sum-body">' +
+      '<div class="sum-section-label">Summary</div>' +
+      summaryRows +
       '<div class="sum-section-label">Request timeline</div>' +
       bar +
-      '<div class="sum-section-label">Summary</div>' +
-      '<div class="conv-meta" style="margin-bottom:0.35rem;color:#555">Project: ' +
-      escapeHtml(proj || "—") +
-      " · phase: " +
-      escapeHtml(phase) +
-      " · events: " +
-      escapeHtml(String(evs.length)) +
-      (errN ? " · issues: " + escapeHtml(String(errN)) : "") +
-      "</div>" +
-      mini +
+      '<div class="sum-section-label">Indexer jobs</div>' +
+      jobRollup +
+      '<div class="sum-section-label">Vectors & gateway jobs (this run)</div>' +
+      miniVec +
       '<div class="sum-section-label">Full event log</div>' +
       full +
       "</div>"
@@ -1915,53 +3009,48 @@
         if (!tLast || ins.getTime() > tLast.getTime()) tLast = ins;
       }
     }
-    var lastProg = null;
-    var doneSeen = false;
-    var proj = "";
-    for (var u = evs.length - 1; u >= 0; u--) {
-      var msg = String(getFlat(evs[u].parsed).msg || "").toLowerCase();
-      if (!proj) {
-        var p0 = getFlat(evs[u].parsed).project;
-        if (p0) proj = String(p0);
-      }
-      if (!lastProg && msg.indexOf("indexer.run.progress") === 0) lastProg = getFlat(evs[u].parsed);
-      if (msg.indexOf("indexer.run.done") === 0) doneSeen = true;
-    }
-    var phase = lastProg && lastProg.phase ? String(lastProg.phase) : "—";
-    var cand = lastProg && lastProg.candidates_enqueued != null ? String(lastProg.candidates_enqueued) : "—";
-    var errN = countWarnErrorInEntries(evs);
+    var meta = collectIndexerRunMeta(run.id, evs);
+    var lastProg = meta.lastProg;
+    var doneSeen = meta.doneSeen;
+    var cand =
+      lastProg && lastProg.candidates_enqueued != null ? String(lastProg.candidates_enqueued) : "—";
     var errRecent = countErrorSignalsInEntries(sliceRecent(evs, RECENT_CARD_STATUS_N));
-    var sub = indexerRunProgressSubtitle(lastProg, doneSeen, cand);
+    var prog = indexerRunProgressSubtitle(lastProg, doneSeen, cand);
+    var fpShort = meta.filepath;
+    if (fpShort.length > 96) fpShort = fpShort.slice(0, 95) + "…";
+    var ctxBits = [];
+    if (meta.userLabel && meta.userLabel !== "—") ctxBits.push(meta.userLabel);
+    var wsProj = meta.workspaceId + "/" + meta.projectId;
+    if (wsProj !== "—/—") ctxBits.push(wsProj);
+    if (meta.flavorId && meta.flavorId !== "—") ctxBits.push(meta.flavorId);
+    if (fpShort && fpShort !== "—") ctxBits.push(fpShort);
+    var ctxLine = ctxBits.join(" · ");
+    var sub =
+      '<span class="sum-sub sum-sub--clamp">' +
+      escapeHtml((ctxLine ? ctxLine + " — " : "") + prog) +
+      "</span>";
     var st =
       errRecent > 0
         ? { st: "error", cls: "sum-st-error" }
         : doneSeen
           ? { st: "complete", cls: "sum-st-complete" }
           : { st: "indexing", cls: "sum-st-indexing" };
-    var shortId = run.id.length > 28 ? run.id.slice(0, 28) + "…" : run.id;
-    var titleInner =
-      'indexer-key:<span class="sum-mono-id">' + escapeHtml(shortId) + "</span>";
+    var titleInner = '<span class="sum-title-indexer-head">Indexer</span>';
     var spanMs = tFirst && tLast ? tLast.getTime() - tFirst.getTime() : 0;
     var firstPill = doneSeen ? humanDurationMs(spanMs) : "ongoing";
-    var lpC = lastProg || {};
-    var embC =
-      lpC.chunks_embedded != null
-        ? Number(lpC.chunks_embedded)
-        : lpC.embedded_chunks != null
-          ? Number(lpC.embedded_chunks)
-          : null;
     var vecPill =
-      embC != null && !isNaN(embC)
-        ? String(Math.round(embC)) + " vec"
-        : cand !== "—"
-          ? cand + " vec"
-          : "0 vec";
+      meta.vectorsStored != null && !isNaN(meta.vectorsStored)
+        ? formatInt(Math.round(meta.vectorsStored)) + " vec"
+        : "0 vec";
+    var okfPill = formatInt(meta.okCount) + " ok | " + formatInt(meta.failCount) + " err";
     var metrics =
       '<span class="sum-metrics">' +
       '<span class="sum-metric">' +
       escapeHtml(firstPill) +
-      '</span><span class="sum-metric">— tok</span><span class="sum-metric">' +
+      '</span><span class="sum-metric">' +
       escapeHtml(vecPill) +
+      '</span><span class="sum-metric">' +
+      escapeHtml(okfPill) +
       "</span></span>";
     var iid = "ix-" + strHash(run.id);
     return (
@@ -1971,9 +3060,9 @@
       '<span class="sum-avatar sum-av-c">IX</span>' +
       '<span class="sum-main"><span class="sum-title">' +
       titleInner +
-      '</span><span class="sum-sub sum-sub--clamp">' +
-      escapeHtml(sub) +
-      "</span></span>" +
+      '</span>' +
+      sub +
+      "</span>" +
       metrics +
       '<span class="sum-status ' +
       st.cls +
@@ -1981,7 +3070,7 @@
       escapeHtml(st.st) +
       "</span>" +
       '<span class="sum-chev"></span></summary>' +
-      renderExpandedIndexer(run, evs, tFirst, tLast, lastProg, doneSeen, proj, phase, cand, errN) +
+      renderExpandedIndexer(run, evs, meta) +
       "</details>"
     );
   }
@@ -2075,6 +3164,23 @@
     );
   }
 
+  /** Gateway logs upstream relay with service=gateway; bucket those lines under bifrost so the card updates with chat traffic. */
+  function entryIsGatewayUpstreamRelay(ent) {
+    var f = getFlat(ent.parsed);
+    var msg = String(f.msg != null ? f.msg : f.message != null ? f.message : "").trim();
+    if (
+      msg === "chat.bifrost.request" ||
+      msg === "upstream chat response" ||
+      msg === "chat.bifrost.error" ||
+      msg.indexOf("bifrost.error") >= 0
+    ) {
+      return true;
+    }
+    var sh = ent.parsed.shape || "";
+    if (sh === "chat.bifrost" || sh.indexOf("chat.bifrost.") === 0) return true;
+    return false;
+  }
+
   function renderSummarizedUnified() {
     var groups = {};
     for (var i = 0; i < entryCache.length; i++) {
@@ -2096,7 +3202,8 @@
       var pB = entB.parsed;
       var fB = getFlat(pB);
       var svc = fB.service ? String(fB.service) : "";
-      if (!buckets[svc]) {
+      if (entryIsGatewayUpstreamRelay(entB)) svc = "bifrost";
+      else if (!buckets[svc]) {
         svc = entB.source || "gateway";
         if (!buckets[svc]) svc = "gateway";
       }
@@ -2143,11 +3250,17 @@
     idxTimeline.sort(function (a, b) {
       return b.sort - a.sort;
     });
-    var body = "";
+    var body = buildGatewayUsageFeedSection();
     if (convTimeline.length) {
       body +=
         '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Conversations</div>';
       for (var zc = 0; zc < convTimeline.length; zc++) body += convTimeline[zc].html;
+      body += "</div>";
+    }
+    if (idxTimeline.length) {
+      body +=
+        '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Indexer runs</div>';
+      for (var zi = 0; zi < idxTimeline.length; zi++) body += idxTimeline[zi].html;
       body += "</div>";
     }
     if (svcHtml) {
@@ -2156,16 +3269,11 @@
         svcHtml +
         "</div>";
     }
-    if (idxTimeline.length) {
+    var hasThreads = convTimeline.length > 0 || idxTimeline.length > 0 || svcHtml.length > 0;
+    if (!hasThreads) {
       body +=
-        '<div class="sum-feed-section"><div class="sum-section-label sum-feed-section-title">Indexer runs</div>';
-      for (var zi = 0; zi < idxTimeline.length; zi++) body += idxTimeline[zi].html;
-      body += "</div>";
+        '<p class="muted">No grouped threads in the buffer yet. Use the gateway chat path (conversation tags), indexer runs, or supervised services to populate cards; switch to <strong>StructuredLogs</strong> for the live stream.</p>';
     }
-    if (!body)
-      return (
-        '<p class="muted">No grouped threads in the buffer yet. Use the gateway chat path (conversation tags), supervised services, or indexer runs to populate cards; switch to <strong>Raw logs</strong> for the live stream.</p>'
-      );
     return body;
   }
   function appendTableRow(parsed, follow, seq, entryTs, rawText) {
@@ -2198,7 +3306,7 @@
       "</td>";
     if (!rowMatchesFilter(tr)) tr.style.display = "none";
     tbody.appendChild(tr);
-    while (tbody.children.length > 5000) {
+    while (tbody.children.length > CLIENT_CACHE_MAX) {
       var first = tbody.firstChild;
       var removedH = first.offsetHeight;
       tbody.removeChild(first);
@@ -2237,9 +3345,106 @@
     return s;
   }
 
+  function syncPollMeta(data) {
+    if (!data) return;
+    if (data.buffer_min_seq != null) bufferMinSeqFromServer = data.buffer_min_seq;
+  }
+
+  function prependHistoricalEntries(entriesOldestFirst) {
+    if (!entriesOldestFirst || !entriesOldestFirst.length) return;
+    var roll = [];
+    for (var i = 0; i < entriesOldestFirst.length; i++) {
+      var e = entriesOldestFirst[i];
+      if (!e || !e.seq || seenSeq[e.seq]) continue;
+      seenSeq[e.seq] = true;
+      roll.push({
+        seq: e.seq,
+        source: e.source,
+        text: e.text || "",
+        ts: e.ts,
+        parsed: parseLogText(e.source, e.text || "", e.ts)
+      });
+    }
+    if (!roll.length) return;
+    var prevH = document.documentElement.scrollHeight;
+    var prevTop = window.scrollY;
+    entryCache = roll.concat(entryCache);
+    while (entryCache.length > CLIENT_CACHE_MAX) {
+      var gone = entryCache.shift();
+      if (gone && gone.seq) delete seenSeq[gone.seq];
+    }
+    minLoadedSeq = entryCache.length ? entryCache[0].seq : minLoadedSeq;
+    if (viewMode === "summarized") {
+      scheduleStoryRebuild();
+    } else if (viewMode === "raw") {
+      rebuildAllRows();
+      window.requestAnimationFrame(function () {
+        var dh = document.documentElement.scrollHeight - prevH;
+        window.scrollTo(0, prevTop + dh);
+      });
+    } else if (viewMode === "raw_logs") {
+      var ta = document.getElementById("raw-logs-textarea");
+      var prevTaTop = ta ? ta.scrollTop : 0;
+      var prevTaScrollH = ta ? ta.scrollHeight : 0;
+      rebuildRawLogsTextarea({ scrollBottom: false });
+      if (ta) {
+        window.requestAnimationFrame(function () {
+          ta.scrollTop = prevTaTop + (ta.scrollHeight - prevTaScrollH);
+        });
+      }
+    }
+    applyFilters();
+  }
+
+  function fetchOlderLogs() {
+    if (olderFetchBusy) return;
+    if (viewMode === "summarized") return;
+    if (!minLoadedSeq || !bufferMinSeqFromServer) return;
+    if (minLoadedSeq <= bufferMinSeqFromServer) return;
+    olderFetchBusy = true;
+    var prevStatus = statusEl ? statusEl.textContent : "";
+    if (statusEl) statusEl.textContent = "Loading older…";
+    fetch(
+      "/api/ui/logs?before_seq=" +
+        encodeURIComponent(String(minLoadedSeq)) +
+        "&limit=" +
+        BACKFILL_CHUNK,
+      { credentials: "same-origin" }
+    )
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        syncPollMeta(data);
+        prependHistoricalEntries(data.lines || []);
+        olderFetchBusy = false;
+        if (statusEl) statusEl.textContent = prevStatus.indexOf("Live") >= 0 ? prevStatus : "Live (SSE)";
+      })
+      .catch(function () {
+        olderFetchBusy = false;
+        if (statusEl) statusEl.textContent = prevStatus;
+      });
+  }
+
+  function onWindowScrollMaybeOlder() {
+    if (window.scrollY > 260) return;
+    fetchOlderLogs();
+  }
+
+  function onRawTextareaScroll(ev) {
+    if (viewMode !== "raw_logs") return;
+    var ta = ev.target;
+    if (!ta || ta.scrollTop > 160) return;
+    fetchOlderLogs();
+  }
+
   function appendLine(e) {
-    if (e.seq <= maxSeq) return;
-    maxSeq = e.seq;
+    if (!e || e.seq == null) return;
+    var sq = Number(e.seq);
+    if (!sq || seenSeq[sq]) return;
+    seenSeq[sq] = true;
+    maxSeq = Math.max(maxSeq, sq);
     var follow = nearBottom();
     var parsed = parseLogText(e.source, e.text || "", e.ts);
     entryCache.push({
@@ -2249,11 +3454,33 @@
       ts: e.ts,
       parsed: parsed
     });
-    while (entryCache.length > 5000) entryCache.shift();
+    var cacheTrimmed = false;
+    while (entryCache.length > CLIENT_CACHE_MAX) {
+      var gone = entryCache.shift();
+      if (gone && gone.seq) delete seenSeq[gone.seq];
+      cacheTrimmed = true;
+    }
 
     if (viewMode === "summarized") {
       scheduleStoryRebuild();
       if (follow) window.scrollTo(0, document.documentElement.scrollHeight);
+      return;
+    }
+    if (viewMode === "raw_logs") {
+      ensureAppOption(parsed.app);
+      if (parsed.levelCanon) ensureLevelOption(parsed.levelCanon);
+      var ta0 = document.getElementById("raw-logs-textarea");
+      if (cacheTrimmed) {
+        rebuildRawLogsTextarea({ scrollBottom: nearBottomTextarea(ta0) });
+        return;
+      }
+      var followTa = nearBottomTextarea(ta0);
+      if (entryMatchesFilters(parsed)) {
+        appendRawLineToTextarea(
+          { seq: e.seq, text: e.text, ts: e.ts, source: e.source, parsed: parsed },
+          followTa
+        );
+      }
       return;
     }
     ensureAppOption(parsed.app);
@@ -2261,12 +3488,74 @@
     appendTableRow(parsed, follow, e.seq, e.ts, e.text);
   }
 
-  function applyPollPayload(data) {
+  function applyPollPayload(data, opts) {
+    opts = opts || {};
+    syncPollMeta(data);
     var lines = data.lines || [];
     for (var i = 0; i < lines.length; i++) {
       appendLine(lines[i]);
     }
+    if (opts.rawPrimeScroll && lines.length && (viewMode === "raw" || viewMode === "raw_logs")) {
+      window.requestAnimationFrame(function () {
+        if (viewMode === "raw") {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+        } else {
+          var ta = document.getElementById("raw-logs-textarea");
+          if (ta) ta.scrollTop = ta.scrollHeight;
+        }
+      });
+    }
     return data.max_seq || maxSeq;
+  }
+
+  function applyPollPayloadBatched(data, opts, startIdx, doneFn) {
+    opts = opts || {};
+    syncPollMeta(data);
+    var lines = data.lines || [];
+    var i = startIdx || 0;
+    var end = Math.min(i + RENDER_CHUNK, lines.length);
+    for (; i < end; i++) {
+      appendLine(lines[i]);
+    }
+    if (end < lines.length) {
+      if (statusEl) statusEl.textContent = "Rendering… " + end + "/" + lines.length;
+      window.requestAnimationFrame(function () {
+        applyPollPayloadBatched(data, opts, end, doneFn);
+      });
+      return;
+    }
+    if (lines.length) minLoadedSeq = lines[0].seq;
+    if (opts.rawPrimeScroll && lines.length && (viewMode === "raw" || viewMode === "raw_logs")) {
+      window.requestAnimationFrame(function () {
+        if (viewMode === "raw") {
+          window.scrollTo(0, document.documentElement.scrollHeight);
+        } else {
+          var ta = document.getElementById("raw-logs-textarea");
+          if (ta) ta.scrollTop = ta.scrollHeight;
+        }
+      });
+    }
+    if (doneFn) doneFn();
+  }
+
+  function flushSSEPending() {
+    sseFlushScheduled = false;
+    var batch = ssePending.splice(0, 120);
+    for (var bi = 0; bi < batch.length; bi++) {
+      appendLine(batch[bi]);
+    }
+    if (ssePending.length) {
+      sseFlushScheduled = true;
+      window.requestAnimationFrame(flushSSEPending);
+    }
+  }
+
+  function queueSSELine(row) {
+    ssePending.push(row);
+    if (!sseFlushScheduled) {
+      sseFlushScheduled = true;
+      window.requestAnimationFrame(flushSSEPending);
+    }
   }
 
   function pollOnce() {
@@ -2290,6 +3579,15 @@
       });
   }
 
+  function stopPolling() {
+    if (pollTimer) {
+      try {
+        clearInterval(pollTimer);
+      } catch (x) {}
+      pollTimer = null;
+    }
+  }
+
   function startPolling() {
     if (pollTimer) return;
     if (es) {
@@ -2301,6 +3599,7 @@
   }
 
   function startEventSource() {
+    stopPolling();
     if (es) return;
     var url = "/api/ui/logs/stream";
     try {
@@ -2308,13 +3607,15 @@
     } catch (x) {
       es = new EventSource(url);
     }
+    /* Do not key off status text ("Loading history…" has no "Live"); rely on readyState.
+       Local EventSource can take >2.5s to reach OPEN (webview / busy main thread). */
     var sseFailed = window.setTimeout(function () {
-      if (!statusEl || statusEl.textContent.indexOf("Live") === -1) {
-        startPolling();
-      }
-    }, 2500);
+      if (es && es.readyState === EventSource.OPEN) return;
+      startPolling();
+    }, 12000);
     es.onopen = function () {
       window.clearTimeout(sseFailed);
+      stopPolling();
       if (statusEl) {
         statusEl.textContent = "Live (SSE)";
         statusEl.className = "";
@@ -2338,8 +3639,7 @@
     };
     es.onmessage = function (ev) {
       try {
-        var row = JSON.parse(ev.data);
-        appendLine(row);
+        queueSSELine(JSON.parse(ev.data));
       } catch (x) {
         if (statusEl) {
           statusEl.textContent = "Bad frame";
@@ -2353,15 +3653,17 @@
     if (started) return;
     started = true;
     if (statusEl) statusEl.textContent = "Loading history…";
-    fetch("/api/ui/logs?since=0", { credentials: "same-origin" })
+    /* Latest-first tail; rest via scroll-up backfill. Align INITIAL_TAIL_LIMIT with cold-load UX. */
+    fetch("/api/ui/logs?since=0&limit=" + INITIAL_TAIL_LIMIT, { credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })
       .then(function (data) {
-        applyPollPayload(data);
-        fetchTokenLabels();
-        startEventSource();
+        applyPollPayloadBatched(data, { rawPrimeScroll: true }, 0, function () {
+          fetchTokenLabels();
+          startEventSource();
+        });
       })
       .catch(function () {
         if (statusEl) {
@@ -2393,6 +3695,10 @@
   } else {
     startStreaming();
   }
+  window.addEventListener("scroll", onWindowScrollMaybeOlder, { passive: true });
+  var rawTaAttach = document.getElementById("raw-logs-textarea");
+  if (rawTaAttach) rawTaAttach.addEventListener("scroll", onRawTextareaScroll, { passive: true });
+
   fetchTokenLabels();
   applyViewLayout();
 })();
