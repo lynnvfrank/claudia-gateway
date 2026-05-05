@@ -89,6 +89,20 @@ metrics:
 #   # session_attach_min_cosine: 0.18
 #   # session_short_follow_up_runes: 220
 
+# Optional: supervise claudia-index under `claudia serve` / claudia-desktop (v0.5+).
+# When enabled, the gateway starts the file indexer after BiFrost is healthy; the child
+# receives CLAUDIA_GATEWAY_URL and a merged --config at config_path (default under ../data/gateway/).
+# Set CLAUDIA_GATEWAY_TOKEN in the environment so ingest can authenticate. Structured stderr
+# (--log-json) lands in the same ring buffer as BiFrost — filter /ui/logs by source "indexer".
+# Full behavior: docs/indexer.md (supervised mode), docs/supervisor.md.
+indexer:
+  supervised:
+    enabled: false
+    log_json: false
+    # bin: ""                          # optional path to claudia-index; empty → next to claudia or PATH
+    # config_path: "../data/gateway/indexer.supervised.yaml"
+    # start_when_rag_disabled: false # if true, start indexer even when rag.enabled is false
+
 # v0.2 Retrieval-Augmented Generation. When enabled, the virtual Claudia model
 # performs Qdrant retrieval before chat; POST /v1/ingest, GET /v1/indexer/*,
 # and the /health Qdrant probe are activated. See docs/version-v0.2.md.

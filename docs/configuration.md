@@ -52,6 +52,18 @@ Provider keys (**`GROQ_API_KEY`**, **`GEMINI_API_KEY`**, **`OPENAI_API_KEY`**, e
 
 Reload: change file and **save** (mtime update). On reload, if token or policy **paths** change, those stores are re-opened.
 
+### Supervised file indexer (`indexer.supervised`)
+
+Used by **`claudia serve`** and **`claudia-desktop`**: optional supervision of **`claudia-index`** as a child process after BiFrost is healthy. The child gets **`CLAUDIA_GATEWAY_URL`** and a single merged **`--config`** file; set **`CLAUDIA_GATEWAY_TOKEN`** in the environment for **`POST /v1/ingest`**. Operator UI: **`/ui/indexer`** (GET/PUT config, append roots). Behavior and log slugs: **[indexer.md](indexer.md)** (supervised mode); process tree: **[supervisor.md](supervisor.md)**.
+
+| Field | Description |
+|-------|-------------|
+| **`indexer.supervised.enabled`** | **true** → start **`claudia-index`** beside the **`claudia`** binary (or **`indexer.supervised.bin`** / **`PATH`**). Ignored unless **`rag.enabled`** is **true** or **`start_when_rag_disabled`** is **true**. |
+| **`indexer.supervised.log_json`** | **true** → pass **`--log-json`** so the indexer writes structured JSON logs on stderr (same ring buffer as other supervised services; filter **`/ui/logs`** by source **`indexer`**). |
+| **`indexer.supervised.bin`** | Optional explicit path to the **`claudia-index`** executable. Empty → resolve next to the gateway binary or **`PATH`**. |
+| **`indexer.supervised.config_path`** | Path to the single merged config passed as **`--config`** (default **`../data/gateway/indexer.supervised.yaml`** relative to **`gateway.yaml`**’s directory). |
+| **`indexer.supervised.start_when_rag_disabled`** | **true** → allow starting the supervised indexer when **`rag.enabled`** is **false** (default **false**). |
+
 ## `config/tokens.yaml`
 
 ```yaml
