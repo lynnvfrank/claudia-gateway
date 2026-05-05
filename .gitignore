@@ -36,3 +36,6 @@ temp/
 /data/gateway/
 /packaging/qdrant-bundles/
 /run/
+
+# Local agent/indexer state
+.claudia/
